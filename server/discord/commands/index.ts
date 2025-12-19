@@ -1,7 +1,0 @@
-export { moveAll } from './move-all-command'
-export { ping } from './ping-command'
-export { quote } from './quote-command'
-export { randomQuote } from './random-quote-command'
-export { sendChannel } from './send-channel-command'
-export { send } from './send-command'
-export { vitals } from './vitals-command'
