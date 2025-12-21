@@ -3,7 +3,7 @@ module github.com/konga-dev/doofus-rick
 go 1.25.5
 
 require (
-	github.com/bwmarrin/discordgo v0.29.0
+	github.com/bwmarrin/discordgo v0.29.1-0.20251122142503-22e5cd898d08
 	github.com/gorilla/sessions v1.4.0
 	github.com/lib/pq v1.10.9
 	golang.org/x/oauth2 v0.34.0

@@ -59,12 +59,16 @@ func (b *Bot) Run() error {
 }
 
 func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
-		return
-	}
+	switch i.Type {
+	case discordgo.InteractionApplicationCommand:
+		handlers := b.getCommandHandlers()
+		if handler, ok := handlers[i.ApplicationCommandData().Name]; ok {
+			handler(s, i)
+		}
+		break
 
-	handlers := b.getCommandHandlers()
-	if handler, ok := handlers[i.ApplicationCommandData().Name]; ok {
-		handler(s, i)
+	case discordgo.InteractionModalSubmit:
+		b.handleQuoteSubmission(s, i)
+		break
 	}
 }
