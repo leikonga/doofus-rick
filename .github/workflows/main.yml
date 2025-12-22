@@ -2,17 +2,14 @@ name: Docker Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-frontend:
+  build:
     runs-on: ubuntu-latest
-    concurrency: ci-${{ github.ref }}
     steps:
       - uses: actions/checkout@v2
-      - name: bun
-        uses: oven-sh/setup-bun@v1
       - name: docker login
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
@@ -21,27 +18,7 @@ jobs:
           docker login https://docker.pkg.github.com -u $DOCKER_USER -p $DOCKER_PASS
       - name: docker build
         run: |
-          docker build -f web/Dockerfile . -t docker.pkg.github.com/konga-dev/doofus-rick/web:latest
-      - name: docker push
-        run: |
-          docker push docker.pkg.github.com/konga-dev/doofus-rick/web:latest
-  build-backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: bun
-        uses: oven-sh/setup-bun@v1
-      - name: docker login
-        env:
-          DOCKER_USER: ${{ secrets.DOCKER_USER }}
-          DOCKER_PASS: ${{ secrets.DOCKER_PASS }}
-        run: |
-          docker login https://docker.pkg.github.com -u $DOCKER_USER -p $DOCKER_PASS
-      - name: docker build
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          docker build . -f server/Dockerfile -t docker.pkg.github.com/konga-dev/doofus-rick/bot:latest
+          docker build . -t docker.pkg.github.com/konga-dev/doofus-rick/bot:latest
       - name: docker push
         run: |
           docker push docker.pkg.github.com/konga-dev/doofus-rick/bot:latest

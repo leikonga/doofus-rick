@@ -1,0 +1,19 @@
+{{define "layout"}}
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>doofus-rick</title>
+        <script src="https://unpkg.com/htmx.org@2.0.0"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body>
+    <div class="py-4 px-2">
+        <h1 class="text-xl font-bold">doofus-rick</h1>
+        <div id="main-content">
+            {{template "quote_list" .}}
+        </div>
+    </div>
+    </body>
+    </html>
+{{end}}
