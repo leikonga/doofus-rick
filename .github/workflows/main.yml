@@ -18,7 +18,7 @@ jobs:
           docker login https://docker.pkg.github.com -u $DOCKER_USER -p $DOCKER_PASS
       - name: docker build
         run: |
-          docker build . -t docker.pkg.github.com/konga-dev/doofus-rick/bot:latest
+          docker build . -t docker.pkg.github.com/leikonga/doofus-rick/bot:latest
       - name: docker push
         run: |
-          docker push docker.pkg.github.com/konga-dev/doofus-rick/bot:latest
+          docker push docker.pkg.github.com/leikonga/doofus-rick/bot:latest
