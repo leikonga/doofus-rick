@@ -138,6 +138,6 @@ fabric.properties
 .idea/**/azureSettings.xml
 
 # Binary name on *nix
-./doofus-rick
+doofus-rick
 
 # End of https://www.toptal.com/developers/gitignore/api/go,goland

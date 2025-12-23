@@ -1,6 +1,10 @@
 package bot
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/bwmarrin/discordgo"
+)
 
 type UserCache struct {
 	mu    sync.RWMutex
@@ -17,7 +21,7 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 		return name, nil
 	}
 
-	user, err := b.dg.User(id)
+	user, err := b.GetUserForID(id)
 	if err != nil {
 		return "", err
 	}
@@ -27,4 +31,8 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 	cache.mu.Unlock()
 
 	return user.Username, nil
+}
+
+func (b *Bot) GetUserForID(id string) (*discordgo.User, error) {
+	return b.dg.User(id)
 }

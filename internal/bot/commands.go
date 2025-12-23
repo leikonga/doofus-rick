@@ -22,12 +22,17 @@ var commands = []*discordgo.ApplicationCommand{
 		Name:        "quote",
 		Description: "create a new quote",
 	},
+	{
+		Name:        "randomquote",
+		Description: "get a random quote",
+	},
 }
 
 func (b *Bot) getCommandHandlers() map[string]CommandHandler {
 	return map[string]CommandHandler{
-		"ping":  b.handlePingCommand,
-		"quote": b.handleQuote,
+		"ping":        b.handlePingCommand,
+		"quote":       b.handleQuote,
+		"randomquote": b.handleRandomQuote,
 	}
 }
 
@@ -59,7 +64,7 @@ func (b *Bot) handleQuote(s *discordgo.Session, i *discordgo.InteractionCreate) 
 							Label:    "Content",
 							CustomID: "content",
 							Style:    discordgo.TextInputParagraph,
-							Value:    "da joshi stinkt",
+							Value:    "",
 							Required: true,
 						},
 					},
@@ -69,7 +74,7 @@ func (b *Bot) handleQuote(s *discordgo.Session, i *discordgo.InteractionCreate) 
 					Component: discordgo.SelectMenu{
 						MenuType:    discordgo.UserSelectMenu,
 						CustomID:    "participants",
-						Placeholder: "All participants",
+						Placeholder: "",
 						MaxValues:   20,
 					},
 				},
@@ -80,6 +85,32 @@ func (b *Bot) handleQuote(s *discordgo.Session, i *discordgo.InteractionCreate) 
 	if err != nil {
 		slog.Error("failed to respond to quote command", "error", err)
 	}
+}
+
+func (b *Bot) handleRandomQuote(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	quote := b.store.GetRandomQuote()
+	author, err := b.GetUserForID(quote.Creator)
+
+	if err != nil {
+		author = &discordgo.User{ID: quote.Creator}
+	}
+
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Description: quote.Content,
+					Color:       0x11806A,
+					Timestamp:   fmt.Sprint(quote.Timestamp.Format(time.RFC3339)),
+					Footer: &discordgo.MessageEmbedFooter{
+						Text:    author.Username,
+						IconURL: author.AvatarURL("64x64"),
+					},
+				},
+			},
+		},
+	})
 }
 
 func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.InteractionCreate) {
