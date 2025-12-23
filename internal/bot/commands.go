@@ -111,6 +111,10 @@ func (b *Bot) handleRandomQuote(s *discordgo.Session, i *discordgo.InteractionCr
 			},
 		},
 	})
+
+	if err != nil {
+		slog.Error("failed to send random quote to channel", "error", err)
+	}
 }
 
 func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.InteractionCreate) {
