@@ -35,11 +35,7 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 }
 
 func (b *Bot) GetMemberForID(id string) (*discordgo.Member, error) {
-	guild, err := b.dg.Guild(b.config.DiscordGuild)
-	if err != nil {
-		return nil, err
-	}
-	for _, member := range guild.Members {
+	for _, member := range b.guild.Members {
 		if member.User.ID == id {
 			return member, nil
 		}

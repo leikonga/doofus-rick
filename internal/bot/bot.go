@@ -12,6 +12,7 @@ type Bot struct {
 	store  *store.Store
 	config *config.Config
 	dg     *discordgo.Session
+	guild  *discordgo.Guild
 }
 
 func New(s *store.Store, c *config.Config) *Bot {
@@ -51,6 +52,10 @@ func (b *Bot) Run() error {
 			if err != nil {
 				slog.Error("failed to register command", "error", err)
 			}
+		}
+		b.guild, err = b.dg.Guild(b.config.DiscordGuild)
+		if err != nil {
+			return err
 		}
 	}
 
