@@ -8,8 +8,9 @@ import (
 )
 
 type UserCache struct {
-	mu    sync.RWMutex
-	names map[string]string
+	mu      sync.RWMutex
+	names   map[string]string
+	members []*discordgo.Member
 }
 
 var cache = &UserCache{names: make(map[string]string)}
@@ -35,7 +36,27 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 }
 
 func (b *Bot) GetMemberForID(id string) (*discordgo.Member, error) {
-	for _, member := range b.guild.Members {
+	cache.mu.RLock()
+	members := cache.members
+	cache.mu.RUnlock()
+
+	if members == nil {
+		cache.mu.Lock()
+		if cache.members == nil {
+			fetched, err := b.dg.GuildMembers(b.config.DiscordGuild, "", 0)
+			if err != nil {
+				cache.mu.Unlock()
+				return nil, err
+			}
+			cache.members = fetched
+			members = fetched
+		} else {
+			members = cache.members
+		}
+		cache.mu.Unlock()
+	}
+
+	for _, member := range members {
 		if member.User.ID == id {
 			return member, nil
 		}
