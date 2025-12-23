@@ -89,10 +89,11 @@ func (b *Bot) handleQuote(s *discordgo.Session, i *discordgo.InteractionCreate) 
 
 func (b *Bot) handleRandomQuote(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	quote := b.store.GetRandomQuote()
-	author, err := b.GetUserForID(quote.Creator)
+	author, err := b.GetMemberForID(quote.Creator)
 
 	if err != nil {
-		author = &discordgo.User{ID: quote.Creator}
+		author = &discordgo.Member{User: &discordgo.User{ID: quote.Creator}}
+		slog.Warn("failed to get author for quote", "error", err)
 	}
 
 	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
