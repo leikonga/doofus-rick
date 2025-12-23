@@ -23,6 +23,9 @@ func (b *Bot) Run() error {
 	dg, _ := discordgo.New("Bot " + b.config.DiscordToken)
 
 	dg.AddHandler(b.handleInteraction)
+	dg.Identify.Intents = discordgo.MakeIntent(
+		discordgo.IntentsGuildMessages | discordgo.IntentsGuildMembers | discordgo.IntentsGuilds,
+	)
 	err := dg.Open()
 	if err != nil {
 		return err
