@@ -104,7 +104,7 @@ func (b *Bot) handleRandomQuote(s *discordgo.Session, i *discordgo.InteractionCr
 					Color:       0x11806A,
 					Timestamp:   fmt.Sprint(quote.Timestamp.Format(time.RFC3339)),
 					Footer: &discordgo.MessageEmbedFooter{
-						Text:    author.Username,
+						Text:    author.DisplayName(),
 						IconURL: author.AvatarURL("64x64"),
 					},
 				},
