@@ -26,7 +26,8 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 func (b *Bot) GetMemberForID(id string) (*discordgo.Member, error) {
 	cache.mu.Lock()
 	if cache.members == nil {
-		fetched, err := b.dg.GuildMembers(b.config.DiscordGuild, "", 0)
+		// set 1000 user limit, because discord will not return any users if limit is not set
+		fetched, err := b.dg.GuildMembers(b.config.DiscordGuild, "0", 1000)
 		if err != nil {
 			cache.mu.Unlock()
 			return nil, err
