@@ -22,9 +22,7 @@ func (b *Bot) Run() error {
 	dg, _ := discordgo.New("Bot " + b.config.DiscordToken)
 
 	dg.AddHandler(b.handleInteraction)
-	dg.Identify.Intents = discordgo.MakeIntent(
-		discordgo.IntentsGuildMessages | discordgo.IntentsGuildMembers | discordgo.IntentsGuilds,
-	)
+	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAll)
 	err := dg.Open()
 	if err != nil {
 		return err
@@ -71,10 +69,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler, ok := handlers[i.ApplicationCommandData().Name]; ok {
 			handler(s, i)
 		}
-		break
-
 	case discordgo.InteractionModalSubmit:
 		b.handleQuoteSubmission(s, i)
-		break
 	}
 }
