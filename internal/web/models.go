@@ -1,6 +1,6 @@
 package web
 
-import "github.com/konga-dev/doofus-rick/internal/store"
+import "github.com/leikonga/doofus-rick/internal/store"
 
 type QuoteDisplay struct {
 	store.Quote

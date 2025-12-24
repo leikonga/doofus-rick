@@ -4,8 +4,8 @@ import (
 	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/konga-dev/doofus-rick/internal/config"
-	"github.com/konga-dev/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type Bot struct {

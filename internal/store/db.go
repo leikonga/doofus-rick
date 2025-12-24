@@ -3,7 +3,7 @@ package store
 import (
 	"fmt"
 
-	"github.com/konga-dev/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )

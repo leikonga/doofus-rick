@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/konga-dev/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/store"
 	"gorm.io/gorm"
 )
 

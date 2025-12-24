@@ -10,9 +10,9 @@ import (
 	"net/http"
 
 	"github.com/gorilla/sessions"
-	"github.com/konga-dev/doofus-rick/internal/bot"
-	"github.com/konga-dev/doofus-rick/internal/config"
-	"github.com/konga-dev/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/bot"
+	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/store"
 	"golang.org/x/oauth2"
 )
 

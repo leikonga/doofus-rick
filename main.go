@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/konga-dev/doofus-rick/internal/bot"
-	"github.com/konga-dev/doofus-rick/internal/config"
-	"github.com/konga-dev/doofus-rick/internal/store"
-	"github.com/konga-dev/doofus-rick/internal/web"
+	"github.com/leikonga/doofus-rick/internal/bot"
+	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/web"
 )
 
 func main() {
