@@ -1,14 +1,17 @@
 {{define "quote_list"}}
     <div class="p-6 space-y-4">
-        {{range .Quotes}}
-            <div class="p-4 bg-gray-200 rounded border border-gray-400">
-                <p class="text-lg italic">"{{.Content}}"</p>
-                <div class="mt-2 text-sm text-gray-400">
-                    Added on {{.Timestamp.Format "Jan 02, 2006"}} by {{.CreatorName}}
-                </div>
-            </div>
-        {{else}}
-            <p>No quotes recorded yet.</p>
-        {{end}}
+        <input
+            type="text"
+            name="q"
+            placeholder="Search quotes..."
+            class="w-full p-2 border border-gray-300 rounded"
+            hx-get="/search"
+            hx-trigger="input changed delay:300ms"
+            hx-target="#quote-results"
+            hx-include="this">
+
+        <div id="quote-results" class="flex flex-col gap-4">
+            {{template "quote_results" .}}
+        </div>
     </div>
 {{end}}

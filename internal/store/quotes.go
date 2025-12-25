@@ -12,6 +12,12 @@ func (s *Store) GetQuotes() []Quote {
 	return quotes
 }
 
+func (s *Store) GetQuote(id string) (Quote, error) {
+	var quote Quote
+	err := s.db.Where("id = ?", id).First(&quote).Error
+	return quote, err
+}
+
 func (s *Store) GetRandomQuote() Quote {
 	var quote Quote
 	s.db.Order("random()").First(&quote)
