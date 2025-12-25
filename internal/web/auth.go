@@ -1,6 +1,8 @@
 package web
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 
@@ -30,11 +32,41 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	url := s.oauthConfig.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	state := base64.URLEncoding.EncodeToString(b)
+
+	session, err := s.session.Get(r, SessionKey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	session.Values["oauth_state"] = state
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	url := s.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
+	session, err := s.session.Get(r, SessionKey)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	savedState, ok := session.Values["oauth_state"].(string)
+	if !ok || savedState == "" || savedState != r.FormValue("state") {
+		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
+	delete(session.Values, "oauth_state")
+
 	token, err := s.oauthConfig.Exchange(r.Context(), r.FormValue("code"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -55,13 +87,6 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if ok, err := s.bot.IsGuildMember(user.ID); err != nil || !ok {
 		http.Error(w, "You do not have access to this website", http.StatusForbidden)
-		return
-	}
-
-	// membership verified, set session data from discord into signed cookie
-	session, err := s.session.Get(r, SessionKey)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
