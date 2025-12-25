@@ -17,6 +17,11 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+			session.Values["return_url"] = r.URL.Path
+			if err := session.Save(r, w); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 			return
 		}
@@ -59,6 +64,13 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	returnURL := "/"
+	if url, ok := session.Values["return_url"].(string); ok && url != "" {
+		returnURL = url
+		delete(session.Values, "return_url")
+	}
+
 	session.Values["authenticated"] = true
 	session.Values["token"] = token
 	if err := session.Save(r, w); err != nil {
@@ -66,5 +78,5 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, returnURL, http.StatusSeeOther)
 }

@@ -69,7 +69,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/callback", s.handleCallback)
 	mux.HandleFunc("GET /{$}", s.authMiddleware(s.handleHome))
 	mux.HandleFunc("GET /search", s.authMiddleware(s.handleSearch))
-	mux.HandleFunc("GET /quote/{id}", s.handleQuote)
+	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
