@@ -24,14 +24,12 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data := map[string]any{"Quotes": displayQuotes}
-
 	if r.Header.Get("HX-Request") != "" {
-		s.render(w, "quote_list", data)
+		s.render(w, QuoteList(displayQuotes))
 		return
 	}
 
-	s.render(w, "layout", data)
+	s.render(w, QuotesLayout(QuotesPageProps{}, displayQuotes))
 }
 
 func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +51,7 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		ParticipantNames: s.getParticipants(quote),
 	}
 
-	s.render(w, "quote_layout", display)
+	s.render(w, QuoteSingleLayout(QuotesPageProps{}, display))
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -79,8 +77,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data := map[string]any{"Quotes": displayQuotes}
-	s.render(w, "quote_results", data)
+	s.render(w, QuoteResults(displayQuotes))
 }
 
 func (s *Server) matchesQuery(query string, display QuoteDisplay) bool {

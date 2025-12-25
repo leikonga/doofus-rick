@@ -1,10 +1,8 @@
 package web
 
 import (
-	"bytes"
 	"embed"
 	"encoding/gob"
-	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -14,10 +12,8 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"golang.org/x/oauth2"
+	. "maragu.dev/gomponents"
 )
-
-//go:embed templates/*
-var templateFS embed.FS
 
 //go:embed static/*
 var staticFS embed.FS
@@ -26,7 +22,6 @@ type Server struct {
 	store       *store.Store
 	bot         *bot.Bot
 	config      *config.Config
-	templates   *template.Template
 	session     *sessions.CookieStore
 	oauthConfig *oauth2.Config
 }
@@ -54,7 +49,6 @@ func NewServer(s *store.Store, c *config.Config, b *bot.Bot) *Server {
 	return &Server{
 		store:       s,
 		bot:         b,
-		templates:   template.Must(template.ParseFS(templateFS, "templates/*.gohtml")),
 		session:     sessions.NewCookieStore([]byte(c.SessionSecret)),
 		oauthConfig: oa,
 	}
@@ -72,16 +66,10 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
 }
 
-func (s *Server) render(w http.ResponseWriter, name string, data any) {
-	buf := new(bytes.Buffer)
-	if err := s.templates.ExecuteTemplate(buf, name, data); err != nil {
-		slog.Error("template execution failed", "error", err, "template", name, "data", data)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+func (s *Server) render(w http.ResponseWriter, node Node) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, err := buf.WriteTo(w)
-	if err != nil {
-		return
+	if err := node.Render(w); err != nil {
+		slog.Error("component render failed", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
