@@ -1,8 +1,11 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -24,6 +27,13 @@ type Config struct {
 }
 
 func LoadConfig() *Config {
+	if os.Getenv("APP_ENV") != "production" {
+		err := godotenv.Load()
+		if err != nil {
+			slog.Warn("failed to load env file", "error", err)
+		}
+	}
+
 	return &Config{
 		DiscordToken: getEnv("DISCORD_TOKEN", ""),
 		DiscordGuild: getEnv("DISCORD_GUILD", ""),

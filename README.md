@@ -32,6 +32,7 @@ The application is configured via environment variables:
 | `DB_PORT`               | PostgreSQL Port                        | `5432`      |
 | `PORT`                  | Web Server Port                        | `:8080`     |
 | `SESSION_SECRET`        | Secret key for signed cookies          |             |
+| `APP_ENV`               | Set to 'production' to ignore .env     |             |
 
 ## License
 

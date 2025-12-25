@@ -140,4 +140,7 @@ fabric.properties
 # Binary name on *nix
 doofus-rick
 
+# godotenv
+.env
+
 # End of https://www.toptal.com/developers/gitignore/api/go,goland
