@@ -1,14 +1,12 @@
 package bot
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"gorm.io/gorm"
 )
 
 type CommandHandler func(s *discordgo.Session, i *discordgo.InteractionCreate)
@@ -133,13 +131,13 @@ func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.Interacti
 			participants = append(participants, element)
 		}
 
-		quote := &store.Quote{
+		quote := store.Quote{
 			Creator:      i.Member.User.ID,
 			Content:      content,
 			Participants: participants,
 		}
 
-		err := gorm.G[store.Quote](b.store.Db()).Create(context.Background(), quote)
+		err := b.store.CreateQuote(quote)
 
 		if err != nil {
 			slog.Error("failed to create quote", "error", err)
@@ -157,6 +155,12 @@ func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.Interacti
 			}
 		}
 
+		author, err := b.GetMemberForID(quote.Creator)
+		if err != nil {
+			author = &discordgo.Member{User: &discordgo.User{ID: quote.Creator}}
+			slog.Warn("failed to get author for quote", "error", err)
+		}
+
 		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -166,7 +170,7 @@ func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.Interacti
 						Color:       0x11806A,
 						Timestamp:   fmt.Sprint(time.Now().Format(time.RFC3339)),
 						Footer: &discordgo.MessageEmbedFooter{
-							Text:    i.Member.User.DisplayName(),
+							Text:    author.DisplayName(),
 							IconURL: i.Member.User.AvatarURL("64x64"),
 						},
 					},

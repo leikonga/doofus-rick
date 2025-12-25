@@ -23,3 +23,7 @@ func (s *Store) GetRandomQuote() Quote {
 	s.db.Order("random()").First(&quote)
 	return quote
 }
+
+func (s *Store) CreateQuote(quote Quote) error {
+	return s.db.Create(&quote).Error
+}
