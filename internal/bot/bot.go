@@ -30,9 +30,9 @@ func (b *Bot) Run() error {
 	r.SlashCommand("/randomquote", b.handleRandomQuote)
 	r.Modal("/quote", b.handleQuoteSubmission)
 
-	client, err := disgo.New("Bot "+b.config.DiscordToken,
+	client, err := disgo.New(b.config.DiscordToken,
 		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMembers),
+			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers),
 		),
 		bot.WithEventListeners(r),
 	)
