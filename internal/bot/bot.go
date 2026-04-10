@@ -1,9 +1,14 @@
 package bot
 
 import (
+	"context"
 	"log/slog"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/handler"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -11,7 +16,7 @@ import (
 type Bot struct {
 	store  *store.Store
 	config *config.Config
-	dg     *discordgo.Session
+	client *bot.Client
 }
 
 func New(s *store.Store, c *config.Config) *Bot {
@@ -19,57 +24,36 @@ func New(s *store.Store, c *config.Config) *Bot {
 }
 
 func (b *Bot) Run() error {
-	dg, _ := discordgo.New("Bot " + b.config.DiscordToken)
+	r := handler.New()
+	r.SlashCommand("/ping", b.handlePingCommand)
+	r.SlashCommand("/quote", b.handleQuote)
+	r.SlashCommand("/randomquote", b.handleRandomQuote)
+	r.Modal("/quote", b.handleQuoteSubmission)
 
-	dg.AddHandler(b.handleInteraction)
-	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAll)
-	err := dg.Open()
+	client, err := disgo.New("Bot "+b.config.DiscordToken,
+		bot.WithGatewayConfigOpts(
+			gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMembers),
+		),
+		bot.WithEventListeners(r),
+	)
 	if err != nil {
 		return err
 	}
-	b.dg = dg
+	b.client = client
 
 	if b.config.DiscordGuild == "" {
 		slog.Warn("no discord guild configured, skipping command registration")
 	} else {
-		registeredCommands, err := dg.ApplicationCommands(dg.State.User.ID, b.config.DiscordGuild)
-		if err != nil {
-			slog.Error("failed to fetch registered commands", "error", err)
-		}
-	outer:
-		for _, v := range commands {
-			for _, cmd := range registeredCommands {
-				if cmd.Name == v.Name {
-					_, err := dg.ApplicationCommandEdit(dg.State.User.ID, b.config.DiscordGuild, cmd.ID, v)
-					if err != nil {
-						slog.Error("failed to edit command", "error", err)
-					}
-					continue outer
-				}
-			}
-
-			_, err := dg.ApplicationCommandCreate(dg.State.User.ID, b.config.DiscordGuild, v)
-			if err != nil {
-				slog.Error("failed to register command", "error", err)
-			}
-		}
-		if err != nil {
-			return err
+		guildID := snowflake.MustParse(b.config.DiscordGuild)
+		if err = handler.SyncCommands(client, commands, []snowflake.ID{guildID}); err != nil {
+			slog.Error("failed to sync commands", "error", err)
 		}
 	}
 
-	slog.Info("connected to discord", "userid", dg.State.User.ID, "guilds", len(dg.State.Guilds))
+	if err = client.OpenGateway(context.TODO()); err != nil {
+		return err
+	}
+
+	slog.Info("connected to discord", "appid", client.ApplicationID)
 	return nil
-}
-
-func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	switch i.Type {
-	case discordgo.InteractionApplicationCommand:
-		handlers := b.getCommandHandlers()
-		if handler, ok := handlers[i.ApplicationCommandData().Name]; ok {
-			handler(s, i)
-		}
-	case discordgo.InteractionModalSubmit:
-		b.handleQuoteSubmission(s, i)
-	}
 }

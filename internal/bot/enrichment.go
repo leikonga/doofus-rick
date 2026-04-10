@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 type UserCache struct {
 	mu      sync.RWMutex
-	members []*discordgo.Member
+	members []discord.Member
 }
 
 var cache = &UserCache{}
@@ -20,14 +21,14 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 		return "", err
 	}
 
-	return user.DisplayName(), nil
+	return user.EffectiveName(), nil
 }
 
-func (b *Bot) GetMemberForID(id string) (*discordgo.Member, error) {
+func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {
 	cache.mu.Lock()
 	if cache.members == nil {
 		// set 1000 user limit, because discord will not return any users if limit is not set
-		fetched, err := b.dg.GuildMembers(b.config.DiscordGuild, "0", 1000)
+		fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
 		if err != nil {
 			cache.mu.Unlock()
 			return nil, err
@@ -36,10 +37,10 @@ func (b *Bot) GetMemberForID(id string) (*discordgo.Member, error) {
 	}
 	cache.mu.Unlock()
 	cache.mu.RLock()
-	for _, member := range cache.members {
-		if member.User.ID == id {
+	for i, member := range cache.members {
+		if member.User.ID.String() == id {
 			cache.mu.RUnlock()
-			return member, nil
+			return &cache.members[i], nil
 		}
 	}
 	cache.mu.RUnlock()

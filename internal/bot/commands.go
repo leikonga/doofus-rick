@@ -1,185 +1,115 @@
 package bot
 
 import (
-	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/handler"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-type CommandHandler func(s *discordgo.Session, i *discordgo.InteractionCreate)
-
-var commands = []*discordgo.ApplicationCommand{
-	{
+var commands = []discord.ApplicationCommandCreate{
+	discord.SlashCommandCreate{
 		Name:        "ping",
 		Description: "check if doofus-rick is alive",
 	},
-	{
+	discord.SlashCommandCreate{
 		Name:        "quote",
 		Description: "create a new quote",
 	},
-	{
+	discord.SlashCommandCreate{
 		Name:        "randomquote",
 		Description: "get a random quote",
 	},
 }
 
-func (b *Bot) getCommandHandlers() map[string]CommandHandler {
-	return map[string]CommandHandler{
-		"ping":        b.handlePingCommand,
-		"quote":       b.handleQuote,
-		"randomquote": b.handleRandomQuote,
-	}
+func (b *Bot) handlePingCommand(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+	return e.CreateMessage(discord.MessageCreate{
+		Content: "pong!",
+		Flags:   discord.MessageFlagEphemeral,
+	})
 }
 
-func (b *Bot) handlePingCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "pong!",
-			Flags:   discordgo.MessageFlagsEphemeral,
+func (b *Bot) handleQuote(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+	return e.Modal(discord.ModalCreate{
+		CustomID: "/quote",
+		Title:    "Time for a new quote",
+		Components: []discord.LayoutComponent{
+			discord.NewLabel("Content", discord.NewParagraphTextInput("content").WithRequired(true)),
+			discord.NewLabel("Participants", discord.NewUserSelectMenu("participants", "").WithMaxValues(20)),
 		},
 	})
-
-	if err != nil {
-		slog.Error("failed to respond to ping command", "error", err)
-	}
 }
 
-func (b *Bot) handleQuote(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: &discordgo.InteractionResponseData{
-			CustomID: "quote",
-			Title:    "Time for a new quote",
-			Flags:    discordgo.MessageFlagsIsComponentsV2,
-			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{
-					Components: []discordgo.MessageComponent{
-						discordgo.TextInput{
-							Label:    "Content",
-							CustomID: "content",
-							Style:    discordgo.TextInputParagraph,
-							Value:    "",
-							Required: true,
-						},
-					},
-				},
-				discordgo.Label{
-					Label: "Participants",
-					Component: discordgo.SelectMenu{
-						MenuType:    discordgo.UserSelectMenu,
-						CustomID:    "participants",
-						Placeholder: "",
-						MaxValues:   20,
-					},
-				},
-			},
-		},
-	})
-
-	if err != nil {
-		slog.Error("failed to respond to quote command", "error", err)
-	}
-}
-
-func (b *Bot) handleRandomQuote(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 	quote := b.store.GetRandomQuote()
 	author, err := b.GetMemberForID(quote.Creator)
-
 	if err != nil {
-		author = &discordgo.Member{User: &discordgo.User{ID: quote.Creator}}
 		slog.Warn("failed to get author for quote", "error", err)
 	}
 
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{
-				{
-					Description: quote.Content,
-					Color:       0x11806A,
-					Timestamp:   fmt.Sprint(quote.Timestamp.Format(time.RFC3339)),
-					Footer: &discordgo.MessageEmbedFooter{
-						Text:    author.DisplayName(),
-						IconURL: author.AvatarURL("64x64"),
-					},
-				},
+	embed := discord.Embed{
+		Description: quote.Content,
+		Color:       0x11806A,
+		Timestamp:   &quote.Timestamp,
+		Footer:      memberEmbedFooter(author, quote.Creator),
+	}
+
+	return e.CreateMessage(discord.MessageCreate{
+		Embeds: []discord.Embed{embed},
+	})
+}
+
+func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
+	content := e.Data.Text("content")
+
+	users := e.Data.Users("participants")
+	participants := make([]string, 0, len(users))
+	for _, u := range users {
+		participants = append(participants, u.ID.String())
+	}
+
+	creatorID := e.Member().User.ID.String()
+
+	quote := store.Quote{
+		Creator:      creatorID,
+		Content:      content,
+		Participants: participants,
+	}
+
+	if err := b.store.CreateQuote(quote); err != nil {
+		slog.Error("failed to create quote", "error", err)
+		return e.CreateMessage(discord.MessageCreate{
+			Content: "seems like there was an issue creating the quote",
+			Flags:   discord.MessageFlagEphemeral,
+		})
+	}
+
+	author, err := b.GetMemberForID(creatorID)
+	if err != nil {
+		slog.Warn("failed to get author for quote", "error", err)
+	}
+
+	now := time.Now()
+	return e.CreateMessage(discord.MessageCreate{
+		Embeds: []discord.Embed{
+			{
+				Description: content,
+				Color:       0x11806A,
+				Timestamp:   &now,
+				Footer:      memberEmbedFooter(author, creatorID),
 			},
 		},
 	})
-
-	if err != nil {
-		slog.Error("failed to send random quote to channel", "error", err)
-	}
 }
 
-func (b *Bot) handleQuoteSubmission(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	switch i.Type {
-	case discordgo.InteractionModalSubmit:
-		data := i.ModalSubmitData()
-
-		if data.CustomID != "quote" {
-			return
-		}
-
-		content := data.Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value
-		var participants []string
-		for _, element := range data.Components[1].(*discordgo.Label).Component.(*discordgo.SelectMenu).Values {
-			participants = append(participants, element)
-		}
-
-		quote := store.Quote{
-			Creator:      i.Member.User.ID,
-			Content:      content,
-			Participants: participants,
-		}
-
-		err := b.store.CreateQuote(quote)
-
-		if err != nil {
-			slog.Error("failed to create quote", "error", err)
-
-			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "seems like there was an issue creating the quote",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-
-			if err != nil {
-				slog.Error("failed to respond to quote command", "error", err)
-			}
-		}
-
-		author, err := b.GetMemberForID(quote.Creator)
-		if err != nil {
-			author = &discordgo.Member{User: &discordgo.User{ID: quote.Creator}}
-			slog.Warn("failed to get author for quote", "error", err)
-		}
-
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{
-					{
-						Description: content,
-						Color:       0x11806A,
-						Timestamp:   fmt.Sprint(time.Now().Format(time.RFC3339)),
-						Footer: &discordgo.MessageEmbedFooter{
-							Text:    author.DisplayName(),
-							IconURL: i.Member.User.AvatarURL("64x64"),
-						},
-					},
-				},
-			},
-		})
-
-		if err != nil {
-			slog.Error("failed to send new quote to channel", "error", err)
-		}
+func memberEmbedFooter(member *discord.Member, fallbackID string) *discord.EmbedFooter {
+	if member == nil {
+		return &discord.EmbedFooter{Text: fallbackID}
+	}
+	return &discord.EmbedFooter{
+		Text:    member.EffectiveName(),
+		IconURL: member.User.EffectiveAvatarURL(),
 	}
 }

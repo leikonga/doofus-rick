@@ -1,9 +1,11 @@
 package bot
 
+import "github.com/disgoorg/snowflake/v2"
+
 func (b *Bot) IsGuildMember(id string) (bool, error) {
-	member, err := b.dg.GuildMember(b.config.DiscordGuild, id)
+	_, err := b.client.Rest.GetMember(snowflake.MustParse(b.config.DiscordGuild), snowflake.MustParse(id))
 	if err != nil {
 		return false, err
 	}
-	return member != nil, nil
+	return true, nil
 }
