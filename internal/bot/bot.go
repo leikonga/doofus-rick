@@ -32,7 +32,7 @@ func (b *Bot) Run() error {
 
 	client, err := disgo.New(b.config.DiscordToken,
 		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers),
+			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages),
 		),
 		bot.WithEventListeners(r),
 		bot.WithEventListenerFunc(onMessageCreate),
