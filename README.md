@@ -4,7 +4,7 @@ Our Discord bot. Stores quotes and serves them on a website.
 
 ## Installation
 
-1. Install Go 1.25+
+1. Install Go 1.26+
 2. Run `go mod download`
 
 You can run the application either through `go run .` or, if you want hot-reloading for web development,
