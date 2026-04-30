@@ -35,6 +35,7 @@ func (b *Bot) Run() error {
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers),
 		),
 		bot.WithEventListeners(r),
+		bot.WithEventListenerFunc(onMessageCreate),
 	)
 	if err != nil {
 		return err
