@@ -23,7 +23,7 @@ func New(s *store.Store, c *config.Config) *Bot {
 	return &Bot{store: s, config: c}
 }
 
-func (b *Bot) Run() error {
+func (b *Bot) Run(ctx context.Context) error {
 	r := handler.New()
 	r.SlashCommand("/ping", b.handlePingCommand)
 	r.SlashCommand("/quote", b.handleQuote)
@@ -51,7 +51,7 @@ func (b *Bot) Run() error {
 		}
 	}
 
-	if err = client.OpenGateway(context.TODO()); err != nil {
+	if err = client.OpenGateway(ctx); err != nil {
 		return err
 	}
 
