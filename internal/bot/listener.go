@@ -41,6 +41,12 @@ func onMessageCreate(event *events.MessageCreate) {
 	if event.Message.Author.Bot {
 		return
 	}
+	botID := event.Client().ID()
+	for _, u := range event.Message.Mentions {
+		if u.ID == botID {
+			return
+		}
+	}
 	message, exists := matchMessage(event.Message.Content, rules)
 	if exists {
 		_, err := event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().WithContent(message))

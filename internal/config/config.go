@@ -24,6 +24,9 @@ type Config struct {
 
 	Port          string
 	SessionSecret string
+
+	AnthropicAPIKey  string
+	SystemPromptFile string
 }
 
 func LoadConfig() *Config {
@@ -50,6 +53,9 @@ func LoadConfig() *Config {
 
 		Port:          normalizeAddress(getEnv("PORT", ":8080")),
 		SessionSecret: getEnv("SESSION_SECRET", ""),
+
+		AnthropicAPIKey:  getEnv("ANTHROPIC_API_KEY", ""),
+		SystemPromptFile: getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
 	}
 }
 

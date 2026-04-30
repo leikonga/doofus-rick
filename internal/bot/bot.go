@@ -36,6 +36,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		),
 		bot.WithEventListeners(r),
 		bot.WithEventListenerFunc(onMessageCreate),
+		bot.WithEventListenerFunc(b.onMentionCreate),
 	)
 	if err != nil {
 		return err
