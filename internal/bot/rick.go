@@ -100,7 +100,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText string) (string, error) {
 	client := anthropic.NewClient(option.WithAPIKey(b.config.AnthropicAPIKey))
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.ModelClaudeHaiku4_5_20251001,
+		Model:     b.config.AnthropicModel,
 		MaxTokens: maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(contextText))},
