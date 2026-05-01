@@ -197,7 +197,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 	declineTool := anthropic.ToolUnionParam{
 		OfTool: &anthropic.ToolParam{
 			Name:        "decline",
-			Description: anthropic.String("Decline to respond when you have nothing to say or genuinely don't care. Optionally react with a unicode emoji."),
+			Description: anthropic.String("Decline to respond, but only for comedic effect. Use sparingly. Prefer responding even if you have little to say."),
 			InputSchema: anthropic.ToolInputSchemaParam{
 				Properties: map[string]any{
 					"emoji": map[string]any{
