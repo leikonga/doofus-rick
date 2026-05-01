@@ -28,6 +28,8 @@ type Config struct {
 	AnthropicAPIKey  string
 	SystemPromptFile string
 	AnthropicModel   string
+
+	GiphyAPIKey string
 }
 
 func LoadConfig() *Config {
@@ -58,6 +60,8 @@ func LoadConfig() *Config {
 		AnthropicAPIKey:  getEnv("ANTHROPIC_API_KEY", ""),
 		SystemPromptFile: getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
 		AnthropicModel:   getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+
+		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 	}
 }
 

@@ -210,11 +210,31 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 		},
 	}
 
+	gifSearchTool := anthropic.ToolUnionParam{
+		OfTool: &anthropic.ToolParam{
+			Name:        "gif_search",
+			Description: anthropic.String("Post a GIF as a response. Use sparingly, only for comedic effect. Prefer responding with text."),
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Search term for the GIF.",
+					},
+					"caption": map[string]any{
+						"type":        "string",
+						"description": "Optional short text to post alongside the GIF.",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+	}
+
 	msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     b.config.AnthropicModel,
 		MaxTokens: maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-		Tools:     []anthropic.ToolUnionParam{declineTool},
+		Tools:     []anthropic.ToolUnionParam{declineTool, gifSearchTool},
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
 	if err != nil {
@@ -223,12 +243,35 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 
 	if msg.StopReason == anthropic.StopReasonToolUse {
 		for _, block := range msg.Content {
-			if block.Type == "tool_use" && block.Name == "decline" {
+			if block.Type != "tool_use" {
+				continue
+			}
+			switch block.Name {
+			case "decline":
 				var input struct {
 					Emoji string `json:"emoji"`
 				}
-				json.Unmarshal(block.Input, &input)
+				if err := json.Unmarshal(block.Input, &input); err != nil {
+					return rickResponse{}, err
+				}
 				return rickResponse{decline: true, emoji: input.Emoji}, nil
+			case "gif_search":
+				var input struct {
+					Query   string `json:"query"`
+					Caption string `json:"caption"`
+				}
+				if err := json.Unmarshal(block.Input, &input); err != nil {
+					return rickResponse{}, err
+				}
+				gifURL, err := b.searchGiphy(ctx, input.Query)
+				if err != nil {
+					return rickResponse{}, err
+				}
+				text := gifURL
+				if input.Caption != "" {
+					text = input.Caption + "\n" + gifURL
+				}
+				return rickResponse{text: text}, nil
 			}
 		}
 	}
