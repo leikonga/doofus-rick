@@ -148,9 +148,10 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		return
 	}
 
+	sanitizedResponse := strings.TrimRight(resp.text, "\n<br>")
 	_, err = event.Client().Rest.CreateMessage(event.ChannelID,
 		discord.NewMessageCreate().
-			WithContent(resp.text).
+			WithContent(sanitizedResponse).
 			WithMessageReferenceByID(event.MessageID),
 	)
 	if err != nil {
