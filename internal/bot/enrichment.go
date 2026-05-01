@@ -29,6 +29,20 @@ func (b *Bot) onPresenceUpdate(event *events.PresenceUpdate) {
 	b.presences.Store(event.Presence.PresenceUser.ID, event.Presence.Status)
 }
 
+func (b *Bot) onGuildVoiceStateUpdate(event *events.GuildVoiceStateUpdate) {
+	state := event.VoiceState
+	if state.ChannelID == nil {
+		b.voiceChannels.Delete(state.UserID)
+		return
+	}
+	ch, err := event.Client().Rest.GetChannel(*state.ChannelID)
+	if err != nil {
+		b.voiceChannels.Store(state.UserID, "")
+		return
+	}
+	b.voiceChannels.Store(state.UserID, ch.Name())
+}
+
 func (b *Bot) onlineMembers() []discord.Member {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()

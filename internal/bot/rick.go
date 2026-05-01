@@ -97,9 +97,17 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		).Replace(event.Message.Content),
 	)
 
-	var trigger string
+	var triggerParts []string
 	if triggerContent != "" {
-		trigger = fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), triggerContent)
+		triggerParts = append(triggerParts, triggerContent)
+	}
+	for _, s := range event.Message.StickerItems {
+		triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
+	}
+
+	var trigger string
+	if len(triggerParts) > 0 {
+		trigger = fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), strings.Join(triggerParts, " "))
 	}
 
 	var imageURLs []string
@@ -112,16 +120,26 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		}
 	}
 
+	var channelName, channelTopic string
+	if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
+		channelName = ch.Name()
+		if gmc, ok := ch.(discord.GuildMessageChannel); ok && gmc.Topic() != nil {
+			channelTopic = *gmc.Topic()
+		}
+	}
+
 	fullSystem := string(systemPrompt)
 	if roster := b.buildUserRoster(); roster != "" {
 		fullSystem += "\n\n" + roster
 	}
 
+	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
+
 	typingCtx, stopTyping := context.WithCancel(context.Background())
 	defer stopTyping()
 	go b.keepTyping(typingCtx, event)
 
-	resp, err := b.callClaude(context.Background(), fullSystem, strings.Join(lines, "\n"), trigger, imageURLs)
+	resp, err := b.callClaude(context.Background(), fullSystem, prompt, imageURLs)
 	if err != nil {
 		slog.Warn("claude api call failed", "error", err)
 		b.replyFallback(event)
@@ -148,16 +166,37 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 }
 
-func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText, trigger string, imageURLs []string) (rickResponse, error) {
-	var prompt string
-	if contextText != "" && trigger != "" {
-		prompt = fmt.Sprintf("Recent conversation context:\n%s\n\nMessage you must respond to:\n%s", contextText, trigger)
-	} else if trigger != "" {
-		prompt = fmt.Sprintf("Message you must respond to:\n%s", trigger)
-	} else {
-		prompt = fmt.Sprintf("Recent conversation context (give your opinion):\n%s", contextText)
+func buildPrompt(channelName, channelTopic string, lines []string, trigger string) string {
+	var sb strings.Builder
+
+	if channelTopic != "" {
+		fmt.Fprintf(&sb, "<channel name=%q topic=%q />", channelName, channelTopic)
+	} else if channelName != "" {
+		fmt.Fprintf(&sb, "<channel name=%q />", channelName)
 	}
 
+	if len(lines) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("<history>\n")
+		sb.WriteString(strings.Join(lines, "\n"))
+		sb.WriteString("\n</history>")
+	}
+
+	if trigger != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("<message>\n")
+		sb.WriteString(trigger)
+		sb.WriteString("\n</message>")
+	}
+
+	return sb.String()
+}
+
+func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string) (rickResponse, error) {
 	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(prompt)}
 	for _, url := range imageURLs {
 		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
@@ -216,7 +255,15 @@ func (b *Bot) buildUserRoster() string {
 	var sb strings.Builder
 	sb.WriteString("<users>\n")
 	for _, m := range members {
-		fmt.Fprintf(&sb, "%s <@%s>\n", m.EffectiveName(), m.User.ID)
+		line := fmt.Sprintf("%s <@%s>", m.EffectiveName(), m.User.ID)
+		if val, ok := b.voiceChannels.Load(m.User.ID); ok {
+			if ch := val.(string); ch != "" {
+				line += " (in VC: " + ch + ")"
+			} else {
+				line += " (in VC)"
+			}
+		}
+		sb.WriteString(line + "\n")
 	}
 	sb.WriteString("</users>")
 	return sb.String()
