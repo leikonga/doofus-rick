@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -76,11 +77,17 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			fmt.Sprintf("<@!%s>", botID), "",
 		).Replace(event.Message.Content),
 	)
+
+	var trigger string
 	if triggerContent != "" {
-		lines = append(lines, fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), triggerContent))
+		trigger = fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), triggerContent)
 	}
 
-	response, err := b.callClaude(context.Background(), string(systemPrompt), strings.Join(lines, "\n"))
+	typingCtx, stopTyping := context.WithCancel(context.Background())
+	defer stopTyping()
+	go b.keepTyping(typingCtx, event)
+
+	response, err := b.callClaude(context.Background(), string(systemPrompt), strings.Join(lines, "\n"), trigger)
 	if err != nil {
 		slog.Warn("claude api call failed", "error", err)
 		b.replyFallback(event)
@@ -97,13 +104,22 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 }
 
-func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText string) (string, error) {
+func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText, trigger string) (string, error) {
+	var prompt string
+	if contextText != "" && trigger != "" {
+		prompt = fmt.Sprintf("Recent conversation context:\n%s\n\nMessage you must respond to:\n%s", contextText, trigger)
+	} else if trigger != "" {
+		prompt = fmt.Sprintf("Message you must respond to:\n%s", trigger)
+	} else {
+		prompt = fmt.Sprintf("Recent conversation context (give your opinion):\n%s", contextText)
+	}
+
 	client := anthropic.NewClient(option.WithAPIKey(b.config.AnthropicAPIKey))
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     b.config.AnthropicModel,
 		MaxTokens: maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(contextText))},
+		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(prompt))},
 	})
 	if err != nil {
 		return "", err
@@ -112,6 +128,19 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText string) 
 		return rickFallback, nil
 	}
 	return msg.Content[0].Text, nil
+}
+
+func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
+	for {
+		if err := event.Client().Rest.SendTyping(event.ChannelID); err != nil {
+			slog.Warn("failed to send typing indicator", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(8 * time.Second):
+		}
+	}
 }
 
 func (b *Bot) replyFallback(event *events.MessageCreate) {
