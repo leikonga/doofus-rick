@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -22,6 +23,27 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 	}
 
 	return user.EffectiveName(), nil
+}
+
+func (b *Bot) onPresenceUpdate(event *events.PresenceUpdate) {
+	b.presences.Store(event.Presence.PresenceUser.ID, event.Presence.Status)
+}
+
+func (b *Bot) onlineMembers() []discord.Member {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	var result []discord.Member
+	for _, m := range cache.members {
+		val, ok := b.presences.Load(m.User.ID)
+		if !ok {
+			continue
+		}
+		s := val.(discord.OnlineStatus)
+		if s != discord.OnlineStatusOffline && s != discord.OnlineStatusInvisible {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {

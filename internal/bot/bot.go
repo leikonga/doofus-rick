@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
@@ -14,9 +15,10 @@ import (
 )
 
 type Bot struct {
-	store  *store.Store
-	config *config.Config
-	client *bot.Client
+	store     *store.Store
+	config    *config.Config
+	client    *bot.Client
+	presences sync.Map
 }
 
 func New(s *store.Store, c *config.Config) *Bot {
@@ -32,11 +34,12 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	client, err := disgo.New(b.config.DiscordToken,
 		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent),
+			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences),
 		),
 		bot.WithEventListeners(r),
 		bot.WithEventListenerFunc(onMessageCreate),
 		bot.WithEventListenerFunc(b.onMentionCreate),
+		bot.WithEventListenerFunc(b.onPresenceUpdate),
 	)
 	if err != nil {
 		return err

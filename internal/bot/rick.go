@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,8 +20,15 @@ const (
 	maxContextLen = 500
 	maxTokens     = int64(512)
 	historyLimit  = 11
+	maxImages     = 5
 	rickFallback  = "najo woas i etz ned"
 )
+
+type rickResponse struct {
+	text    string
+	decline bool
+	emoji   string
+}
 
 func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	if event.Message.Author.Bot {
@@ -59,7 +67,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		if msg.ID == event.MessageID {
 			continue
 		}
-		if msg.Author.Bot {
+		if msg.Author.Bot && msg.Author.ID != botID {
 			continue
 		}
 		if strings.HasPrefix(msg.Content, "/") {
@@ -68,7 +76,18 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		if len(msg.Content) > maxContextLen {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("[%s]: %s", b.memberName(msg.Author), msg.Content))
+		name := "Rick"
+		if !msg.Author.Bot {
+			name = b.memberName(msg.Author)
+		}
+		lines = append(lines, fmt.Sprintf("[%s]: %s", name, msg.Content))
+	}
+
+	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
+		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
+		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
+			lines = append([]string{fmt.Sprintf("[%s (replied to)]: %s", b.memberName(refMsg.Author), refMsg.Content)}, lines...)
+		}
 	}
 
 	triggerContent := strings.TrimSpace(
@@ -83,20 +102,45 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		trigger = fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), triggerContent)
 	}
 
+	var imageURLs []string
+	for _, att := range event.Message.Attachments {
+		if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
+			imageURLs = append(imageURLs, att.URL)
+			if len(imageURLs) >= maxImages {
+				break
+			}
+		}
+	}
+
+	fullSystem := string(systemPrompt)
+	if roster := b.buildUserRoster(); roster != "" {
+		fullSystem += "\n\n" + roster
+	}
+
 	typingCtx, stopTyping := context.WithCancel(context.Background())
 	defer stopTyping()
 	go b.keepTyping(typingCtx, event)
 
-	response, err := b.callClaude(context.Background(), string(systemPrompt), strings.Join(lines, "\n"), trigger)
+	resp, err := b.callClaude(context.Background(), fullSystem, strings.Join(lines, "\n"), trigger, imageURLs)
 	if err != nil {
 		slog.Warn("claude api call failed", "error", err)
 		b.replyFallback(event)
 		return
 	}
 
+	if resp.decline {
+		stopTyping()
+		if resp.emoji != "" {
+			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
+				slog.Warn("failed to add reaction", "error", err)
+			}
+		}
+		return
+	}
+
 	_, err = event.Client().Rest.CreateMessage(event.ChannelID,
 		discord.NewMessageCreate().
-			WithContent(response).
+			WithContent(resp.text).
 			WithMessageReferenceByID(event.MessageID),
 	)
 	if err != nil {
@@ -104,7 +148,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 }
 
-func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText, trigger string) (string, error) {
+func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText, trigger string, imageURLs []string) (rickResponse, error) {
 	var prompt string
 	if contextText != "" && trigger != "" {
 		prompt = fmt.Sprintf("Recent conversation context:\n%s\n\nMessage you must respond to:\n%s", contextText, trigger)
@@ -114,20 +158,68 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, contextText, trigger
 		prompt = fmt.Sprintf("Recent conversation context (give your opinion):\n%s", contextText)
 	}
 
+	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(prompt)}
+	for _, url := range imageURLs {
+		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
+	}
+
+	declineTool := anthropic.ToolUnionParam{
+		OfTool: &anthropic.ToolParam{
+			Name:        "decline",
+			Description: anthropic.String("Decline to respond when you have nothing to say or genuinely don't care. Optionally react with a unicode emoji."),
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: map[string]any{
+					"emoji": map[string]any{
+						"type":        "string",
+						"description": "Unicode emoji to react with. Omit to do nothing at all.",
+					},
+				},
+			},
+		},
+	}
+
 	client := anthropic.NewClient(option.WithAPIKey(b.config.AnthropicAPIKey))
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     b.config.AnthropicModel,
 		MaxTokens: maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(prompt))},
+		Tools:     []anthropic.ToolUnionParam{declineTool},
+		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
 	})
 	if err != nil {
-		return "", err
+		return rickResponse{}, err
 	}
+
+	if msg.StopReason == anthropic.StopReasonToolUse {
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" && block.Name == "decline" {
+				var input struct {
+					Emoji string `json:"emoji"`
+				}
+				json.Unmarshal(block.Input, &input)
+				return rickResponse{decline: true, emoji: input.Emoji}, nil
+			}
+		}
+	}
+
 	if len(msg.Content) == 0 {
-		return rickFallback, nil
+		return rickResponse{text: rickFallback}, nil
 	}
-	return msg.Content[0].Text, nil
+	return rickResponse{text: msg.Content[0].Text}, nil
+}
+
+func (b *Bot) buildUserRoster() string {
+	members := b.onlineMembers()
+	if len(members) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("<users>\n")
+	for _, m := range members {
+		fmt.Fprintf(&sb, "%s <@%s>\n", m.EffectiveName(), m.User.ID)
+	}
+	sb.WriteString("</users>")
+	return sb.String()
 }
 
 func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
