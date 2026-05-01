@@ -14,8 +14,6 @@ type UserCache struct {
 	members []discord.Member
 }
 
-var cache = &UserCache{}
-
 func (b *Bot) GetUsernameForID(id string) (string, error) {
 	user, err := b.GetMemberForID(id)
 	if err != nil {
@@ -44,10 +42,10 @@ func (b *Bot) onGuildVoiceStateUpdate(event *events.GuildVoiceStateUpdate) {
 }
 
 func (b *Bot) onlineMembers() []discord.Member {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
+	b.cache.mu.RLock()
+	defer b.cache.mu.RUnlock()
 	var result []discord.Member
-	for _, m := range cache.members {
+	for _, m := range b.cache.members {
 		val, ok := b.presences.Load(m.User.ID)
 		if !ok {
 			continue
@@ -61,24 +59,30 @@ func (b *Bot) onlineMembers() []discord.Member {
 }
 
 func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {
-	cache.mu.Lock()
-	if cache.members == nil {
-		// set 1000 user limit, because discord will not return any users if limit is not set
-		fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
-		if err != nil {
-			cache.mu.Unlock()
-			return nil, err
+	b.cache.mu.RLock()
+	initialized := b.cache.members != nil
+	b.cache.mu.RUnlock()
+
+	if !initialized {
+		b.cache.mu.Lock()
+		if b.cache.members == nil {
+			// set 1000 user limit, because discord will not return any users if limit is not set
+			fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
+			if err != nil {
+				b.cache.mu.Unlock()
+				return nil, err
+			}
+			b.cache.members = fetched
 		}
-		cache.members = fetched
+		b.cache.mu.Unlock()
 	}
-	cache.mu.Unlock()
-	cache.mu.RLock()
-	for i, member := range cache.members {
+
+	b.cache.mu.RLock()
+	defer b.cache.mu.RUnlock()
+	for i, member := range b.cache.members {
 		if member.User.ID.String() == id {
-			cache.mu.RUnlock()
-			return &cache.members[i], nil
+			return &b.cache.members[i], nil
 		}
 	}
-	cache.mu.RUnlock()
 	return nil, fmt.Errorf("member %s not found", id)
 }

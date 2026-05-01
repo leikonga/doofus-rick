@@ -8,12 +8,12 @@ import (
 	"github.com/disgoorg/disgo/events"
 )
 
-type MessageRule struct {
+type messageRule struct {
 	Predicate func(string) bool
 	Response  string
 }
 
-var rules = []MessageRule{
+var rules = []messageRule{
 	{
 		Predicate: func(message string) bool {
 			return strings.Contains(message, "67")
@@ -28,7 +28,7 @@ var rules = []MessageRule{
 	},
 }
 
-func matchMessage(message string, rules []MessageRule) (string, bool) {
+func matchMessage(message string, rules []messageRule) (string, bool) {
 	for _, rule := range rules {
 		if rule.Predicate(message) {
 			return rule.Response, true

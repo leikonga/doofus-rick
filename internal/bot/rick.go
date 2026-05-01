@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 )
@@ -36,14 +35,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	botID := event.Client().ID()
-	mentioned := false
-	for _, u := range event.Message.Mentions {
-		if u.ID == botID {
-			mentioned = true
-			break
-		}
-	}
-	if !mentioned {
+	if !slices.ContainsFunc(event.Message.Mentions, func(u discord.User) bool { return u.ID == botID }) {
 		return
 	}
 
@@ -217,8 +209,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 		},
 	}
 
-	client := anthropic.NewClient(option.WithAPIKey(b.config.AnthropicAPIKey))
-	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+	msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     b.config.AnthropicModel,
 		MaxTokens: maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
@@ -255,15 +246,15 @@ func (b *Bot) buildUserRoster() string {
 	var sb strings.Builder
 	sb.WriteString("<users>\n")
 	for _, m := range members {
-		line := fmt.Sprintf("%s <@%s>", m.EffectiveName(), m.User.ID)
+		fmt.Fprintf(&sb, "%s <@%s>", m.EffectiveName(), m.User.ID)
 		if val, ok := b.voiceChannels.Load(m.User.ID); ok {
 			if ch := val.(string); ch != "" {
-				line += " (in VC: " + ch + ")"
+				fmt.Fprintf(&sb, " (in VC: %s)", ch)
 			} else {
-				line += " (in VC)"
+				sb.WriteString(" (in VC)")
 			}
 		}
-		sb.WriteString(line + "\n")
+		sb.WriteByte('\n')
 	}
 	sb.WriteString("</users>")
 	return sb.String()

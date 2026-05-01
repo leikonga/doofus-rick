@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/gateway"
@@ -15,15 +17,21 @@ import (
 )
 
 type Bot struct {
-	store         *store.Store
-	config        *config.Config
-	client        *bot.Client
-	presences     sync.Map // snowflake.ID -> discord.OnlineStatus
-	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
+	store           *store.Store
+	config          *config.Config
+	client          *bot.Client
+	anthropicClient anthropic.Client
+	cache           UserCache
+	presences       sync.Map // snowflake.ID -> discord.OnlineStatus
+	voiceChannels   sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 }
 
 func New(s *store.Store, c *config.Config) *Bot {
-	return &Bot{store: s, config: c}
+	return &Bot{
+		store:           s,
+		config:          c,
+		anthropicClient: anthropic.NewClient(option.WithAPIKey(c.AnthropicAPIKey)),
+	}
 }
 
 func (b *Bot) Run(ctx context.Context) error {
