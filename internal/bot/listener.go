@@ -2,11 +2,14 @@ package bot
 
 import (
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 )
+
+var stripPattern = regexp.MustCompile(`<[@#&!][0-9]+>|https?://\S+`)
 
 type messageRule struct {
 	Predicate func(string) bool
@@ -47,7 +50,8 @@ func onMessageCreate(event *events.MessageCreate) {
 			return
 		}
 	}
-	message, exists := matchMessage(event.Message.Content, rules)
+	content := stripPattern.ReplaceAllString(event.Message.Content, "")
+	message, exists := matchMessage(content, rules)
 	if exists {
 		_, err := event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().WithContent(message))
 		if err != nil {
