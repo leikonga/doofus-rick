@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 )
+
+var trailingTagRe = regexp.MustCompile(`(\s*<[^>]*>\s*)+$`)
 
 const (
 	maxContextLen = 500
@@ -197,7 +200,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		return
 	}
 
-	sanitizedResponse := strings.TrimRight(resp.text, "\n<br>")
+	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
 	_, err = event.Client().Rest.CreateMessage(event.ChannelID,
 		discord.NewMessageCreate().
 			WithContent(sanitizedResponse).
