@@ -196,28 +196,27 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 func buildPrompt(channelName, channelTopic string, lines []string, trigger string) string {
 	var sb strings.Builder
 
-	if channelTopic != "" {
-		fmt.Fprintf(&sb, "<channel name=%q topic=%q />", channelName, channelTopic)
-	} else if channelName != "" {
-		fmt.Fprintf(&sb, "<channel name=%q />", channelName)
+	if channelName != "" {
+		fmt.Fprintf(&sb, "# channel: %s", channelName)
+		if channelTopic != "" {
+			fmt.Fprintf(&sb, "\n# topic: %s", channelTopic)
+		}
 	}
 
 	if len(lines) > 0 {
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString("<history>\n")
+		sb.WriteString("[history]\n")
 		sb.WriteString(strings.Join(lines, "\n"))
-		sb.WriteString("\n</history>")
 	}
 
 	if trigger != "" {
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString("<message>\n")
+		sb.WriteString("[message]\n")
 		sb.WriteString(trigger)
-		sb.WriteString("\n</message>")
 	}
 
 	return sb.String()
