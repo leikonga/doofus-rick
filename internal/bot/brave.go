@@ -28,7 +28,8 @@ type braveImageResponse struct {
 			Src string `json:"src"`
 		} `json:"thumbnail"`
 		Properties struct {
-			URL string `json:"url"`
+			URL     string `json:"url"`
+			Resized string `json:"resized"`
 		} `json:"properties"`
 	} `json:"results"`
 }
@@ -112,6 +113,9 @@ func (b *Bot) searchBraveImage(ctx context.Context, query string) (string, error
 	}
 
 	pick := br.Results[rand.Intn(min(len(br.Results), 5))]
+	if pick.Properties.Resized != "" {
+		return pick.Properties.Resized, nil
+	}
 	if pick.Properties.URL != "" {
 		return pick.Properties.URL, nil
 	}
