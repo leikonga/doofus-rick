@@ -22,11 +22,17 @@ func (b *Bot) shellExec(ctx context.Context, command string) string {
 	var out bytes.Buffer
 	c.Stdout = &out
 	c.Stderr = &out
-	c.Run()
+	err := c.Run()
 
 	result := out.String()
 	if len(result) > shellOutputLimit {
 		result = result[:shellOutputLimit] + "... (truncated)"
+	}
+	if err != nil {
+		if result != "" {
+			result += "\n"
+		}
+		result += "error: " + err.Error()
 	}
 	if result == "" {
 		return "(no output)"
