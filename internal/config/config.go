@@ -30,6 +30,7 @@ type Config struct {
 	AnthropicModel   string
 
 	GiphyAPIKey string
+	BraveAPIKey string
 }
 
 func LoadConfig() *Config {
@@ -62,6 +63,7 @@ func LoadConfig() *Config {
 		AnthropicModel:   getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
+		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 	}
 }
 

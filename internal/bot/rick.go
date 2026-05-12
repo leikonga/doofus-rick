@@ -18,8 +18,9 @@ import (
 const (
 	maxContextLen = 500
 	maxTokens     = int64(512)
-	historyLimit  = 11
+	historyLimit  = 7
 	maxImages     = 5
+	maxToolIter   = 5
 	rickFallback  = "najo woas i etz ned"
 )
 
@@ -27,6 +28,17 @@ type rickResponse struct {
 	text    string
 	decline bool
 	emoji   string
+}
+
+type toolResult struct {
+	response *rickResponse
+	content  string
+}
+
+type ricktool struct {
+	name    string
+	def     anthropic.ToolUnionParam
+	execute func(ctx context.Context, input json.RawMessage) (toolResult, error)
 }
 
 func (b *Bot) onMentionCreate(event *events.MessageCreate) {
@@ -189,97 +201,295 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
+func (b *Bot) buildTools() []ricktool {
+	return []ricktool{
+		{
+			name: "decline",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "decline",
+					Description: anthropic.String("Decline to respond, but only for comedic effect. Use sparingly. Prefer responding even if you have little to say."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"emoji": map[string]any{
+								"type":        "string",
+								"description": "Unicode emoji to react with. Omit to do nothing at all.",
+							},
+						},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Emoji string `json:"emoji"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				return toolResult{response: &rickResponse{decline: true, emoji: in.Emoji}}, nil
+			},
+		},
+		{
+			name: "gif_search",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "gif_search",
+					Description: anthropic.String("Post a GIF as a response. Use sparingly, only for comedic effect. Prefer responding with text."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"query": map[string]any{
+								"type":        "string",
+								"description": "Search term for the GIF.",
+							},
+							"caption": map[string]any{
+								"type":        "string",
+								"description": "Optional short text to post alongside the GIF.",
+							},
+						},
+						Required: []string{"query"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Query   string `json:"query"`
+					Caption string `json:"caption"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				gifURL, err := b.searchGiphy(ctx, in.Query)
+				if err != nil {
+					return toolResult{}, err
+				}
+				text := gifURL
+				if in.Caption != "" {
+					text = in.Caption + "\n" + gifURL
+				}
+				return toolResult{response: &rickResponse{text: text}}, nil
+			},
+		},
+		{
+			name: "web_search",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name: "web_search",
+					Description: anthropic.String("Search the web and get extracted content from the top results. " +
+						"Use the site: operator to target specific sources, e.g. " +
+						"site:knowyourmeme.com to look up meme origins and status, " +
+						"site:reddit.com for community takes, " +
+						"site:youtube.com to find a specific video. " +
+						"Prefer a targeted query over a vague one."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"query": map[string]any{
+								"type":        "string",
+								"description": "Search query. Supports standard operators like site:, intitle:, etc.",
+							},
+						},
+						Required: []string{"query"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Query string `json:"query"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				result, err := b.searchBrave(ctx, in.Query)
+				if err != nil {
+					return toolResult{}, err
+				}
+				return toolResult{content: result}, nil
+			},
+		},
+		{
+			name: "remember",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "remember",
+					Description: anthropic.String("Save something to persistent memory for future reference. Use for notable facts about users, running jokes, or anything worth recalling later."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"content": map[string]any{
+								"type":        "string",
+								"description": "The thing to remember.",
+							},
+							"user_id": map[string]any{
+								"type":        "string",
+								"description": "Discord user ID this memory is about. Omit for general memories.",
+							},
+							"tags": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Optional tags to aid recall.",
+							},
+						},
+						Required: []string{"content"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Content string   `json:"content"`
+					UserID  string   `json:"user_id"`
+					Tags    []string `json:"tags"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				if err := b.store.SaveMemory(in.UserID, in.Content, in.Tags); err != nil {
+					return toolResult{}, err
+				}
+				return toolResult{content: "remembered"}, nil
+			},
+		},
+		{
+			name: "recall",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "recall",
+					Description: anthropic.String("Search persistent memory for relevant facts. Use when someone says something that might connect to past events, or when you want to land a callback."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"query": map[string]any{
+								"type":        "string",
+								"description": "Search term to match against stored memories.",
+							},
+							"user_id": map[string]any{
+								"type":        "string",
+								"description": "Filter to memories about this Discord user ID.",
+							},
+						},
+						Required: []string{"query"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Query  string `json:"query"`
+					UserID string `json:"user_id"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				memories, err := b.store.SearchMemory(in.Query, in.UserID)
+				if err != nil {
+					return toolResult{}, err
+				}
+				if len(memories) == 0 {
+					return toolResult{content: "no memories found"}, nil
+				}
+				var sb strings.Builder
+				for _, m := range memories {
+					fmt.Fprintf(&sb, "- %s\n", m.Content)
+				}
+				return toolResult{content: sb.String()}, nil
+			},
+		},
+		{
+			name: "shell_exec",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name: "shell_exec",
+					Description: anthropic.String("Run a shell command on your own server and get the output. " +
+						"You are running inside an Alpine Linux container as an unprivileged user, " +
+						"so standard busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, etc.) " +
+						"but you cannot escalate privileges or access host resources. " +
+						"Use for comedic self-awareness about your own environment."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"command": map[string]any{
+								"type":        "string",
+								"description": "Shell command to run.",
+							},
+						},
+						Required: []string{"command"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Command string `json:"command"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				return toolResult{content: b.shellExec(ctx, in.Command)}, nil
+			},
+		},
+	}
+}
+
 func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string) (rickResponse, error) {
+	allTools := b.buildTools()
+
+	defs := make([]anthropic.ToolUnionParam, len(allTools))
+	lookup := make(map[string]ricktool, len(allTools))
+	for i, t := range allTools {
+		defs[i] = t.def
+		lookup[t.name] = t
+	}
+
 	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(prompt)}
 	for _, url := range imageURLs {
 		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
 	}
 
-	declineTool := anthropic.ToolUnionParam{
-		OfTool: &anthropic.ToolParam{
-			Name:        "decline",
-			Description: anthropic.String("Decline to respond, but only for comedic effect. Use sparingly. Prefer responding even if you have little to say."),
-			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: map[string]any{
-					"emoji": map[string]any{
-						"type":        "string",
-						"description": "Unicode emoji to react with. Omit to do nothing at all.",
-					},
-				},
-			},
-		},
-	}
+	messages := []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)}
 
-	gifSearchTool := anthropic.ToolUnionParam{
-		OfTool: &anthropic.ToolParam{
-			Name:        "gif_search",
-			Description: anthropic.String("Post a GIF as a response. Use sparingly, only for comedic effect. Prefer responding with text."),
-			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Search term for the GIF.",
-					},
-					"caption": map[string]any{
-						"type":        "string",
-						"description": "Optional short text to post alongside the GIF.",
-					},
-				},
-				Required: []string{"query"},
-			},
-		},
-	}
+	for range maxToolIter {
+		msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
+			Model:     b.config.AnthropicModel,
+			MaxTokens: maxTokens,
+			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
+			Tools:     defs,
+			Messages:  messages,
+		})
+		if err != nil {
+			return rickResponse{}, err
+		}
 
-	msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     b.config.AnthropicModel,
-		MaxTokens: maxTokens,
-		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-		Tools:     []anthropic.ToolUnionParam{declineTool, gifSearchTool},
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)},
-	})
-	if err != nil {
-		return rickResponse{}, err
-	}
+		if msg.StopReason != anthropic.StopReasonToolUse {
+			if len(msg.Content) == 0 {
+				return rickResponse{text: rickFallback}, nil
+			}
+			return rickResponse{text: msg.Content[0].Text}, nil
+		}
 
-	if msg.StopReason == anthropic.StopReasonToolUse {
+		messages = append(messages, msg.ToParam())
+
+		var resultBlocks []anthropic.ContentBlockParamUnion
 		for _, block := range msg.Content {
 			if block.Type != "tool_use" {
 				continue
 			}
-			switch block.Name {
-			case "decline":
-				var input struct {
-					Emoji string `json:"emoji"`
-				}
-				if err := json.Unmarshal(block.Input, &input); err != nil {
-					return rickResponse{}, err
-				}
-				return rickResponse{decline: true, emoji: input.Emoji}, nil
-			case "gif_search":
-				var input struct {
-					Query   string `json:"query"`
-					Caption string `json:"caption"`
-				}
-				if err := json.Unmarshal(block.Input, &input); err != nil {
-					return rickResponse{}, err
-				}
-				gifURL, err := b.searchGiphy(ctx, input.Query)
-				if err != nil {
-					return rickResponse{}, err
-				}
-				text := gifURL
-				if input.Caption != "" {
-					text = input.Caption + "\n" + gifURL
-				}
-				return rickResponse{text: text}, nil
+			tool, ok := lookup[block.Name]
+			if !ok {
+				slog.Warn("unknown tool called by claude", "tool", block.Name)
+				continue
 			}
+			result, err := tool.execute(ctx, block.Input)
+			if err != nil {
+				slog.Warn("tool execution failed", "tool", block.Name, "error", err)
+				resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, err.Error(), true))
+				continue
+			}
+			if result.response != nil {
+				return *result.response, nil
+			}
+			resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, result.content, false))
 		}
+
+		if len(resultBlocks) == 0 {
+			break
+		}
+		messages = append(messages, anthropic.NewUserMessage(resultBlocks...))
 	}
 
-	if len(msg.Content) == 0 {
-		return rickResponse{text: rickFallback}, nil
-	}
-	return rickResponse{text: msg.Content[0].Text}, nil
+	return rickResponse{text: rickFallback}, nil
 }
 
 func (b *Bot) buildUserRoster() string {

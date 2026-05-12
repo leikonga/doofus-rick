@@ -15,11 +15,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s" -o doofus-rick ./main.go
 RUN adduser -D -g '' appuser
 
-FROM scratch
+FROM alpine:3
 
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /app/doofus-rick /doofus-rick
+RUN adduser -D -g '' appuser
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /app/doofus-rick /doofus-rick
 
 USER appuser
 EXPOSE 8080

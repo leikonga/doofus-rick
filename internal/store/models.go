@@ -17,3 +17,11 @@ type Quote struct {
 	Participants pq.StringArray `gorm:"type:text[]"`
 	Votes        int            `gorm:"not null;default:0"`
 }
+
+type Memory struct {
+	gorm.Model
+
+	UserID  string         `gorm:"index"`
+	Content string         `gorm:"not null"`
+	Tags    pq.StringArray `gorm:"type:text[]"`
+}
