@@ -580,6 +580,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 				slog.Warn("unknown tool called by claude", "tool", block.Name)
 				continue
 			}
+			slog.Info("tool call", "tool", block.Name, "input", string(block.Input))
 			result, err := tool.execute(ctx, block.Input)
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", block.Name, "error", err)
