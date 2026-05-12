@@ -179,7 +179,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	defer stopTyping()
 	go b.keepTyping(typingCtx, event)
 
-	resp, err := b.callClaude(context.Background(), fullSystem, prompt, imageURLs)
+	resp, err := b.callClaude(context.Background(), fullSystem, prompt, imageURLs, event)
 	if err != nil {
 		slog.Warn("claude api call failed", "error", err)
 		b.replyFallback(event)
@@ -237,7 +237,7 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
-func (b *Bot) buildTools() []ricktool {
+func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 	return []ricktool{
 		{
 			name: "decline",
@@ -456,11 +456,84 @@ func (b *Bot) buildTools() []ricktool {
 				return toolResult{content: b.shellExec(ctx, in.Command)}, nil
 			},
 		},
+		{
+			name: "image_search",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "image_search",
+					Description: anthropic.String("Post a reaction image or meme as a response. Use instead of gif_search when a static image or meme format fits better than an animation. Supports site: operators, e.g. site:knowyourmeme.com."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"query": map[string]any{
+								"type":        "string",
+								"description": "Image search query.",
+							},
+							"caption": map[string]any{
+								"type":        "string",
+								"description": "Optional short text to post alongside the image.",
+							},
+						},
+						Required: []string{"query"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Query   string `json:"query"`
+					Caption string `json:"caption"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				imgURL, err := b.searchBraveImage(ctx, in.Query)
+				if err != nil {
+					return toolResult{}, err
+				}
+				text := imgURL
+				if in.Caption != "" {
+					text = in.Caption + "\n" + imgURL
+				}
+				return toolResult{response: &rickResponse{text: text}}, nil
+			},
+		},
+		{
+			name: "react",
+			def: anthropic.ToolUnionParam{
+				OfTool: &anthropic.ToolParam{
+					Name:        "react",
+					Description: anthropic.String("Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response."),
+					InputSchema: anthropic.ToolInputSchemaParam{
+						Properties: map[string]any{
+							"emojis": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Unicode emojis to react with.",
+							},
+						},
+						Required: []string{"emojis"},
+					},
+				},
+			},
+			execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+				var in struct {
+					Emojis []string `json:"emojis"`
+				}
+				if err := json.Unmarshal(input, &in); err != nil {
+					return toolResult{}, err
+				}
+				for _, emoji := range in.Emojis {
+					if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, emoji); err != nil {
+						slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
+					}
+				}
+				return toolResult{content: "reactions added"}, nil
+			},
+		},
 	}
 }
 
-func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string) (rickResponse, error) {
-	allTools := b.buildTools()
+func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (rickResponse, error) {
+	allTools := b.buildTools(event)
 
 	defs := make([]anthropic.ToolUnionParam, len(allTools))
 	lookup := make(map[string]ricktool, len(allTools))
