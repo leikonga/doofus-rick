@@ -71,26 +71,50 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		if msg.ID == event.MessageID {
 			continue
 		}
-		if msg.Author.Bot && msg.Author.ID != botID {
+		if msg.Author.ID == botID {
 			continue
 		}
 		if strings.HasPrefix(msg.Content, "/") {
 			continue
 		}
-		if len(msg.Content) > maxContextLen {
+
+		var parts []string
+		content := msg.Content
+		if len(content) > maxContextLen {
+			content = content[:maxContextLen] + "..."
+		}
+		if content != "" {
+			parts = append(parts, content)
+		}
+		for _, s := range msg.StickerItems {
+			parts = append(parts, "(sticker: "+s.Name+")")
+		}
+		for _, att := range msg.Attachments {
+			if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
+				parts = append(parts, "(sent an image)")
+			} else {
+				parts = append(parts, "(sent: "+att.Filename+")")
+			}
+		}
+		if len(parts) == 0 {
 			continue
 		}
-		name := "Rick"
-		if !msg.Author.Bot {
+
+		var name string
+		if msg.Author.Bot {
+			name = msg.Author.Username + " (bot)"
+		} else {
 			name = b.memberName(msg.Author)
 		}
-		lines = append(lines, fmt.Sprintf("[%s]: %s", name, msg.Content))
+		ts := msg.CreatedAt.Format("15:04")
+		lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
 	}
 
 	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
 		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
 		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
-			lines = append([]string{fmt.Sprintf("[%s (replied to)]: %s", b.memberName(refMsg.Author), refMsg.Content)}, lines...)
+			ts := refMsg.CreatedAt.Format("15:04")
+			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), refMsg.Content)}, lines...)
 		}
 	}
 
@@ -108,10 +132,18 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	for _, s := range event.Message.StickerItems {
 		triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
 	}
+	for _, att := range event.Message.Attachments {
+		if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") {
+			triggerParts = append(triggerParts, "(sent: "+att.Filename+")")
+		}
+	}
 
+	triggerName := b.memberName(event.Message.Author)
 	var trigger string
 	if len(triggerParts) > 0 {
-		trigger = fmt.Sprintf("[%s]: %s", b.memberName(event.Message.Author), strings.Join(triggerParts, " "))
+		trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
+	} else {
+		trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
 	}
 
 	var imageURLs []string
@@ -125,15 +157,19 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	var channelName, channelTopic string
+	var channelOverwrites discord.PermissionOverwrites
 	if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
 		channelName = ch.Name()
-		if gmc, ok := ch.(discord.GuildMessageChannel); ok && gmc.Topic() != nil {
-			channelTopic = *gmc.Topic()
+		if gmc, ok := ch.(discord.GuildMessageChannel); ok {
+			if gmc.Topic() != nil {
+				channelTopic = *gmc.Topic()
+			}
+			channelOverwrites = gmc.PermissionOverwrites()
 		}
 	}
 
 	fullSystem := string(systemPrompt)
-	if roster := b.buildUserRoster(); roster != "" {
+	if roster := b.buildUserRoster(channelOverwrites); roster != "" {
 		fullSystem += "\n\n" + roster
 	}
 
@@ -396,7 +432,7 @@ func (b *Bot) buildTools() []ricktool {
 					Name: "shell_exec",
 					Description: anthropic.String("Run a shell command on your own server and get the output. " +
 						"You are running inside an Alpine Linux container as an unprivileged user, " +
-						"so standard busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, etc.) " +
+						"so standard busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, wget etc.) " +
 						"but you cannot escalate privileges or access host resources. " +
 						"Use for comedic self-awareness about your own environment."),
 					InputSchema: anthropic.ToolInputSchemaParam{
@@ -492,7 +528,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 	return rickResponse{text: rickFallback}, nil
 }
 
-func (b *Bot) buildUserRoster() string {
+func (b *Bot) buildUserRoster(overwrites discord.PermissionOverwrites) string {
 	members := b.onlineMembers()
 	if len(members) == 0 {
 		return ""
@@ -500,6 +536,9 @@ func (b *Bot) buildUserRoster() string {
 	var sb strings.Builder
 	sb.WriteString("<users>\n")
 	for _, m := range members {
+		if !memberCanSeeChannel(m, overwrites) {
+			continue
+		}
 		fmt.Fprintf(&sb, "%s <@%s>", m.EffectiveName(), m.User.ID)
 		if val, ok := b.voiceChannels.Load(m.User.ID); ok {
 			if ch := val.(string); ch != "" {
@@ -512,6 +551,38 @@ func (b *Bot) buildUserRoster() string {
 	}
 	sb.WriteString("</users>")
 	return sb.String()
+}
+
+// memberCanSeeChannel checks channel permission overwrites to determine visibility.
+// It does not account for base role permissions (guild-level), which requires
+// fetching the full guild. For channels with no restrictive overwrites (the common
+// case), all members pass through, which is correct.
+func memberCanSeeChannel(member discord.Member, overwrites discord.PermissionOverwrites) bool {
+	if len(overwrites) == 0 {
+		return true
+	}
+
+	// Start from @everyone overwrite (role ID == guild ID, but we check all role overwrites)
+	allow, deny := discord.PermissionsNone, discord.PermissionsNone
+
+	// Accumulate role overwrites
+	for _, roleID := range member.RoleIDs {
+		if ow, ok := overwrites.Role(roleID); ok {
+			deny = deny.Add(ow.Deny)
+			allow = allow.Add(ow.Allow)
+		}
+	}
+
+	// Member-specific overwrite takes highest priority
+	if ow, ok := overwrites.Member(member.User.ID); ok {
+		deny = deny.Add(ow.Deny)
+		allow = allow.Add(ow.Allow)
+	}
+
+	if deny.Has(discord.PermissionViewChannel) && !allow.Has(discord.PermissionViewChannel) {
+		return false
+	}
+	return true
 }
 
 func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
