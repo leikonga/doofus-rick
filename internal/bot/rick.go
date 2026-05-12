@@ -549,6 +549,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 
 	messages := []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)}
 
+	var pendingText string
 	for range maxToolIter {
 		msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 			Model:     b.config.AnthropicModel,
@@ -562,16 +563,25 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 		}
 
 		if msg.StopReason != anthropic.StopReasonToolUse {
-			if len(msg.Content) == 0 {
-				return rickResponse{text: rickFallback}, nil
+			for _, block := range msg.Content {
+				if block.Type == "text" && block.Text != "" {
+					return rickResponse{text: block.Text}, nil
+				}
 			}
-			return rickResponse{text: msg.Content[0].Text}, nil
+			if pendingText != "" {
+				return rickResponse{text: pendingText}, nil
+			}
+			return rickResponse{text: rickFallback}, nil
 		}
 
 		messages = append(messages, msg.ToParam())
 
 		var resultBlocks []anthropic.ContentBlockParamUnion
 		for _, block := range msg.Content {
+			if block.Type == "text" && block.Text != "" {
+				pendingText = block.Text
+				continue
+			}
 			if block.Type != "tool_use" {
 				continue
 			}
