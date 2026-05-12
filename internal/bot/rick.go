@@ -245,12 +245,12 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        "decline",
-					Description: anthropic.String("Decline to respond, but only for comedic effect. Use sparingly. Prefer responding even if you have little to say."),
+					Description: anthropic.String("Decline to respond and optionally react with an emoji instead."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"emoji": map[string]any{
 								"type":        "string",
-								"description": "Unicode emoji to react with. Omit to do nothing at all.",
+								"description": "Unicode emoji to react with.",
 							},
 						},
 					},
@@ -271,7 +271,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        "gif_search",
-					Description: anthropic.String("Post a GIF as a response. Use sparingly, only for comedic effect. Prefer responding with text."),
+					Description: anthropic.String("Search for a GIF and post it as a response."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"query": map[string]any{
@@ -310,18 +310,13 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			name: "web_search",
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
-					Name: "web_search",
-					Description: anthropic.String("Search the web and get extracted content from the top results. " +
-						"Use the site: operator to target specific sources, e.g. " +
-						"site:knowyourmeme.com to look up meme origins and status, " +
-						"site:reddit.com for community takes, " +
-						"site:youtube.com to find a specific video. " +
-						"Prefer a targeted query over a vague one."),
+					Name:        "web_search",
+					Description: anthropic.String("Search the web and get extracted content from the top results. Supports standard operators like site:, intitle:, etc."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"query": map[string]any{
 								"type":        "string",
-								"description": "Search query. Supports standard operators like site:, intitle:, etc.",
+								"description": "Search query.",
 							},
 						},
 						Required: []string{"query"},
@@ -347,21 +342,21 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        "remember",
-					Description: anthropic.String("Save something to persistent memory for future reference. Use for notable facts about users, running jokes, or anything worth recalling later."),
+					Description: anthropic.String("Save a piece of text to persistent memory, optionally associated with a user."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"content": map[string]any{
 								"type":        "string",
-								"description": "The thing to remember.",
+								"description": "Text to store.",
 							},
 							"user_id": map[string]any{
 								"type":        "string",
-								"description": "Discord user ID this memory is about. Omit for general memories.",
+								"description": "Discord user ID to associate this memory with.",
 							},
 							"tags": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Optional tags to aid recall.",
+								"description": "Tags for filtering during recall.",
 							},
 						},
 						Required: []string{"content"},
@@ -388,7 +383,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        "recall",
-					Description: anthropic.String("Search persistent memory for relevant facts. Use when someone says something that might connect to past events, or when you want to land a callback."),
+					Description: anthropic.String("Search persistent memory by keyword, optionally filtered by user."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"query": map[string]any{
@@ -431,11 +426,9 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name: "shell_exec",
-					Description: anthropic.String("Run a shell command on your own server and get the output. " +
-						"You are running inside an Alpine Linux container as an unprivileged user, " +
-						"so standard busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, wget etc.) " +
-						"but you cannot escalate privileges or access host resources. " +
-						"Use for comedic self-awareness about your own environment."),
+					Description: anthropic.String("Run a shell command and return stdout. " +
+						"Runs inside an Alpine Linux container as an unprivileged user; " +
+						"busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, wget, etc.)."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"command": map[string]any{
@@ -462,7 +455,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 			def: anthropic.ToolUnionParam{
 				OfTool: &anthropic.ToolParam{
 					Name:        "image_search",
-					Description: anthropic.String("Post a reaction image or meme as a response. Use instead of gif_search when a static image or meme format fits better than an animation. Supports site: operators, e.g. site:knowyourmeme.com."),
+					Description: anthropic.String("Search for a static image and post it as a response. Supports site: operators."),
 					InputSchema: anthropic.ToolInputSchemaParam{
 						Properties: map[string]any{
 							"query": map[string]any{
