@@ -15,7 +15,10 @@ import (
 	"github.com/disgoorg/disgo/events"
 )
 
-var trailingTagRe = regexp.MustCompile(`(\s*<[^>]*>\s*)+$`)
+var (
+	trailingTagRe = regexp.MustCompile(`(\s*<[^>]*>\s*)+$`)
+	userMentionRe = regexp.MustCompile(`<@!?(\d+)>`)
+)
 
 const (
 	maxContextLen = 500
@@ -64,7 +67,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		}
 
 		var parts []string
-		content := msg.Content
+		content := b.resolveMentions(msg.Content)
 		if len(content) > maxContextLen {
 			content = content[:maxContextLen] + "..."
 		}
@@ -99,7 +102,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
 		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
 			ts := refMsg.CreatedAt.Format("15:04")
-			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), refMsg.Content)}, lines...)
+			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), b.resolveMentions(refMsg.Content))}, lines...)
 		}
 	}
 
@@ -109,6 +112,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			fmt.Sprintf("<@!%s>", botID), "",
 		).Replace(event.Message.Content),
 	)
+	triggerContent = b.resolveMentions(triggerContent)
 
 	var triggerParts []string
 	if triggerContent != "" {
@@ -332,4 +336,15 @@ func (b *Bot) memberName(user discord.User) string {
 		return user.Username
 	}
 	return name
+}
+
+func (b *Bot) resolveMentions(content string) string {
+	return userMentionRe.ReplaceAllStringFunc(content, func(match string) string {
+		id := userMentionRe.FindStringSubmatch(match)[1]
+		name, err := b.GetUsernameForID(id)
+		if err != nil {
+			return "@unknown-user"
+		}
+		return "@" + name
+	})
 }
