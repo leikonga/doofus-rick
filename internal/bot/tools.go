@@ -33,6 +33,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 		b.declineTool(),
 		b.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", b.searchGiphy),
 		b.webSearchTool(),
+		b.fetchPageTool(),
 		b.rememberTool(),
 		b.recallTool(),
 		b.shellExecTool(),
@@ -119,13 +120,20 @@ func (b *Bot) webSearchTool() ricktool {
 		name: "web_search",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
-				Name:        "web_search",
-				Description: anthropic.String("Search the web and get extracted content from the top results. Supports standard operators like site:, intitle:, etc."),
+				Name: "web_search",
+				Description: anthropic.String("Search the web and get titles, URLs, and descriptions from the top results. " +
+					"Supports standard operators like site:, intitle:, etc. " +
+					"Use fetch_page to read the full content of any result URL. " +
+					"Set freshness to 'pd' (24h), 'pw' (7d), 'pm' (31d), or 'py' (1y) to restrict to recent content."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
 						"query": map[string]any{
 							"type":        "string",
 							"description": "Search query.",
+						},
+						"freshness": map[string]any{
+							"type":        "string",
+							"description": "Restrict results by age: pd=24h, pw=7 days, pm=31 days, py=1 year.",
 						},
 					},
 					Required: []string{"query"},
@@ -134,16 +142,51 @@ func (b *Bot) webSearchTool() ricktool {
 		},
 		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
-				Query string `json:"query"`
+				Query     string `json:"query"`
+				Freshness string `json:"freshness"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			result, err := b.searchBrave(ctx, in.Query)
+			result, err := b.searchBrave(ctx, in.Query, in.Freshness)
 			if err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: result}, nil
+		},
+	}
+}
+
+func (b *Bot) fetchPageTool() ricktool {
+	return ricktool{
+		name: "fetch_page",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        "fetch_page",
+				Description: anthropic.String("Fetch and read the text content of a web page. Use after web_search to dig into a specific result."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "URL to fetch.",
+						},
+					},
+					Required: []string{"url"},
+				},
+			},
+		},
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+			content, err := b.fetchPage(ctx, in.URL)
+			if err != nil {
+				return toolResult{}, err
+			}
+			return toolResult{content: content}, nil
 		},
 	}
 }
