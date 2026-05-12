@@ -169,6 +169,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	fullSystem := string(systemPrompt)
+	fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
 	if roster := b.buildUserRoster(channelOverwrites); roster != "" {
 		fullSystem += "\n\n" + roster
 	}
@@ -420,7 +421,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 				}
 				var sb strings.Builder
 				for _, m := range memories {
-					fmt.Fprintf(&sb, "- %s\n", m.Content)
+					fmt.Fprintf(&sb, "- [%s] %s\n", m.CreatedAt.Format("2006-01-02"), m.Content)
 				}
 				return toolResult{content: sb.String()}, nil
 			},
