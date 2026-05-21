@@ -46,7 +46,6 @@ func (b *Bot) Run(ctx context.Context) error {
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences, gateway.IntentGuildVoiceStates),
 		),
 		bot.WithEventListeners(r),
-		bot.WithEventListenerFunc(onMessageCreate),
 		bot.WithEventListenerFunc(b.onMentionCreate),
 		bot.WithEventListenerFunc(b.onPresenceUpdate),
 		bot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
