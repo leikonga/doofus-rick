@@ -27,3 +27,9 @@ func (s *Store) GetRandomQuote() Quote {
 func (s *Store) CreateQuote(quote Quote) error {
 	return s.db.Create(&quote).Error
 }
+
+func (s *Store) GetQuotesByParticipant(userID string) []Quote {
+	var quotes []Quote
+	s.db.Where("? = ANY(participants)", userID).Order("timestamp desc").Find(&quotes)
+	return quotes
+}

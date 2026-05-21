@@ -187,13 +187,17 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
-	_, err = event.Client().Rest.CreateMessage(event.ChannelID,
-		discord.NewMessageCreate().
-			WithContent(sanitizedResponse).
-			WithMessageReferenceByID(event.MessageID),
-	)
-	if err != nil {
-		slog.Warn("failed to send rick response", "error", err)
+	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
+	if sanitizedResponse != "" {
+		msg = msg.WithContent(sanitizedResponse)
+	}
+	if resp.embed != nil {
+		msg = msg.WithEmbeds(*resp.embed)
+	}
+	if sanitizedResponse != "" || resp.embed != nil {
+		if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
+			slog.Warn("failed to send rick response", "error", err)
+		}
 	}
 }
 

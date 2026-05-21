@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type rickResponse struct {
 	text    string
 	decline bool
 	emoji   string
+	embed   *discord.Embed
 }
 
 type toolResult struct {
@@ -39,6 +43,8 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 		b.shellExecTool(),
 		b.mediaResponseTool("image_search", "Search for a static image and post it as a response. Supports site: operators.", b.searchBraveImage),
 		b.reactTool(event),
+		b.saveQuoteTool(event),
+		b.getUserQuotesTool(),
 	}
 }
 
@@ -309,6 +315,117 @@ func (b *Bot) shellExecTool() ricktool {
 				return toolResult{}, err
 			}
 			return toolResult{content: b.shellExec(ctx, in.Command)}, nil
+		},
+	}
+}
+
+func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
+	return ricktool{
+		name: "save_quote",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        "save_quote",
+				Description: anthropic.String("Save a quote to the quote book and display it as a quote embed. Use when someone says something memorable or worth archiving."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"content": map[string]any{
+							"type":        "string",
+							"description": "The quote text to save.",
+						},
+						"creator_id": map[string]any{
+							"type":        "string",
+							"description": "Discord snowflake of the person who said it.",
+						},
+						"participant_ids": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Discord snowflakes of any additional participants in the quote.",
+						},
+					},
+					Required: []string{"content", "creator_id"},
+				},
+			},
+		},
+		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				Content        string   `json:"content"`
+				CreatorID      string   `json:"creator_id"`
+				ParticipantIDs []string `json:"participant_ids"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+
+			q := store.Quote{
+				Content:      in.Content,
+				Creator:      in.CreatorID,
+				Participants: in.ParticipantIDs,
+			}
+			if err := b.store.CreateQuote(q); err != nil {
+				return toolResult{}, err
+			}
+
+			author, err := b.GetMemberForID(in.CreatorID)
+			if err != nil {
+				slog.Warn("failed to get author for saved quote", "error", err)
+			}
+			now := time.Now()
+			embed := discord.Embed{
+				Description: in.Content,
+				Color:       0x11806A,
+				Timestamp:   &now,
+				Footer:      memberEmbedFooter(author, in.CreatorID),
+			}
+
+			_, sendErr := event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().
+				WithEmbeds(embed).
+				WithMessageReferenceByID(event.MessageID),
+			)
+			if sendErr != nil {
+				slog.Warn("failed to send quote embed", "error", sendErr)
+			}
+
+			return toolResult{content: "quote saved"}, nil
+		},
+	}
+}
+
+func (b *Bot) getUserQuotesTool() ricktool {
+	return ricktool{
+		name: "get_user_quotes",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        "get_user_quotes",
+				Description: anthropic.String("Look up all saved quotes for a user by their Discord snowflake. Use to find ammunition for roasting someone."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"user_id": map[string]any{
+							"type":        "string",
+							"description": "Discord snowflake of the user to look up.",
+						},
+					},
+					Required: []string{"user_id"},
+				},
+			},
+		},
+		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				UserID string `json:"user_id"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+
+			quotes := b.store.GetQuotesByParticipant(in.UserID)
+			if len(quotes) == 0 {
+				return toolResult{content: "no quotes found for this user"}, nil
+			}
+
+			var sb strings.Builder
+			for _, q := range quotes {
+				fmt.Fprintf(&sb, "- [%s] %s\n", q.Timestamp.Format("2006-01-02"), q.Content)
+			}
+			return toolResult{content: sb.String()}, nil
 		},
 	}
 }
