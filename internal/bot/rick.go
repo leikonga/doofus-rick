@@ -25,7 +25,7 @@ const (
 	maxTokens     = int64(512)
 	historyLimit  = 7
 	maxImages     = 5
-	maxToolIter   = 5
+	maxToolIter   = 8
 	rickFallback  = "najo woas i etz ned"
 )
 
@@ -269,6 +269,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 			if pendingText != "" {
 				return rickResponse{text: pendingText}, nil
 			}
+			slog.Warn("no text in non-tool response, using fallback", "stop_reason", msg.StopReason)
 			return rickResponse{text: rickFallback}, nil
 		}
 
@@ -302,10 +303,12 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 		}
 
 		if len(resultBlocks) == 0 {
+			slog.Warn("tool_use stop reason but no actionable tool blocks, using fallback")
 			break
 		}
 		messages = append(messages, anthropic.NewUserMessage(resultBlocks...))
 	}
+	slog.Warn("tool iteration limit reached, using fallback", "max_iter", maxToolIter)
 
 	return rickResponse{text: rickFallback}, nil
 }
