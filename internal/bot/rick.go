@@ -215,7 +215,7 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString("[history]\n")
+		sb.WriteString("[context - recent chat, do not respond to these]\n")
 		sb.WriteString(strings.Join(lines, "\n"))
 	}
 
@@ -223,7 +223,7 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString("[message]\n")
+		sb.WriteString("[reply to this mention]\n")
 		sb.WriteString(trigger)
 	}
 
