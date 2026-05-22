@@ -33,3 +33,9 @@ func (s *Store) GetQuotesByParticipant(userID string) []Quote {
 	s.db.Where("? = ANY(participants)", userID).Order("timestamp desc").Find(&quotes)
 	return quotes
 }
+
+func (s *Store) SearchQuotes(query string) []Quote {
+	var quotes []Quote
+	s.db.Where("content ILIKE ?", "%"+query+"%").Order("timestamp desc").Find(&quotes)
+	return quotes
+}

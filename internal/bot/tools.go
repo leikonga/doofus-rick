@@ -45,6 +45,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 		b.reactTool(event),
 		b.saveQuoteTool(event),
 		b.getUserQuotesTool(),
+		b.searchQuotesTool(),
 	}
 }
 
@@ -421,6 +422,44 @@ func (b *Bot) getUserQuotesTool() ricktool {
 				return toolResult{content: "no quotes found for this user"}, nil
 			}
 
+			var sb strings.Builder
+			for _, q := range quotes {
+				fmt.Fprintf(&sb, "- [%s] %s\n", q.Timestamp.Format("2006-01-02"), q.Content)
+			}
+			return toolResult{content: sb.String()}, nil
+		},
+	}
+}
+
+func (b *Bot) searchQuotesTool() ricktool {
+	return ricktool{
+		name: "search_quotes",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        "search_quotes",
+				Description: anthropic.String("Search the quote book by content. Use when looking for a specific quote or when a user has no participant quotes on record."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"query": map[string]any{
+							"type":        "string",
+							"description": "Text to search for within quote content.",
+						},
+					},
+					Required: []string{"query"},
+				},
+			},
+		},
+		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				Query string `json:"query"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+			quotes := b.store.SearchQuotes(in.Query)
+			if len(quotes) == 0 {
+				return toolResult{content: "no quotes found"}, nil
+			}
 			var sb strings.Builder
 			for _, q := range quotes {
 				fmt.Fprintf(&sb, "- [%s] %s\n", q.Timestamp.Format("2006-01-02"), q.Content)
