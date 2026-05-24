@@ -30,9 +30,6 @@ const (
 )
 
 func (b *Bot) onMentionCreate(event *events.MessageCreate) {
-	ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
-	defer cancel()
-
 	if event.Message.Author.Bot {
 		return
 	}
@@ -42,167 +39,172 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 		return
 	}
 
-	systemPrompt, err := os.ReadFile(b.config.SystemPromptFile)
-	if err != nil {
-		slog.Warn("failed to read system prompt file", "error", err, "path", b.config.SystemPromptFile)
-		b.replyFallback(event)
-		return
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+		defer cancel()
 
-	msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
-	if err != nil {
-		slog.Warn("failed to fetch channel history", "error", err)
-		b.replyFallback(event)
-		return
-	}
-	slices.Reverse(msgs)
-
-	var lines []string
-	for _, msg := range msgs {
-		if msg.ID == event.MessageID {
-			continue
-		}
-		if msg.Author.ID == botID {
-			continue
-		}
-		if strings.HasPrefix(msg.Content, "/") {
-			continue
+		systemPrompt, err := os.ReadFile(b.config.SystemPromptFile)
+		if err != nil {
+			slog.Warn("failed to read system prompt file", "error", err, "path", b.config.SystemPromptFile)
+			b.replyFallback(event)
+			return
 		}
 
-		var parts []string
-		content := b.resolveMentions(msg.Content)
-		if len(content) > maxContextLen {
-			content = content[:maxContextLen] + "..."
+		msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
+		if err != nil {
+			slog.Warn("failed to fetch channel history", "error", err)
+			b.replyFallback(event)
+			return
 		}
-		if content != "" {
-			parts = append(parts, content)
-		}
-		for _, s := range msg.StickerItems {
-			parts = append(parts, "(sticker: "+s.Name+")")
-		}
-		for _, att := range msg.Attachments {
-			if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
-				parts = append(parts, "(sent an image)")
+		slices.Reverse(msgs)
+
+		var lines []string
+		for _, msg := range msgs {
+			if msg.ID == event.MessageID {
+				continue
+			}
+			if msg.Author.ID == botID {
+				continue
+			}
+			if strings.HasPrefix(msg.Content, "/") {
+				continue
+			}
+
+			var parts []string
+			content := b.resolveMentions(msg.Content)
+			if len(content) > maxContextLen {
+				content = content[:maxContextLen] + "..."
+			}
+			if content != "" {
+				parts = append(parts, content)
+			}
+			for _, s := range msg.StickerItems {
+				parts = append(parts, "(sticker: "+s.Name+")")
+			}
+			for _, att := range msg.Attachments {
+				if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
+					parts = append(parts, "(sent an image)")
+				} else {
+					parts = append(parts, "(sent: "+att.Filename+")")
+				}
+			}
+			if len(parts) == 0 {
+				continue
+			}
+
+			var name string
+			if msg.Author.Bot {
+				name = msg.Author.Username + " (bot)"
 			} else {
-				parts = append(parts, "(sent: "+att.Filename+")")
+				name = b.memberName(msg.Author)
 			}
-		}
-		if len(parts) == 0 {
-			continue
+			ts := msg.CreatedAt.Format("15:04")
+			lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
 		}
 
-		var name string
-		if msg.Author.Bot {
-			name = msg.Author.Username + " (bot)"
+		if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
+			refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
+			if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
+				ts := refMsg.CreatedAt.Format("15:04")
+				lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), b.resolveMentions(refMsg.Content))}, lines...)
+			}
+		}
+
+		triggerContent := strings.TrimSpace(
+			strings.NewReplacer(
+				fmt.Sprintf("<@%s>", botID), "",
+				fmt.Sprintf("<@!%s>", botID), "",
+			).Replace(event.Message.Content),
+		)
+		triggerContent = b.resolveMentions(triggerContent)
+
+		var triggerParts []string
+		if triggerContent != "" {
+			triggerParts = append(triggerParts, triggerContent)
+		}
+		for _, s := range event.Message.StickerItems {
+			triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
+		}
+		for _, att := range event.Message.Attachments {
+			if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") {
+				triggerParts = append(triggerParts, "(sent: "+att.Filename+")")
+			}
+		}
+
+		triggerName := b.memberName(event.Message.Author)
+		var trigger string
+		if len(triggerParts) > 0 {
+			trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
 		} else {
-			name = b.memberName(msg.Author)
+			trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
 		}
-		ts := msg.CreatedAt.Format("15:04")
-		lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
-	}
 
-	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
-		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
-		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
-			ts := refMsg.CreatedAt.Format("15:04")
-			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), b.resolveMentions(refMsg.Content))}, lines...)
-		}
-	}
-
-	triggerContent := strings.TrimSpace(
-		strings.NewReplacer(
-			fmt.Sprintf("<@%s>", botID), "",
-			fmt.Sprintf("<@!%s>", botID), "",
-		).Replace(event.Message.Content),
-	)
-	triggerContent = b.resolveMentions(triggerContent)
-
-	var triggerParts []string
-	if triggerContent != "" {
-		triggerParts = append(triggerParts, triggerContent)
-	}
-	for _, s := range event.Message.StickerItems {
-		triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
-	}
-	for _, att := range event.Message.Attachments {
-		if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") {
-			triggerParts = append(triggerParts, "(sent: "+att.Filename+")")
-		}
-	}
-
-	triggerName := b.memberName(event.Message.Author)
-	var trigger string
-	if len(triggerParts) > 0 {
-		trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
-	} else {
-		trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
-	}
-
-	var imageURLs []string
-	for _, att := range event.Message.Attachments {
-		if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
-			imageURLs = append(imageURLs, att.URL)
-			if len(imageURLs) >= maxImages {
-				break
+		var imageURLs []string
+		for _, att := range event.Message.Attachments {
+			if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
+				imageURLs = append(imageURLs, att.URL)
+				if len(imageURLs) >= maxImages {
+					break
+				}
 			}
 		}
-	}
 
-	var channelName, channelTopic string
-	var channelOverwrites discord.PermissionOverwrites
-	if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
-		channelName = ch.Name()
-		if gmc, ok := ch.(discord.GuildMessageChannel); ok {
-			if gmc.Topic() != nil {
-				channelTopic = *gmc.Topic()
-			}
-			channelOverwrites = gmc.PermissionOverwrites()
-		}
-	}
-
-	fullSystem := string(systemPrompt)
-	fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
-	if roster := b.buildUserRoster(channelOverwrites); roster != "" {
-		fullSystem += "\n\n" + roster
-	}
-
-	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
-	if _, alreadyTyping := b.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
-		go func() {
-			defer b.typingChannels.Delete(event.ChannelID)
-			b.keepTyping(ctx, event)
-		}()
-	}
-
-	resp, err := b.callClaude(ctx, fullSystem, prompt, imageURLs, event)
-	if err != nil {
-		slog.Warn("claude api call failed", "error", err)
-		b.replyFallback(event)
-		return
-	}
-
-	if resp.decline {
-		if resp.emoji != "" {
-			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
-				slog.Warn("failed to add reaction", "error", err)
+		var channelName, channelTopic string
+		var channelOverwrites discord.PermissionOverwrites
+		if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
+			channelName = ch.Name()
+			if gmc, ok := ch.(discord.GuildMessageChannel); ok {
+				if gmc.Topic() != nil {
+					channelTopic = *gmc.Topic()
+				}
+				channelOverwrites = gmc.PermissionOverwrites()
 			}
 		}
-		return
-	}
 
-	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
-	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
-	if sanitizedResponse != "" {
-		msg = msg.WithContent(sanitizedResponse)
-	}
-	if resp.embed != nil {
-		msg = msg.WithEmbeds(*resp.embed)
-	}
-	if sanitizedResponse != "" || resp.embed != nil {
-		if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
-			slog.Warn("failed to send rick response", "error", err)
+		fullSystem := string(systemPrompt)
+		fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
+		if roster := b.buildUserRoster(channelOverwrites); roster != "" {
+			fullSystem += "\n\n" + roster
 		}
-	}
+
+		prompt := buildPrompt(channelName, channelTopic, lines, trigger)
+		if _, alreadyTyping := b.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
+			go func() {
+				defer b.typingChannels.Delete(event.ChannelID)
+				b.keepTyping(ctx, event)
+			}()
+		}
+
+		resp, err := b.callClaude(ctx, fullSystem, prompt, imageURLs, event)
+		if err != nil {
+			slog.Warn("claude api call failed", "error", err)
+			b.replyFallback(event)
+			return
+		}
+
+		if resp.decline {
+			if resp.emoji != "" {
+				if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
+					slog.Warn("failed to add reaction", "error", err)
+				}
+			}
+			return
+		}
+
+		sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
+		msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
+		if sanitizedResponse != "" {
+			msg = msg.WithContent(sanitizedResponse)
+		}
+		if resp.embed != nil {
+			msg = msg.WithEmbeds(*resp.embed)
+		}
+		if sanitizedResponse != "" || resp.embed != nil {
+			if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
+				slog.Warn("failed to send rick response", "error", err)
+			}
+		}
+	}()
 }
 
 func buildPrompt(channelName, channelTopic string, lines []string, trigger string) string {
