@@ -30,6 +30,9 @@ const (
 )
 
 func (b *Bot) onMentionCreate(event *events.MessageCreate) {
+	ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+	defer cancel()
+
 	if event.Message.Author.Bot {
 		return
 	}
@@ -164,12 +167,9 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
+	go b.keepTyping(ctx, event)
 
-	typingCtx, stopTyping := context.WithCancel(context.Background())
-	defer stopTyping()
-	go b.keepTyping(typingCtx, event)
-
-	resp, err := b.callClaude(context.Background(), fullSystem, prompt, imageURLs, event)
+	resp, err := b.callClaude(ctx, fullSystem, prompt, imageURLs, event)
 	if err != nil {
 		slog.Warn("claude api call failed", "error", err)
 		b.replyFallback(event)
@@ -177,7 +177,6 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	if resp.decline {
-		stopTyping()
 		if resp.emoji != "" {
 			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
 				slog.Warn("failed to add reaction", "error", err)

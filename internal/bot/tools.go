@@ -226,7 +226,7 @@ func (b *Bot) rememberTool() ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				Content string   `json:"content"`
 				UserID  string   `json:"user_id"`
@@ -235,7 +235,7 @@ func (b *Bot) rememberTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			if err := b.store.SaveMemory(in.UserID, in.Content, in.Tags); err != nil {
+			if err := b.store.SaveMemory(ctx, in.UserID, in.Content, in.Tags); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "remembered"}, nil
@@ -265,7 +265,7 @@ func (b *Bot) recallTool() ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				Query  string `json:"query"`
 				UserID string `json:"user_id"`
@@ -273,7 +273,7 @@ func (b *Bot) recallTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			memories, err := b.store.SearchMemory(in.Query, in.UserID)
+			memories, err := b.store.SearchMemory(ctx, in.Query, in.UserID)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -347,7 +347,7 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				Content        string   `json:"content"`
 				ParticipantIDs []string `json:"participant_ids"`
@@ -362,7 +362,7 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 				Creator:      creatorID,
 				Participants: in.ParticipantIDs,
 			}
-			if err := b.store.CreateQuote(q); err != nil {
+			if err := b.store.CreateQuote(ctx, q); err != nil {
 				return toolResult{}, err
 			}
 
@@ -370,10 +370,11 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 			if err != nil {
 				slog.Warn("failed to get author for saved quote", "error", err)
 			}
+			now := time.Now()
 			embed := discord.Embed{
 				Description: in.Content,
 				Color:       0x11806A,
-				Timestamp:   new(time.Now()),
+				Timestamp:   &now,
 				Footer:      memberEmbedFooter(author, creatorID),
 			}
 
@@ -408,7 +409,7 @@ func (b *Bot) getUserQuotesTool() ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				UserID string `json:"user_id"`
 			}
@@ -416,14 +417,14 @@ func (b *Bot) getUserQuotesTool() ricktool {
 				return toolResult{}, err
 			}
 
-			quotes := b.store.GetQuotesByParticipant(in.UserID)
+			quotes := b.store.GetQuotesByParticipant(ctx, in.UserID)
 			if len(quotes) == 0 {
 				return toolResult{content: "no quotes found for this user"}, nil
 			}
 
 			var sb strings.Builder
 			for _, q := range quotes {
-				fmt.Fprintf(&sb, "- [%s] %s\n", q.Timestamp.Format("2006-01-02"), q.Content)
+				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
 			return toolResult{content: sb.String()}, nil
 		},
@@ -448,20 +449,20 @@ func (b *Bot) searchQuotesTool() ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				Query string `json:"query"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			quotes := b.store.SearchQuotes(in.Query)
+			quotes := b.store.SearchQuotes(ctx, in.Query)
 			if len(quotes) == 0 {
 				return toolResult{content: "no quotes found"}, nil
 			}
 			var sb strings.Builder
 			for _, q := range quotes {
-				fmt.Fprintf(&sb, "- [%s] %s\n", q.Timestamp.Format("2006-01-02"), q.Content)
+				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
 			return toolResult{content: sb.String()}, nil
 		},

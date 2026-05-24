@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -43,7 +44,17 @@ func (b *Bot) handleQuote(_ discord.SlashCommandInteractionData, e *handler.Comm
 }
 
 func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-	quote := b.store.GetRandomQuote()
+	ctx, cancel := context.WithTimeout(b.ctx, 10*time.Second)
+	defer cancel()
+
+	quote, err := b.store.GetRandomQuote(ctx)
+	if err != nil {
+		slog.Warn("failed to get random quote", "error", err)
+		return e.CreateMessage(discord.MessageCreate{
+			Content: "no quotes found",
+			Flags:   discord.MessageFlagEphemeral,
+		})
+	}
 	author, err := b.GetMemberForID(quote.Creator)
 	if err != nil {
 		slog.Warn("failed to get author for quote", "error", err)
@@ -52,7 +63,7 @@ func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handle
 	embed := discord.Embed{
 		Description: quote.Content,
 		Color:       0x11806A,
-		Timestamp:   &quote.Timestamp,
+		Timestamp:   &quote.CreatedAt,
 		Footer:      memberEmbedFooter(author, quote.Creator),
 	}
 
@@ -62,6 +73,9 @@ func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handle
 }
 
 func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
+	ctx, cancel := context.WithTimeout(b.ctx, 10*time.Second)
+	defer cancel()
+
 	content := e.Data.Text("content")
 
 	users := e.Data.Users("participants")
@@ -78,7 +92,7 @@ func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
 		Participants: participants,
 	}
 
-	if err := b.store.CreateQuote(quote); err != nil {
+	if err := b.store.CreateQuote(ctx, quote); err != nil {
 		slog.Error("failed to create quote", "error", err)
 		return e.CreateMessage(discord.MessageCreate{
 			Content: "seems like there was an issue creating the quote",
@@ -91,13 +105,12 @@ func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
 		slog.Warn("failed to get author for quote", "error", err)
 	}
 
-	now := time.Now()
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds: []discord.Embed{
 			{
 				Description: content,
 				Color:       0x11806A,
-				Timestamp:   &now,
+				Timestamp:   new(time.Now()),
 				Footer:      memberEmbedFooter(author, creatorID),
 			},
 		},

@@ -1,16 +1,18 @@
 package store
 
-func (s *Store) SaveMemory(userID, content string, tags []string) error {
-	return s.db.Create(&Memory{
+import "context"
+
+func (s *Store) SaveMemory(ctx context.Context, userID, content string, tags []string) error {
+	return s.db.WithContext(ctx).Create(&Memory{
 		UserID:  userID,
 		Content: content,
 		Tags:    tags,
 	}).Error
 }
 
-func (s *Store) SearchMemory(query, userID string) ([]Memory, error) {
+func (s *Store) SearchMemory(ctx context.Context, query, userID string) ([]Memory, error) {
 	var memories []Memory
-	db := s.db.Order("created_at desc").Limit(10)
+	db := s.db.WithContext(ctx).Order("created_at desc").Limit(10)
 	if userID != "" {
 		db = db.Where("user_id = ? OR user_id = ''", userID)
 	}

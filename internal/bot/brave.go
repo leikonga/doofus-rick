@@ -60,7 +60,7 @@ func (b *Bot) searchBrave(ctx context.Context, query, freshness string) (string,
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", b.config.BraveAPIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -100,7 +100,7 @@ func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; doofus-rick)")
 	req.Header.Set("Accept", "text/html,text/plain")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +169,7 @@ func (b *Bot) searchBraveImage(ctx context.Context, query string) (string, error
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", b.config.BraveAPIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

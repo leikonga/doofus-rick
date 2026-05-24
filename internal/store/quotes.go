@@ -1,41 +1,37 @@
 package store
 
-import "gorm.io/gorm"
+import "context"
 
-func (s *Store) Db() *gorm.DB {
-	return s.db
-}
-
-func (s *Store) GetQuotes() []Quote {
+func (s *Store) GetQuotes(ctx context.Context) []Quote {
 	var quotes []Quote
-	s.db.Order("timestamp desc").Find(&quotes)
+	s.db.WithContext(ctx).Order("created_at desc").Find(&quotes)
 	return quotes
 }
 
-func (s *Store) GetQuote(id string) (Quote, error) {
+func (s *Store) GetQuote(ctx context.Context, id string) (Quote, error) {
 	var quote Quote
-	err := s.db.Where("id = ?", id).First(&quote).Error
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&quote).Error
 	return quote, err
 }
 
-func (s *Store) GetRandomQuote() Quote {
+func (s *Store) GetRandomQuote(ctx context.Context) (Quote, error) {
 	var quote Quote
-	s.db.Order("random()").First(&quote)
-	return quote
+	err := s.db.WithContext(ctx).Order("random()").First(&quote).Error
+	return quote, err
 }
 
-func (s *Store) CreateQuote(quote Quote) error {
-	return s.db.Create(&quote).Error
+func (s *Store) CreateQuote(ctx context.Context, quote Quote) error {
+	return s.db.WithContext(ctx).Create(&quote).Error
 }
 
-func (s *Store) GetQuotesByParticipant(userID string) []Quote {
+func (s *Store) GetQuotesByParticipant(ctx context.Context, userID string) []Quote {
 	var quotes []Quote
-	s.db.Where("? = ANY(participants)", userID).Order("timestamp desc").Find(&quotes)
+	s.db.WithContext(ctx).Where("? = ANY(participants)", userID).Order("created_at desc").Find(&quotes)
 	return quotes
 }
 
-func (s *Store) SearchQuotes(query string) []Quote {
+func (s *Store) SearchQuotes(ctx context.Context, query string) []Quote {
 	var quotes []Quote
-	s.db.Where("content ILIKE ?", "%"+query+"%").Order("timestamp desc").Find(&quotes)
+	s.db.WithContext(ctx).Where("content ILIKE ?", "%"+query+"%").Order("created_at desc").Find(&quotes)
 	return quotes
 }

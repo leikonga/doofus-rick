@@ -613,7 +613,7 @@ func (b *Bot) scheduleReminderTool() ricktool {
 				},
 			},
 		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				ChannelID string `json:"channel_id"`
 				UserID    string `json:"user_id"`
@@ -636,7 +636,7 @@ func (b *Bot) scheduleReminderTool() ricktool {
 				Message:   in.Message,
 				FireAt:    fireAt,
 			}
-			if err := b.store.CreateReminder(r); err != nil {
+			if err := b.store.CreateReminder(ctx, r); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: fmt.Sprintf("reminder scheduled for %s", fireAt.Format(time.RFC3339))}, nil

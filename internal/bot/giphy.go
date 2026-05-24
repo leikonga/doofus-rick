@@ -31,7 +31,7 @@ func (b *Bot) searchGiphy(ctx context.Context, query string) (string, error) {
 		return "", err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

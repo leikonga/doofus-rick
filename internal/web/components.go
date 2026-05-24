@@ -90,7 +90,7 @@ func QuoteCard(quote QuoteDisplay) Node {
 		Class("block p-4 bg-gray-200 rounded border border-gray-400 hover:bg-gray-300 transition-colors"),
 		P(Class("text-lg italic"), Text(quote.Content)),
 		Div(Class("mt-2 text-sm text-gray-400"),
-			Textf("Added on %s by %s", quote.Timestamp.Format("Jan 02, 2006"), quote.CreatorName),
+			Textf("Added on %s by %s", quote.CreatedAt.Format("Jan 02, 2006"), quote.CreatorName),
 		),
 	)
 }

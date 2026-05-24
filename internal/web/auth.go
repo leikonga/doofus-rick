@@ -73,10 +73,13 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// get currently logged-in user snowflake using the web api
-	// then use bot api to check if they're a member of the configured guild
 	client := s.oauthConfig.Client(r.Context(), token)
-	resp, _ := client.Get("https://discord.com/api/users/@me")
+	resp, err := client.Get("https://discord.com/api/users/@me")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
 	var user struct {
 		ID string `json:"id"`
 	}

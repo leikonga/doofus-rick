@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -20,24 +21,28 @@ import (
 )
 
 type Bot struct {
+	ctx             context.Context
 	store           *store.Store
 	config          *config.Config
 	client          *bot.Client
 	anthropicClient anthropic.Client
+	httpClient      *http.Client
 	cache           UserCache
 	presences       sync.Map // snowflake.ID -> discord.OnlineStatus
 	voiceChannels   sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 }
 
-func New(s *store.Store, c *config.Config) *Bot {
+func New(ctx context.Context, s *store.Store, c *config.Config) *Bot {
 	return &Bot{
+		ctx:             ctx,
 		store:           s,
 		config:          c,
 		anthropicClient: anthropic.NewClient(option.WithAPIKey(c.AnthropicAPIKey)),
+		httpClient:      &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
-func (b *Bot) Run(ctx context.Context) error {
+func (b *Bot) Run() error {
 	r := handler.New()
 	r.SlashCommand("/ping", b.handlePingCommand)
 	r.SlashCommand("/quote", b.handleQuote)
@@ -67,11 +72,11 @@ func (b *Bot) Run(ctx context.Context) error {
 		}
 	}
 
-	if err = client.OpenGateway(ctx); err != nil {
+	if err = client.OpenGateway(b.ctx); err != nil {
 		return err
 	}
 
-	go b.runReminderLoop(ctx)
+	go b.runReminderLoop(b.ctx)
 
 	slog.Info("connected to discord", "appid", client.ApplicationID)
 	return nil
@@ -85,13 +90,13 @@ func (b *Bot) runReminderLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			b.fireReminders()
+			b.fireReminders(ctx)
 		}
 	}
 }
 
-func (b *Bot) fireReminders() {
-	reminders, err := b.store.GetDueReminders()
+func (b *Bot) fireReminders(ctx context.Context) {
+	reminders, err := b.store.GetDueReminders(ctx)
 	if err != nil {
 		slog.Warn("failed to fetch due reminders", "error", err)
 		return
@@ -103,7 +108,7 @@ func (b *Bot) fireReminders() {
 			slog.Warn("failed to send reminder", "id", r.ID, "error", err)
 			continue
 		}
-		if err := b.store.MarkReminderFired(r.ID); err != nil {
+		if err := b.store.MarkReminderFired(ctx, r.ID); err != nil {
 			slog.Warn("failed to mark reminder fired", "id", r.ID, "error", err)
 		}
 	}
