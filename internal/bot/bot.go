@@ -30,6 +30,7 @@ type Bot struct {
 	cache           UserCache
 	presences       sync.Map // snowflake.ID -> discord.OnlineStatus
 	voiceChannels   sync.Map // snowflake.ID -> string (channel name, empty if unknown)
+	typingChannels  sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config) *Bot {

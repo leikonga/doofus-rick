@@ -167,7 +167,12 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
-	go b.keepTyping(ctx, event)
+	if _, alreadyTyping := b.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
+		go func() {
+			defer b.typingChannels.Delete(event.ChannelID)
+			b.keepTyping(ctx, event)
+		}()
+	}
 
 	resp, err := b.callClaude(ctx, fullSystem, prompt, imageURLs, event)
 	if err != nil {
@@ -313,6 +318,8 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 }
 
 func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
 	for {
 		if err := event.Client().Rest.SendTyping(event.ChannelID); err != nil {
 			slog.Warn("failed to send typing indicator", "error", err)
@@ -320,7 +327,7 @@ func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(8 * time.Second):
+		case <-ticker.C:
 		}
 	}
 }
