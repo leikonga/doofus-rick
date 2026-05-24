@@ -33,7 +33,7 @@ type ricktool struct {
 }
 
 func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
-	return []ricktool{
+	tools := []ricktool{
 		b.declineTool(),
 		b.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", b.searchGiphy),
 		b.webSearchTool(),
@@ -47,6 +47,7 @@ func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
 		b.getUserQuotesTool(),
 		b.searchQuotesTool(),
 	}
+	return append(tools, b.discordTools()...)
 }
 
 func (b *Bot) declineTool() ricktool {

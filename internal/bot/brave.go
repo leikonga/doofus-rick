@@ -97,7 +97,7 @@ func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; bot)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; doofus-rick)")
 	req.Header.Set("Accept", "text/html,text/plain")
 
 	resp, err := http.DefaultClient.Do(req)
