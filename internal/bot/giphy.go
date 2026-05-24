@@ -20,13 +20,13 @@ type giphyResponse struct {
 }
 
 func (b *Bot) searchGiphy(ctx context.Context, query string) (string, error) {
-	endpoint := fmt.Sprintf(
-		"https://api.giphy.com/v1/gifs/search?api_key=%s&q=%s&limit=10&rating=pg-13",
-		url.QueryEscape(b.config.GiphyAPIKey),
-		url.QueryEscape(query),
-	)
+	params := url.Values{}
+	params.Set("api_key", b.config.GiphyAPIKey)
+	params.Set("q", query)
+	params.Set("limit", "10")
+	params.Set("rating", "pg-13")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.giphy.com/v1/gifs/search?"+params.Encode(), nil)
 	if err != nil {
 		return "", err
 	}

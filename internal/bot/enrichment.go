@@ -58,23 +58,31 @@ func (b *Bot) onlineMembers() []discord.Member {
 	return result
 }
 
-func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {
+// ensureCache populates the member cache on first call. Discord requires an
+// explicit limit or returns no results; 1000 is the API maximum.
+func (b *Bot) ensureCache() error {
 	b.cache.mu.RLock()
 	initialized := b.cache.members != nil
 	b.cache.mu.RUnlock()
+	if initialized {
+		return nil
+	}
 
-	if !initialized {
-		b.cache.mu.Lock()
-		if b.cache.members == nil {
-			// set 1000 user limit, because discord will not return any users if limit is not set
-			fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
-			if err != nil {
-				b.cache.mu.Unlock()
-				return nil, err
-			}
-			b.cache.members = fetched
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+	if b.cache.members == nil {
+		fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
+		if err != nil {
+			return err
 		}
-		b.cache.mu.Unlock()
+		b.cache.members = fetched
+	}
+	return nil
+}
+
+func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {
+	if err := b.ensureCache(); err != nil {
+		return nil, err
 	}
 
 	b.cache.mu.RLock()

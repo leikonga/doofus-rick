@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -159,9 +160,9 @@ func (b *Bot) getRecentMessagesTool() ricktool {
 			if len(msgs) == 0 {
 				return toolResult{content: "no messages found"}, nil
 			}
+			slices.Reverse(msgs)
 			var sb strings.Builder
-			for i := len(msgs) - 1; i >= 0; i-- {
-				m := msgs[i]
+			for _, m := range msgs {
 				name := b.memberName(m.Author)
 				ts := m.CreatedAt.Format("15:04")
 				content := b.resolveMentions(m.Content)
@@ -469,8 +470,9 @@ func (b *Bot) searchMembersTool() ricktool {
 				return toolResult{}, err
 			}
 			q := strings.ToLower(in.Query)
-			// ensure cache is populated via the existing lazy-load path
-			_, _ = b.GetMemberForID("")
+			if err := b.ensureCache(); err != nil {
+				return toolResult{}, err
+			}
 			b.cache.mu.RLock()
 			members := b.cache.members
 			b.cache.mu.RUnlock()
