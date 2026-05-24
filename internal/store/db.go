@@ -21,7 +21,7 @@ func MustInit(c *config.Config) *Store {
 		panic(err)
 	}
 
-	err = db.AutoMigrate(&Quote{}, &Memory{})
+	err = db.AutoMigrate(&Quote{}, &Memory{}, &Reminder{})
 	if err != nil {
 		panic(err)
 	}

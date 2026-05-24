@@ -2,13 +2,16 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
@@ -68,6 +71,40 @@ func (b *Bot) Run(ctx context.Context) error {
 		return err
 	}
 
+	go b.runReminderLoop(ctx)
+
 	slog.Info("connected to discord", "appid", client.ApplicationID)
 	return nil
+}
+
+func (b *Bot) runReminderLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.fireReminders()
+		}
+	}
+}
+
+func (b *Bot) fireReminders() {
+	reminders, err := b.store.GetDueReminders()
+	if err != nil {
+		slog.Warn("failed to fetch due reminders", "error", err)
+		return
+	}
+	for _, r := range reminders {
+		chID := snowflake.MustParse(r.ChannelID)
+		content := fmt.Sprintf("<@%s> %s", r.UserID, r.Message)
+		if _, err := b.client.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(content)); err != nil {
+			slog.Warn("failed to send reminder", "id", r.ID, "error", err)
+			continue
+		}
+		if err := b.store.MarkReminderFired(r.ID); err != nil {
+			slog.Warn("failed to mark reminder fired", "id", r.ID, "error", err)
+		}
+	}
 }

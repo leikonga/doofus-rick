@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 func (b *Bot) discordTools() []ricktool {
@@ -26,6 +28,7 @@ func (b *Bot) discordTools() []ricktool {
 		b.searchMembersTool(),
 		b.getRolesTool(),
 		b.getMemberRolesTool(),
+		b.scheduleReminderTool(),
 	}
 }
 
@@ -574,6 +577,69 @@ func (b *Bot) getMemberRolesTool() ricktool {
 				sb.WriteString("  (no roles)\n")
 			}
 			return toolResult{content: sb.String()}, nil
+		},
+	}
+}
+
+func (b *Bot) scheduleReminderTool() ricktool {
+	return ricktool{
+		name: "schedule_reminder",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name: "schedule_reminder",
+				Description: anthropic.String("Schedule a one-shot reminder that will be posted in a channel at a specific time. " +
+					"Use the current time from the system prompt to compute fire_at. " +
+					"The reminder will mention the target user."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"channel_id": map[string]any{
+							"type":        "string",
+							"description": "Channel to post the reminder in.",
+						},
+						"user_id": map[string]any{
+							"type":        "string",
+							"description": "Discord snowflake of the user to remind.",
+						},
+						"message": map[string]any{
+							"type":        "string",
+							"description": "Reminder message text.",
+						},
+						"fire_at": map[string]any{
+							"type":        "string",
+							"description": "ISO 8601 UTC timestamp when to fire the reminder, e.g. 2006-01-02T15:04:05Z.",
+						},
+					},
+					Required: []string{"channel_id", "user_id", "message", "fire_at"},
+				},
+			},
+		},
+		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				ChannelID string `json:"channel_id"`
+				UserID    string `json:"user_id"`
+				Message   string `json:"message"`
+				FireAt    string `json:"fire_at"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+			fireAt, err := time.Parse(time.RFC3339, in.FireAt)
+			if err != nil {
+				return toolResult{content: "invalid fire_at format, use ISO 8601 e.g. 2006-01-02T15:04:05Z"}, nil
+			}
+			if fireAt.Before(time.Now()) {
+				return toolResult{content: "fire_at is in the past"}, nil
+			}
+			r := store.Reminder{
+				ChannelID: in.ChannelID,
+				UserID:    in.UserID,
+				Message:   in.Message,
+				FireAt:    fireAt,
+			}
+			if err := b.store.CreateReminder(r); err != nil {
+				return toolResult{}, err
+			}
+			return toolResult{content: fmt.Sprintf("reminder scheduled for %s", fireAt.Format(time.RFC3339))}, nil
 		},
 	}
 }
