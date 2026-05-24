@@ -17,7 +17,22 @@ RUN adduser -D -g '' appuser
 
 FROM alpine:3
 
-RUN adduser -D -g '' appuser
+RUN apk add --no-cache \
+    bash curl jq \
+    git openssh-client \
+    python3 uv \
+    make coreutils \
+    sqlite \
+    diffutils patch \
+    tzdata \
+    file bc \
+    bind-tools \
+    openssl
+
+RUN adduser -D -g '' appuser && \
+    mkdir -p /rick/work && \
+    chown appuser:appuser /rick/work
+
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/doofus-rick /doofus-rick
 

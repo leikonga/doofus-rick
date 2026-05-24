@@ -294,9 +294,12 @@ func (b *Bot) shellExecTool() ricktool {
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name: "shell_exec",
-				Description: anthropic.String("Run a shell command and return stdout. " +
-					"Runs inside an Alpine Linux container as an unprivileged user; " +
-					"busybox utilities are available (sh, ls, ps, df, free, uptime, uname, cat, date, wget, etc.)."),
+				Description: anthropic.String("Run a shell command and return stdout+stderr. " +
+					"Runs as an unprivileged user in an Alpine Linux environment. " +
+					"Available: bash, curl, jq, git, openssh-client, python3, uv, make, coreutils, sqlite3, diffutils, patch, bc, file, dig, openssl, imagemagick. " +
+					"Working directory is /rick/work — persistent across calls; use it freely to store files, scripts, databases, cloned repos, etc. " +
+					"HOME is also /rick/work. " +
+					"Python packages can be installed inline with: uv run --with <pkg> python3 -c '...'."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
 						"command": map[string]any{
@@ -333,49 +336,44 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 							"type":        "string",
 							"description": "The quote text to save.",
 						},
-						"creator_id": map[string]any{
-							"type":        "string",
-							"description": "Discord snowflake of the person who said it.",
-						},
 						"participant_ids": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
 							"description": "Discord snowflakes of any additional participants in the quote.",
 						},
 					},
-					Required: []string{"content", "creator_id"},
+					Required: []string{"content"},
 				},
 			},
 		},
 		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
 			var in struct {
 				Content        string   `json:"content"`
-				CreatorID      string   `json:"creator_id"`
 				ParticipantIDs []string `json:"participant_ids"`
 			}
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
 
+			creatorID := event.Message.Author.ID.String()
 			q := store.Quote{
 				Content:      in.Content,
-				Creator:      in.CreatorID,
+				Creator:      creatorID,
 				Participants: in.ParticipantIDs,
 			}
 			if err := b.store.CreateQuote(q); err != nil {
 				return toolResult{}, err
 			}
 
-			author, err := b.GetMemberForID(in.CreatorID)
+			author, err := b.GetMemberForID(creatorID)
 			if err != nil {
 				slog.Warn("failed to get author for saved quote", "error", err)
 			}
-			now := time.Now()
 			embed := discord.Embed{
 				Description: in.Content,
 				Color:       0x11806A,
-				Timestamp:   &now,
-				Footer:      memberEmbedFooter(author, in.CreatorID),
+				Timestamp:   new(time.Now()),
+				Footer:      memberEmbedFooter(author, creatorID),
 			}
 
 			_, sendErr := event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().

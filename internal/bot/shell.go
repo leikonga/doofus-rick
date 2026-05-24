@@ -8,16 +8,17 @@ import (
 )
 
 const (
-	shellExecTimeout = 10 * time.Second
-	shellOutputLimit = 2000
+	shellExecTimeout = 45 * time.Second
+	shellOutputLimit = 4000
 )
 
 func (b *Bot) shellExec(ctx context.Context, command string) string {
 	ctx, cancel := context.WithTimeout(ctx, shellExecTimeout)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, "sh", "-c", command)
-	c.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	c := exec.CommandContext(ctx, "bash", "-c", command)
+	c.Dir = b.config.WorkDir
+	c.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/rick/work"}
 
 	var out bytes.Buffer
 	c.Stdout = &out

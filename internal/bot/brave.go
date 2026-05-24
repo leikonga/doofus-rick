@@ -139,7 +139,7 @@ func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
 	text = whitespaceRe.ReplaceAllString(text, " ")
 
 	var lines []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			lines = append(lines, line)

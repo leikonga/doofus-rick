@@ -31,6 +31,8 @@ type Config struct {
 
 	GiphyAPIKey string
 	BraveAPIKey string
+
+	WorkDir string
 }
 
 func LoadConfig() *Config {
@@ -64,6 +66,8 @@ func LoadConfig() *Config {
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
+
+		WorkDir: getEnv("RICK_WORK_DIR", "/rick/work"),
 	}
 }
 
