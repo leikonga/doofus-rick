@@ -138,7 +138,7 @@ fabric.properties
 .idea/**/azureSettings.xml
 
 # Binary name on *nix
-doofus-rick
+/doofus-rick
 
 # godotenv
 .env
