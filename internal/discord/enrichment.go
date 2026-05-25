@@ -14,6 +14,12 @@ type UserCache struct {
 	members []discord.Member
 }
 
+// UserPresence holds the last-known gateway presence for a guild member.
+type UserPresence struct {
+	Status     discord.OnlineStatus
+	Activities []discord.Activity
+}
+
 func (b *Bot) GetUsernameForID(id string) (string, error) {
 	user, err := b.GetMemberForID(id)
 	if err != nil {
@@ -23,7 +29,10 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 }
 
 func (b *Bot) onPresenceUpdate(event *events.PresenceUpdate) {
-	b.presences.Store(event.Presence.PresenceUser.ID, event.Presence.Status)
+	b.presences.Store(event.Presence.PresenceUser.ID, UserPresence{
+		Status:     event.Presence.Status,
+		Activities: event.Presence.Activities,
+	})
 }
 
 func (b *Bot) onGuildVoiceStateUpdate(event *events.GuildVoiceStateUpdate) {
@@ -49,8 +58,8 @@ func (b *Bot) OnlineMembers() []discord.Member {
 		if !ok {
 			continue
 		}
-		s := val.(discord.OnlineStatus)
-		if s != discord.OnlineStatusOffline && s != discord.OnlineStatusInvisible {
+		p := val.(UserPresence)
+		if p.Status != discord.OnlineStatusOffline && p.Status != discord.OnlineStatusInvisible {
 			result = append(result, m)
 		}
 	}
@@ -103,6 +112,30 @@ func (b *Bot) AllMembers() ([]discord.Member, error) {
 	return b.cache.members, nil
 }
 
+func (b *Bot) GetStatusForID(id string) discord.OnlineStatus {
+	uid, err := snowflake.Parse(id)
+	if err != nil {
+		return discord.OnlineStatusOffline
+	}
+	val, ok := b.presences.Load(uid)
+	if !ok {
+		return discord.OnlineStatusOffline
+	}
+	return val.(UserPresence).Status
+}
+
+func (b *Bot) GetActivitiesForID(id string) []discord.Activity {
+	uid, err := snowflake.Parse(id)
+	if err != nil {
+		return nil
+	}
+	val, ok := b.presences.Load(uid)
+	if !ok {
+		return nil
+	}
+	return val.(UserPresence).Activities
+}
+
 func (b *Bot) VoiceChannels() map[snowflake.ID]string {
 	result := make(map[snowflake.ID]string)
 	b.voiceChannels.Range(func(k, v any) bool {
@@ -110,4 +143,16 @@ func (b *Bot) VoiceChannels() map[snowflake.ID]string {
 		return true
 	})
 	return result
+}
+
+func (b *Bot) VoiceChannelForID(id string) string {
+	uid, err := snowflake.Parse(id)
+	if err != nil {
+		return ""
+	}
+	val, ok := b.voiceChannels.Load(uid)
+	if !ok {
+		return ""
+	}
+	return val.(string)
 }

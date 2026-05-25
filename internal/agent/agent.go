@@ -22,6 +22,9 @@ type DiscordState interface {
 	OnlineMembers() []discord.Member
 	AllMembers() ([]discord.Member, error)
 	VoiceChannels() map[snowflake.ID]string
+	VoiceChannelForID(id string) string
+	GetStatusForID(id string) discord.OnlineStatus
+	GetActivitiesForID(id string) []discord.Activity
 }
 
 type Agent struct {

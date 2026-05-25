@@ -30,6 +30,7 @@ func (a *Agent) discordTools() []ricktool {
 		a.getRolesTool(),
 		a.getMemberRolesTool(),
 		a.scheduleReminderTool(),
+		a.getUserInfoTool(),
 	}
 }
 
@@ -563,6 +564,108 @@ func (a *Agent) getMemberRolesTool() ricktool {
 			if len(member.RoleIDs) == 0 {
 				sb.WriteString("  (no roles)\n")
 			}
+			return toolResult{content: sb.String()}, nil
+		},
+	}
+}
+
+func (a *Agent) getUserInfoTool() ricktool {
+	return ricktool{
+		name: "get_user_info",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name: "get_user_info",
+				Description: anthropic.String("Get everything known about a guild member: their username, nickname, join date, " +
+					"Nitro booster status, online status, current activity (game, Spotify, stream, etc.), " +
+					"and which voice channel they are in."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{
+						"user_id": map[string]any{
+							"type":        "string",
+							"description": "Discord snowflake of the member to look up.",
+						},
+					},
+					Required: []string{"user_id"},
+				},
+			},
+		},
+		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
+			var in struct {
+				UserID string `json:"user_id"`
+			}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return toolResult{}, err
+			}
+
+			member, err := a.discord.GetMemberForID(in.UserID)
+			if err != nil {
+				return toolResult{}, err
+			}
+
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "username: %s\n", member.User.Username)
+			if member.Nick != nil {
+				fmt.Fprintf(&sb, "nickname: %s\n", *member.Nick)
+			}
+			if member.JoinedAt != nil {
+				fmt.Fprintf(&sb, "joined: %s\n", member.JoinedAt.Format("2006-01-02"))
+			}
+			if member.PremiumSince != nil {
+				fmt.Fprintf(&sb, "nitro booster since: %s\n", member.PremiumSince.Format("2006-01-02"))
+			}
+
+			status := a.discord.GetStatusForID(in.UserID)
+			fmt.Fprintf(&sb, "status: %s\n", status)
+
+			if vc := a.discord.VoiceChannelForID(in.UserID); vc != "" {
+				fmt.Fprintf(&sb, "voice channel: #%s\n", vc)
+			}
+
+			activities := a.discord.GetActivitiesForID(in.UserID)
+			for _, act := range activities {
+				switch act.Type {
+				case discord.ActivityTypeGame:
+					fmt.Fprintf(&sb, "playing: %s", act.Name)
+					if act.Details != nil {
+						fmt.Fprintf(&sb, " (%s)", *act.Details)
+					}
+					if act.State != nil {
+						fmt.Fprintf(&sb, " - %s", *act.State)
+					}
+				case discord.ActivityTypeStreaming:
+					fmt.Fprintf(&sb, "streaming: %s", act.Name)
+					if act.URL != nil {
+						fmt.Fprintf(&sb, " at %s", *act.URL)
+					}
+				case discord.ActivityTypeListening:
+					fmt.Fprintf(&sb, "listening: %s", act.Name)
+					if act.Details != nil {
+						fmt.Fprintf(&sb, ": %s", *act.Details)
+					}
+					if act.State != nil {
+						fmt.Fprintf(&sb, " by %s", *act.State)
+					}
+				case discord.ActivityTypeWatching:
+					fmt.Fprintf(&sb, "watching: %s", act.Name)
+					if act.Details != nil {
+						fmt.Fprintf(&sb, " - %s", *act.Details)
+					}
+				case discord.ActivityTypeCustom:
+					sb.WriteString("custom status:")
+					if act.Emoji != nil {
+						fmt.Fprintf(&sb, " %s", act.Emoji.Name)
+					}
+					if act.State != nil {
+						fmt.Fprintf(&sb, " %s", *act.State)
+					}
+				case discord.ActivityTypeCompeting:
+					fmt.Fprintf(&sb, "competing in: %s", act.Name)
+				default:
+					sb.WriteString(act.Name)
+				}
+				sb.WriteString("\n")
+			}
+
 			return toolResult{content: sb.String()}, nil
 		},
 	}

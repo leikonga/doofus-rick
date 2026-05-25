@@ -26,7 +26,7 @@ type Bot struct {
 	client        *disgobot.Client
 	agent         *agent.Agent
 	cache         UserCache
-	presences     sync.Map // snowflake.ID -> discord.OnlineStatus
+	presences     sync.Map // snowflake.ID -> UserPresence
 	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 }
 
