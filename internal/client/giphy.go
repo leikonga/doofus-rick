@@ -1,4 +1,4 @@
-package bot
+package client
 
 import (
 	"context"
@@ -19,19 +19,29 @@ type giphyResponse struct {
 	} `json:"data"`
 }
 
-func (b *Bot) searchGiphy(ctx context.Context, query string) (string, error) {
+type GiphyClient struct {
+	http   *http.Client
+	apiKey string
+}
+
+func NewGiphy(http *http.Client, apiKey string) *GiphyClient {
+	return &GiphyClient{http: http, apiKey: apiKey}
+}
+
+func (c *GiphyClient) Search(ctx context.Context, query string) (string, error) {
 	params := url.Values{}
-	params.Set("api_key", b.config.GiphyAPIKey)
+	params.Set("api_key", c.apiKey)
 	params.Set("q", query)
 	params.Set("limit", "10")
 	params.Set("rating", "pg-13")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.giphy.com/v1/gifs/search?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.giphy.com/v1/gifs/search?"+params.Encode(), nil)
 	if err != nil {
 		return "", err
 	}
 
-	resp, err := b.httpClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}

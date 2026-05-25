@@ -1,45 +1,40 @@
-package bot
+package discord
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/disgoorg/disgo"
-	"github.com/disgoorg/disgo/bot"
+	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type Bot struct {
-	ctx             context.Context
-	store           *store.Store
-	config          *config.Config
-	client          *bot.Client
-	anthropicClient anthropic.Client
-	httpClient      *http.Client
-	cache           UserCache
-	presences       sync.Map // snowflake.ID -> discord.OnlineStatus
-	voiceChannels   sync.Map // snowflake.ID -> string (channel name, empty if unknown)
-	typingChannels  sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
+	ctx           context.Context
+	store         *store.Store
+	config        *config.Config
+	client        *disgobot.Client
+	agent         *agent.Agent
+	cache         UserCache
+	presences     sync.Map // snowflake.ID -> discord.OnlineStatus
+	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config) *Bot {
 	return &Bot{
-		ctx:             ctx,
-		store:           s,
-		config:          c,
-		anthropicClient: anthropic.NewClient(option.WithAPIKey(c.AnthropicAPIKey)),
-		httpClient:      &http.Client{Timeout: 15 * time.Second},
+		ctx:    ctx,
+		store:  s,
+		config: c,
 	}
 }
 
@@ -51,18 +46,19 @@ func (b *Bot) Run() error {
 	r.Modal("/quote", b.handleQuoteSubmission)
 
 	client, err := disgo.New(b.config.DiscordToken,
-		bot.WithGatewayConfigOpts(
+		disgobot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences, gateway.IntentGuildVoiceStates),
 		),
-		bot.WithEventListeners(r),
-		bot.WithEventListenerFunc(b.onMentionCreate),
-		bot.WithEventListenerFunc(b.onPresenceUpdate),
-		bot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
+		disgobot.WithEventListeners(r),
+		disgobot.WithEventListenerFunc(func(e *events.MessageCreate) { b.agent.HandleMention(b.ctx, e) }),
+		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
+		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
 	)
 	if err != nil {
 		return err
 	}
 	b.client = client
+	b.agent = agent.New(b.store, b.config, b, b.client)
 
 	if b.config.DiscordGuild == "" {
 		slog.Warn("no discord guild configured, skipping command registration")

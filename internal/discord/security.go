@@ -1,4 +1,4 @@
-package bot
+package discord
 
 import "github.com/disgoorg/snowflake/v2"
 

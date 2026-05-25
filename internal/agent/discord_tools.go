@@ -1,4 +1,4 @@
-package bot
+package agent
 
 import (
 	"context"
@@ -17,47 +17,46 @@ import (
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-func (b *Bot) discordTools() []ricktool {
+func (a *Agent) discordTools() []ricktool {
 	return []ricktool{
-		b.listChannelsTool(),
-		b.sendMessageTool(),
-		b.sendEmbedTool(),
-		b.getRecentMessagesTool(),
-		b.createPollTool(),
-		b.getVoiceStateTool(),
-		b.sendFileTool(),
-		b.searchMembersTool(),
-		b.getRolesTool(),
-		b.getMemberRolesTool(),
-		b.scheduleReminderTool(),
+		a.listChannelsTool(),
+		a.sendMessageTool(),
+		a.sendEmbedTool(),
+		a.getRecentMessagesTool(),
+		a.createPollTool(),
+		a.getVoiceStateTool(),
+		a.sendFileTool(),
+		a.searchMembersTool(),
+		a.getRolesTool(),
+		a.getMemberRolesTool(),
+		a.scheduleReminderTool(),
 	}
 }
 
-func (b *Bot) listChannelsTool() ricktool {
+func (a *Agent) listChannelsTool() ricktool {
 	return ricktool{
 		name: "list_channels",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name:        "list_channels",
-				Description: anthropic.String("List all text channels in the server with their IDs, names, and topics."),
+				Description: anthropic.String("List all text channels available in the server with their IDs, names, and topics."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{},
 				},
 			},
 		},
 		execute: func(_ context.Context, _ json.RawMessage) (toolResult, error) {
-			guildID, err := snowflake.Parse(b.config.DiscordGuild)
+			guildID, err := snowflake.Parse(a.config.DiscordGuild)
 			if err != nil {
 				return toolResult{}, err
 			}
-			channels, err := b.client.Rest.GetGuildChannels(guildID)
+			channels, err := a.discordClient.Rest.GetGuildChannels(guildID)
 			if err != nil {
 				return toolResult{}, err
 			}
 			var sb strings.Builder
 			for _, ch := range channels {
-				t := ch.Type()
-				if t != discord.ChannelTypeGuildText && t != discord.ChannelTypeGuildNews && t != discord.ChannelTypeGuildForum {
+				if ch.Type() != discord.ChannelTypeGuildText {
 					continue
 				}
 				topic := ""
@@ -74,18 +73,18 @@ func (b *Bot) listChannelsTool() ricktool {
 	}
 }
 
-func (b *Bot) sendMessageTool() ricktool {
+func (a *Agent) sendMessageTool() ricktool {
 	return ricktool{
 		name: "send_message",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name:        "send_message",
-				Description: anthropic.String("Send a message to any channel by its ID. Use list_channels to find channel IDs."),
+				Description: anthropic.String("Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
 						"channel_id": map[string]any{
 							"type":        "string",
-							"description": "Discord channel snowflake ID.",
+							"description": "Discord channel snowflake ID to send the message to.",
 						},
 						"content": map[string]any{
 							"type":        "string",
@@ -108,7 +107,7 @@ func (b *Bot) sendMessageTool() ricktool {
 			if err != nil {
 				return toolResult{}, err
 			}
-			if _, err := b.client.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content)); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content)); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "message sent"}, nil
@@ -116,13 +115,13 @@ func (b *Bot) sendMessageTool() ricktool {
 	}
 }
 
-func (b *Bot) getRecentMessagesTool() ricktool {
+func (a *Agent) getRecentMessagesTool() ricktool {
 	return ricktool{
 		name: "get_recent_messages",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name:        "get_recent_messages",
-				Description: anthropic.String("Fetch recent messages from any channel. Use to snoop on what people are talking about."),
+				Description: anthropic.String("Retrieve recent messages from a channel. Use to get context from a specific channel."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
 						"channel_id": map[string]any{
@@ -131,10 +130,10 @@ func (b *Bot) getRecentMessagesTool() ricktool {
 						},
 						"limit": map[string]any{
 							"type":        "integer",
-							"description": "Number of messages to fetch (max 20).",
+							"description": "Number of messages to retrieve (max 100).",
 						},
 					},
-					Required: []string{"channel_id"},
+					Required: []string{"channel_id", "limit"},
 				},
 			},
 		},
@@ -146,14 +145,11 @@ func (b *Bot) getRecentMessagesTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			if in.Limit <= 0 || in.Limit > 20 {
-				in.Limit = 10
-			}
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
 				return toolResult{}, err
 			}
-			msgs, err := b.client.Rest.GetMessages(chID, 0, 0, 0, in.Limit)
+			msgs, err := a.discordClient.Rest.GetMessages(chID, 0, 0, 0, in.Limit)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -163,9 +159,9 @@ func (b *Bot) getRecentMessagesTool() ricktool {
 			slices.Reverse(msgs)
 			var sb strings.Builder
 			for _, m := range msgs {
-				name := b.memberName(m.Author)
+				name := a.memberName(m.Author)
 				ts := m.CreatedAt.Format("15:04")
-				content := b.resolveMentions(m.Content)
+				content := a.resolveMentions(m.Content)
 				if len(content) > maxContextLen {
 					content = content[:maxContextLen] + "..."
 				}
@@ -179,13 +175,13 @@ func (b *Bot) getRecentMessagesTool() ricktool {
 	}
 }
 
-func (b *Bot) createPollTool() ricktool {
+func (a *Agent) createPollTool() ricktool {
 	return ricktool{
 		name: "create_poll",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name:        "create_poll",
-				Description: anthropic.String("Post a Discord native poll in any channel."),
+				Description: anthropic.String("Create a Discord poll in a channel."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
 						"channel_id": map[string]any{
@@ -194,23 +190,23 @@ func (b *Bot) createPollTool() ricktool {
 						},
 						"question": map[string]any{
 							"type":        "string",
-							"description": "Poll question.",
+							"description": "Poll question text.",
 						},
 						"answers": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
-							"description": "Poll answer options (2-10).",
+							"description": "List of answer options.",
 						},
 						"duration_hours": map[string]any{
 							"type":        "integer",
-							"description": "How long the poll runs in hours (default 24).",
+							"description": "Poll duration in hours (1-168).",
 						},
 						"allow_multiselect": map[string]any{
 							"type":        "boolean",
-							"description": "Whether users can vote for multiple answers.",
+							"description": "Whether multiple answers can be selected.",
 						},
 					},
-					Required: []string{"channel_id", "question", "answers"},
+					Required: []string{"channel_id", "question", "answers", "duration_hours"},
 				},
 			},
 		},
@@ -225,12 +221,6 @@ func (b *Bot) createPollTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			if len(in.Answers) < 2 || len(in.Answers) > 10 {
-				return toolResult{content: "polls require between 2 and 10 answers"}, nil
-			}
-			if in.DurationHours <= 0 {
-				in.DurationHours = 24
-			}
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
 				return toolResult{}, err
@@ -240,7 +230,7 @@ func (b *Bot) createPollTool() ricktool {
 				poll = poll.AddAnswer(a, nil)
 			}
 			poll = poll.WithDuration(in.DurationHours).WithAllowMultiselect(in.AllowMultiselect)
-			if _, err := b.client.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll)); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll)); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "poll created"}, nil
@@ -248,7 +238,7 @@ func (b *Bot) createPollTool() ricktool {
 	}
 }
 
-func (b *Bot) getVoiceStateTool() ricktool {
+func (a *Agent) getVoiceStateTool() ricktool {
 	return ricktool{
 		name: "get_voice_state",
 		def: anthropic.ToolUnionParam{
@@ -261,20 +251,18 @@ func (b *Bot) getVoiceStateTool() ricktool {
 			},
 		},
 		execute: func(_ context.Context, _ json.RawMessage) (toolResult, error) {
+			vcs := a.discord.VoiceChannels()
 			var sb strings.Builder
-			b.voiceChannels.Range(func(key, val any) bool {
-				uid := key.(snowflake.ID)
-				chName := val.(string)
+			for uid, chName := range vcs {
 				if chName == "" {
 					chName = "unknown channel"
 				}
-				name, err := b.GetUsernameForID(uid.String())
+				name, err := a.discord.GetUsernameForID(uid.String())
 				if err != nil {
 					name = uid.String()
 				}
 				fmt.Fprintf(&sb, "%s is in #%s\n", name, chName)
-				return true
-			})
+			}
 			if sb.Len() == 0 {
 				return toolResult{content: "nobody is in voice"}, nil
 			}
@@ -283,7 +271,7 @@ func (b *Bot) getVoiceStateTool() ricktool {
 	}
 }
 
-func (b *Bot) sendFileTool() ricktool {
+func (a *Agent) sendFileTool() ricktool {
 	return ricktool{
 		name: "send_file",
 		def: anthropic.ToolUnionParam{
@@ -320,10 +308,9 @@ func (b *Bot) sendFileTool() ricktool {
 				return toolResult{}, err
 			}
 
-			// restrict to work dir
 			clean := filepath.Clean(in.Path)
-			if !strings.HasPrefix(clean, b.config.WorkDir) {
-				return toolResult{content: "path must be inside " + b.config.WorkDir}, nil
+			if !strings.HasPrefix(clean, a.config.WorkDir) {
+				return toolResult{content: "path must be inside " + a.config.WorkDir}, nil
 			}
 
 			f, err := os.Open(clean)
@@ -345,7 +332,7 @@ func (b *Bot) sendFileTool() ricktool {
 			if err != nil {
 				return toolResult{}, err
 			}
-			if _, err := b.client.Rest.CreateMessage(chID, msg); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, msg); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "file sent"}, nil
@@ -353,7 +340,7 @@ func (b *Bot) sendFileTool() ricktool {
 	}
 }
 
-func (b *Bot) sendEmbedTool() ricktool {
+func (a *Agent) sendEmbedTool() ricktool {
 	return ricktool{
 		name: "send_embed",
 		def: anthropic.ToolUnionParam{
@@ -436,7 +423,7 @@ func (b *Bot) sendEmbedTool() ricktool {
 			if in.Caption != "" {
 				msg = msg.WithContent(in.Caption)
 			}
-			if _, err := b.client.Rest.CreateMessage(chID, msg); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, msg); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "embed sent"}, nil
@@ -444,7 +431,7 @@ func (b *Bot) sendEmbedTool() ricktool {
 	}
 }
 
-func (b *Bot) searchMembersTool() ricktool {
+func (a *Agent) searchMembersTool() ricktool {
 	return ricktool{
 		name: "search_members",
 		def: anthropic.ToolUnionParam{
@@ -470,13 +457,10 @@ func (b *Bot) searchMembersTool() ricktool {
 				return toolResult{}, err
 			}
 			q := strings.ToLower(in.Query)
-			if err := b.ensureCache(); err != nil {
+			members, err := a.discord.AllMembers()
+			if err != nil {
 				return toolResult{}, err
 			}
-			b.cache.mu.RLock()
-			members := b.cache.members
-			b.cache.mu.RUnlock()
-
 			var sb strings.Builder
 			for _, m := range members {
 				name := m.EffectiveName()
@@ -492,7 +476,7 @@ func (b *Bot) searchMembersTool() ricktool {
 	}
 }
 
-func (b *Bot) getRolesTool() ricktool {
+func (a *Agent) getRolesTool() ricktool {
 	return ricktool{
 		name: "get_roles",
 		def: anthropic.ToolUnionParam{
@@ -505,11 +489,11 @@ func (b *Bot) getRolesTool() ricktool {
 			},
 		},
 		execute: func(_ context.Context, _ json.RawMessage) (toolResult, error) {
-			guildID, err := snowflake.Parse(b.config.DiscordGuild)
+			guildID, err := snowflake.Parse(a.config.DiscordGuild)
 			if err != nil {
 				return toolResult{}, err
 			}
-			roles, err := b.client.Rest.GetRoles(guildID)
+			roles, err := a.discordClient.Rest.GetRoles(guildID)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -525,7 +509,7 @@ func (b *Bot) getRolesTool() ricktool {
 	}
 }
 
-func (b *Bot) getMemberRolesTool() ricktool {
+func (a *Agent) getMemberRolesTool() ricktool {
 	return ricktool{
 		name: "get_member_roles",
 		def: anthropic.ToolUnionParam{
@@ -550,15 +534,15 @@ func (b *Bot) getMemberRolesTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			member, err := b.GetMemberForID(in.UserID)
+			member, err := a.discord.GetMemberForID(in.UserID)
 			if err != nil {
 				return toolResult{}, err
 			}
-			guildID, err := snowflake.Parse(b.config.DiscordGuild)
+			guildID, err := snowflake.Parse(a.config.DiscordGuild)
 			if err != nil {
 				return toolResult{}, err
 			}
-			roles, err := b.client.Rest.GetRoles(guildID)
+			roles, err := a.discordClient.Rest.GetRoles(guildID)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -583,14 +567,14 @@ func (b *Bot) getMemberRolesTool() ricktool {
 	}
 }
 
-func (b *Bot) scheduleReminderTool() ricktool {
+func (a *Agent) scheduleReminderTool() ricktool {
 	return ricktool{
 		name: "schedule_reminder",
 		def: anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				Name: "schedule_reminder",
 				Description: anthropic.String("Schedule a one-shot reminder that will be posted in a channel at a specific time. " +
-					"Use the current time from the system prompt to compute fire_at. " +
+					"Use when a user asks to be reminded about something later. " +
 					"The reminder will mention the target user."),
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: map[string]any{
@@ -638,7 +622,7 @@ func (b *Bot) scheduleReminderTool() ricktool {
 				Message:   in.Message,
 				FireAt:    fireAt,
 			}
-			if err := b.store.CreateReminder(ctx, r); err != nil {
+			if err := a.store.CreateReminder(ctx, r); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: fmt.Sprintf("reminder scheduled for %s", fireAt.Format(time.RFC3339))}, nil

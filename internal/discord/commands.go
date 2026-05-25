@@ -1,4 +1,4 @@
-package bot
+package discord
 
 import (
 	"context"
@@ -105,12 +105,13 @@ func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
 		slog.Warn("failed to get author for quote", "error", err)
 	}
 
+	now := time.Now()
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds: []discord.Embed{
 			{
 				Description: content,
 				Color:       0x11806A,
-				Timestamp:   new(time.Now()),
+				Timestamp:   &now,
 				Footer:      memberEmbedFooter(author, creatorID),
 			},
 		},

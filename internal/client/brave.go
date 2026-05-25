@@ -1,4 +1,4 @@
-package bot
+package client
 
 import (
 	"context"
@@ -10,6 +10,13 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+)
+
+var (
+	htmlTagRe      = regexp.MustCompile(`<[^>]+>`)
+	htmlEntityRe   = regexp.MustCompile(`&[a-zA-Z]+;|&#[0-9]+;`)
+	whitespaceRe   = regexp.MustCompile(`[ \t]+`)
+	multiNewlineRe = regexp.MustCompile(`\n{3,}`)
 )
 
 type braveContextResponse struct {
@@ -36,14 +43,16 @@ type braveImageResponse struct {
 	} `json:"results"`
 }
 
-var (
-	htmlTagRe      = regexp.MustCompile(`<[^>]+>`)
-	htmlEntityRe   = regexp.MustCompile(`&[a-zA-Z]+;|&#[0-9]+;`)
-	whitespaceRe   = regexp.MustCompile(`[ \t]+`)
-	multiNewlineRe = regexp.MustCompile(`\n{3,}`)
-)
+type BraveClient struct {
+	http   *http.Client
+	apiKey string
+}
 
-func (b *Bot) searchBrave(ctx context.Context, query, freshness string) (string, error) {
+func NewBrave(http *http.Client, apiKey string) *BraveClient {
+	return &BraveClient{http: http, apiKey: apiKey}
+}
+
+func (c *BraveClient) Search(ctx context.Context, query, freshness string) (string, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("maximum_number_of_tokens", "4000")
@@ -58,9 +67,9 @@ func (b *Bot) searchBrave(ctx context.Context, query, freshness string) (string,
 		return "", err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", b.config.BraveAPIKey)
+	req.Header.Set("X-Subscription-Token", c.apiKey)
 
-	resp, err := b.httpClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -92,7 +101,7 @@ func (b *Bot) searchBrave(ctx context.Context, query, freshness string) (string,
 	return sb.String(), nil
 }
 
-func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
+func (c *BraveClient) FetchPage(ctx context.Context, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
@@ -100,7 +109,7 @@ func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; doofus-rick)")
 	req.Header.Set("Accept", "text/html,text/plain")
 
-	resp, err := b.httpClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -156,7 +165,7 @@ func (b *Bot) fetchPage(ctx context.Context, rawURL string) (string, error) {
 	return text, nil
 }
 
-func (b *Bot) searchBraveImage(ctx context.Context, query string) (string, error) {
+func (c *BraveClient) SearchImage(ctx context.Context, query string) (string, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("count", "10")
@@ -167,9 +176,9 @@ func (b *Bot) searchBraveImage(ctx context.Context, query string) (string, error
 		return "", err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Subscription-Token", b.config.BraveAPIKey)
+	req.Header.Set("X-Subscription-Token", c.apiKey)
 
-	resp, err := b.httpClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}

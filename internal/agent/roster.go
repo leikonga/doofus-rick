@@ -1,4 +1,4 @@
-package bot
+package agent
 
 import (
 	"fmt"
@@ -7,11 +7,12 @@ import (
 	"github.com/disgoorg/disgo/discord"
 )
 
-func (b *Bot) buildUserRoster(overwrites discord.PermissionOverwrites) string {
-	members := b.onlineMembers()
+func (a *Agent) buildUserRoster(overwrites discord.PermissionOverwrites) string {
+	members := a.discord.OnlineMembers()
 	if len(members) == 0 {
 		return ""
 	}
+	vcs := a.discord.VoiceChannels()
 	var sb strings.Builder
 	sb.WriteString("<users>\n")
 	for _, m := range members {
@@ -19,8 +20,8 @@ func (b *Bot) buildUserRoster(overwrites discord.PermissionOverwrites) string {
 			continue
 		}
 		fmt.Fprintf(&sb, "%s <@%s>", m.EffectiveName(), m.User.ID)
-		if val, ok := b.voiceChannels.Load(m.User.ID); ok {
-			if ch := val.(string); ch != "" {
+		if ch, ok := vcs[m.User.ID]; ok {
+			if ch != "" {
 				fmt.Fprintf(&sb, " (in VC: %s)", ch)
 			} else {
 				sb.WriteString(" (in VC)")

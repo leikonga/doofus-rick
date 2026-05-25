@@ -1,4 +1,4 @@
-package bot
+package agent
 
 import (
 	"context"
@@ -29,7 +29,7 @@ const (
 	rickFallback  = "najo woas i etz ned"
 )
 
-func (b *Bot) onMentionCreate(event *events.MessageCreate) {
+func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {
 	if event.Message.Author.Bot {
 		return
 	}
@@ -40,20 +40,20 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 	}
 
 	go func() {
-		ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 
-		systemPrompt, err := os.ReadFile(b.config.SystemPromptFile)
+		systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 		if err != nil {
-			slog.Warn("failed to read system prompt file", "error", err, "path", b.config.SystemPromptFile)
-			b.replyFallback(event)
+			slog.Warn("failed to read system prompt file", "error", err, "path", a.config.SystemPromptFile)
+			a.replyFallback(event)
 			return
 		}
 
 		msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
 		if err != nil {
 			slog.Warn("failed to fetch channel history", "error", err)
-			b.replyFallback(event)
+			a.replyFallback(event)
 			return
 		}
 		slices.Reverse(msgs)
@@ -71,7 +71,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			}
 
 			var parts []string
-			content := b.resolveMentions(msg.Content)
+			content := a.resolveMentions(msg.Content)
 			if len(content) > maxContextLen {
 				content = content[:maxContextLen] + "..."
 			}
@@ -96,7 +96,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			if msg.Author.Bot {
 				name = msg.Author.Username + " (bot)"
 			} else {
-				name = b.memberName(msg.Author)
+				name = a.memberName(msg.Author)
 			}
 			ts := msg.CreatedAt.Format("15:04")
 			lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
@@ -106,7 +106,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
 			if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
 				ts := refMsg.CreatedAt.Format("15:04")
-				lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, b.memberName(refMsg.Author), b.resolveMentions(refMsg.Content))}, lines...)
+				lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content))}, lines...)
 			}
 		}
 
@@ -116,7 +116,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 				fmt.Sprintf("<@!%s>", botID), "",
 			).Replace(event.Message.Content),
 		)
-		triggerContent = b.resolveMentions(triggerContent)
+		triggerContent = a.resolveMentions(triggerContent)
 
 		var triggerParts []string
 		if triggerContent != "" {
@@ -131,7 +131,7 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 			}
 		}
 
-		triggerName := b.memberName(event.Message.Author)
+		triggerName := a.memberName(event.Message.Author)
 		var trigger string
 		if len(triggerParts) > 0 {
 			trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
@@ -163,22 +163,22 @@ func (b *Bot) onMentionCreate(event *events.MessageCreate) {
 
 		fullSystem := string(systemPrompt)
 		fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
-		if roster := b.buildUserRoster(channelOverwrites); roster != "" {
+		if roster := a.buildUserRoster(channelOverwrites); roster != "" {
 			fullSystem += "\n\n" + roster
 		}
 
 		prompt := buildPrompt(channelName, channelTopic, lines, trigger)
-		if _, alreadyTyping := b.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
+		if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
 			go func() {
-				defer b.typingChannels.Delete(event.ChannelID)
-				b.keepTyping(ctx, event)
+				defer a.typingChannels.Delete(event.ChannelID)
+				a.keepTyping(ctx, event)
 			}()
 		}
 
-		resp, err := b.callClaude(ctx, fullSystem, prompt, imageURLs, event)
+		resp, err := a.callClaude(ctx, fullSystem, prompt, imageURLs, event)
 		if err != nil {
 			slog.Warn("claude api call failed", "error", err)
-			b.replyFallback(event)
+			a.replyFallback(event)
 			return
 		}
 
@@ -236,8 +236,8 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
-func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (rickResponse, error) {
-	allTools := b.buildTools(event)
+func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (rickResponse, error) {
+	allTools := a.buildTools(event)
 
 	defs := make([]anthropic.ToolUnionParam, len(allTools))
 	lookup := make(map[string]ricktool, len(allTools))
@@ -255,8 +255,8 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 
 	var pendingText string
 	for range maxToolIter {
-		msg, err := b.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     b.config.AnthropicModel,
+		msg, err := a.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
+			Model:     a.config.AnthropicModel,
 			MaxTokens: maxTokens,
 			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
 			Tools:     defs,
@@ -319,7 +319,7 @@ func (b *Bot) callClaude(ctx context.Context, systemPrompt, prompt string, image
 	return rickResponse{text: rickFallback}, nil
 }
 
-func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
+func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 	ticker := time.NewTicker(8 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -334,7 +334,7 @@ func (b *Bot) keepTyping(ctx context.Context, event *events.MessageCreate) {
 	}
 }
 
-func (b *Bot) replyFallback(event *events.MessageCreate) {
+func (a *Agent) replyFallback(event *events.MessageCreate) {
 	_, err := event.Client().Rest.CreateMessage(event.ChannelID,
 		discord.NewMessageCreate().
 			WithContent(rickFallback).
@@ -345,18 +345,18 @@ func (b *Bot) replyFallback(event *events.MessageCreate) {
 	}
 }
 
-func (b *Bot) memberName(user discord.User) string {
-	name, err := b.GetUsernameForID(user.ID.String())
+func (a *Agent) memberName(user discord.User) string {
+	name, err := a.discord.GetUsernameForID(user.ID.String())
 	if err != nil {
 		return user.Username
 	}
 	return name
 }
 
-func (b *Bot) resolveMentions(content string) string {
+func (a *Agent) resolveMentions(content string) string {
 	return userMentionRe.ReplaceAllStringFunc(content, func(match string) string {
 		id := userMentionRe.FindStringSubmatch(match)[1]
-		name, err := b.GetUsernameForID(id)
+		name, err := a.discord.GetUsernameForID(id)
 		if err != nil {
 			return "@unknown-user"
 		}

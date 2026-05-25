@@ -1,4 +1,4 @@
-package bot
+package discord
 
 import (
 	"fmt"
@@ -19,7 +19,6 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	return user.EffectiveName(), nil
 }
 
@@ -41,7 +40,7 @@ func (b *Bot) onGuildVoiceStateUpdate(event *events.GuildVoiceStateUpdate) {
 	b.voiceChannels.Store(state.UserID, ch.Name())
 }
 
-func (b *Bot) onlineMembers() []discord.Member {
+func (b *Bot) OnlineMembers() []discord.Member {
 	b.cache.mu.RLock()
 	defer b.cache.mu.RUnlock()
 	var result []discord.Member
@@ -93,4 +92,22 @@ func (b *Bot) GetMemberForID(id string) (*discord.Member, error) {
 		}
 	}
 	return nil, fmt.Errorf("member %s not found", id)
+}
+
+func (b *Bot) AllMembers() ([]discord.Member, error) {
+	if err := b.ensureCache(); err != nil {
+		return nil, err
+	}
+	b.cache.mu.RLock()
+	defer b.cache.mu.RUnlock()
+	return b.cache.members, nil
+}
+
+func (b *Bot) VoiceChannels() map[snowflake.ID]string {
+	result := make(map[snowflake.ID]string)
+	b.voiceChannels.Range(func(k, v any) bool {
+		result[k.(snowflake.ID)] = v.(string)
+		return true
+	})
+	return result
 }

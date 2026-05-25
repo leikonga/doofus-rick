@@ -8,8 +8,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/sessions"
-	"github.com/leikonga/doofus-rick/internal/bot"
 	"github.com/leikonga/doofus-rick/internal/config"
+	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"golang.org/x/oauth2"
 	. "maragu.dev/gomponents"
@@ -20,13 +20,13 @@ var staticFS embed.FS
 
 type Server struct {
 	store       *store.Store
-	bot         *bot.Bot
+	bot         *discordpkg.Bot
 	config      *config.Config
 	session     *sessions.CookieStore
 	oauthConfig *oauth2.Config
 }
 
-func NewServer(s *store.Store, c *config.Config, b *bot.Bot) *Server {
+func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
 	if c.SessionSecret == "" {
 		slog.Warn("session secret is not set, sessions will not be persisted")
 	}

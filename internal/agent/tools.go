@@ -1,4 +1,4 @@
-package bot
+package agent
 
 import (
 	"context"
@@ -32,25 +32,25 @@ type ricktool struct {
 	execute func(ctx context.Context, input json.RawMessage) (toolResult, error)
 }
 
-func (b *Bot) buildTools(event *events.MessageCreate) []ricktool {
+func (a *Agent) buildTools(event *events.MessageCreate) []ricktool {
 	tools := []ricktool{
-		b.declineTool(),
-		b.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", b.searchGiphy),
-		b.webSearchTool(),
-		b.fetchPageTool(),
-		b.rememberTool(),
-		b.recallTool(),
-		b.shellExecTool(),
-		b.mediaResponseTool("image_search", "Search for a static image and post it as a response. Supports site: operators.", b.searchBraveImage),
-		b.reactTool(event),
-		b.saveQuoteTool(event),
-		b.getUserQuotesTool(),
-		b.searchQuotesTool(),
+		a.declineTool(),
+		a.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", a.giphy.Search),
+		a.webSearchTool(),
+		a.fetchPageTool(),
+		a.rememberTool(),
+		a.recallTool(),
+		a.shellExecTool(),
+		a.mediaResponseTool("image_search", "Search for a static image and post it as a response. Supports site: operators.", a.brave.SearchImage),
+		a.reactTool(event),
+		a.saveQuoteTool(event),
+		a.getUserQuotesTool(),
+		a.searchQuotesTool(),
 	}
-	return append(tools, b.discordTools()...)
+	return append(tools, a.discordTools()...)
 }
 
-func (b *Bot) declineTool() ricktool {
+func (a *Agent) declineTool() ricktool {
 	return ricktool{
 		name: "decline",
 		def: anthropic.ToolUnionParam{
@@ -79,8 +79,7 @@ func (b *Bot) declineTool() ricktool {
 	}
 }
 
-// mediaResponseTool builds a gif_search or image_search tool backed by the given fetch function.
-func (b *Bot) mediaResponseTool(name, desc string, fetch func(context.Context, string) (string, error)) ricktool {
+func (a *Agent) mediaResponseTool(name, desc string, fetch func(context.Context, string) (string, error)) ricktool {
 	return ricktool{
 		name: name,
 		def: anthropic.ToolUnionParam{
@@ -123,7 +122,7 @@ func (b *Bot) mediaResponseTool(name, desc string, fetch func(context.Context, s
 	}
 }
 
-func (b *Bot) webSearchTool() ricktool {
+func (a *Agent) webSearchTool() ricktool {
 	return ricktool{
 		name: "web_search",
 		def: anthropic.ToolUnionParam{
@@ -156,7 +155,7 @@ func (b *Bot) webSearchTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			result, err := b.searchBrave(ctx, in.Query, in.Freshness)
+			result, err := a.brave.Search(ctx, in.Query, in.Freshness)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -165,7 +164,7 @@ func (b *Bot) webSearchTool() ricktool {
 	}
 }
 
-func (b *Bot) fetchPageTool() ricktool {
+func (a *Agent) fetchPageTool() ricktool {
 	return ricktool{
 		name: "fetch_page",
 		def: anthropic.ToolUnionParam{
@@ -190,7 +189,7 @@ func (b *Bot) fetchPageTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			content, err := b.fetchPage(ctx, in.URL)
+			content, err := a.brave.FetchPage(ctx, in.URL)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -199,7 +198,7 @@ func (b *Bot) fetchPageTool() ricktool {
 	}
 }
 
-func (b *Bot) rememberTool() ricktool {
+func (a *Agent) rememberTool() ricktool {
 	return ricktool{
 		name: "remember",
 		def: anthropic.ToolUnionParam{
@@ -235,7 +234,7 @@ func (b *Bot) rememberTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			if err := b.store.SaveMemory(ctx, in.UserID, in.Content, in.Tags); err != nil {
+			if err := a.store.SaveMemory(ctx, in.UserID, in.Content, in.Tags); err != nil {
 				return toolResult{}, err
 			}
 			return toolResult{content: "remembered"}, nil
@@ -243,7 +242,7 @@ func (b *Bot) rememberTool() ricktool {
 	}
 }
 
-func (b *Bot) recallTool() ricktool {
+func (a *Agent) recallTool() ricktool {
 	return ricktool{
 		name: "recall",
 		def: anthropic.ToolUnionParam{
@@ -273,7 +272,7 @@ func (b *Bot) recallTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			memories, err := b.store.SearchMemory(ctx, in.Query, in.UserID)
+			memories, err := a.store.SearchMemory(ctx, in.Query, in.UserID)
 			if err != nil {
 				return toolResult{}, err
 			}
@@ -289,7 +288,7 @@ func (b *Bot) recallTool() ricktool {
 	}
 }
 
-func (b *Bot) shellExecTool() ricktool {
+func (a *Agent) shellExecTool() ricktool {
 	return ricktool{
 		name: "shell_exec",
 		def: anthropic.ToolUnionParam{
@@ -319,12 +318,12 @@ func (b *Bot) shellExecTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			return toolResult{content: b.shellExec(ctx, in.Command)}, nil
+			return toolResult{content: a.shell.Exec(ctx, in.Command)}, nil
 		},
 	}
 }
 
-func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
+func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
 	return ricktool{
 		name: "save_quote",
 		def: anthropic.ToolUnionParam{
@@ -362,11 +361,11 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 				Creator:      creatorID,
 				Participants: in.ParticipantIDs,
 			}
-			if err := b.store.CreateQuote(ctx, q); err != nil {
+			if err := a.store.CreateQuote(ctx, q); err != nil {
 				return toolResult{}, err
 			}
 
-			author, err := b.GetMemberForID(creatorID)
+			author, err := a.discord.GetMemberForID(creatorID)
 			if err != nil {
 				slog.Warn("failed to get author for saved quote", "error", err)
 			}
@@ -391,7 +390,7 @@ func (b *Bot) saveQuoteTool(event *events.MessageCreate) ricktool {
 	}
 }
 
-func (b *Bot) getUserQuotesTool() ricktool {
+func (a *Agent) getUserQuotesTool() ricktool {
 	return ricktool{
 		name: "get_user_quotes",
 		def: anthropic.ToolUnionParam{
@@ -417,7 +416,7 @@ func (b *Bot) getUserQuotesTool() ricktool {
 				return toolResult{}, err
 			}
 
-			quotes := b.store.GetQuotesByParticipant(ctx, in.UserID)
+			quotes := a.store.GetQuotesByParticipant(ctx, in.UserID)
 			if len(quotes) == 0 {
 				return toolResult{content: "no quotes found for this user"}, nil
 			}
@@ -431,7 +430,7 @@ func (b *Bot) getUserQuotesTool() ricktool {
 	}
 }
 
-func (b *Bot) searchQuotesTool() ricktool {
+func (a *Agent) searchQuotesTool() ricktool {
 	return ricktool{
 		name: "search_quotes",
 		def: anthropic.ToolUnionParam{
@@ -456,7 +455,7 @@ func (b *Bot) searchQuotesTool() ricktool {
 			if err := json.Unmarshal(input, &in); err != nil {
 				return toolResult{}, err
 			}
-			quotes := b.store.SearchQuotes(ctx, in.Query)
+			quotes := a.store.SearchQuotes(ctx, in.Query)
 			if len(quotes) == 0 {
 				return toolResult{content: "no quotes found"}, nil
 			}
@@ -469,7 +468,7 @@ func (b *Bot) searchQuotesTool() ricktool {
 	}
 }
 
-func (b *Bot) reactTool(event *events.MessageCreate) ricktool {
+func (a *Agent) reactTool(event *events.MessageCreate) ricktool {
 	return ricktool{
 		name: "react",
 		def: anthropic.ToolUnionParam{
@@ -502,5 +501,15 @@ func (b *Bot) reactTool(event *events.MessageCreate) ricktool {
 			}
 			return toolResult{content: "reactions added"}, nil
 		},
+	}
+}
+
+func memberEmbedFooter(member *discord.Member, fallbackID string) *discord.EmbedFooter {
+	if member == nil {
+		return &discord.EmbedFooter{Text: fallbackID}
+	}
+	return &discord.EmbedFooter{
+		Text:    member.EffectiveName(),
+		IconURL: member.User.EffectiveAvatarURL(),
 	}
 }
