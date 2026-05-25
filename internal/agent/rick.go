@@ -13,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 var (
@@ -21,13 +22,44 @@ var (
 )
 
 const (
-	maxContextLen = 500
-	maxTokens     = int64(512)
-	historyLimit  = 7
-	maxImages     = 5
-	maxToolIter   = 8
-	rickFallback  = "najo woas i etz ned"
+	maxContextLen  = 500
+	maxTokens      = int64(512)
+	historyLimit   = 7
+	maxImages      = 5
+	maxToolIter    = 8
+	rickFallback   = "najo woas i etz ned"
+	sessionTTL     = 30 * time.Minute
+	maxSessionMsgs = 30
 )
+
+type channelSession struct {
+	messages   []anthropic.MessageParam
+	lastActive time.Time
+}
+
+func (a *Agent) getSession(id snowflake.ID) []anthropic.MessageParam {
+	v, ok := a.sessions.Load(id)
+	if !ok {
+		return nil
+	}
+	s := v.(channelSession)
+	if time.Since(s.lastActive) > sessionTTL {
+		a.sessions.Delete(id)
+		return nil
+	}
+	return s.messages
+}
+
+func (a *Agent) putSession(id snowflake.ID, messages []anthropic.MessageParam) {
+	trimmed := messages
+	if len(trimmed) > maxSessionMsgs {
+		trimmed = trimmed[len(trimmed)-maxSessionMsgs:]
+		for len(trimmed) > 0 && trimmed[0].Role != anthropic.MessageParamRoleUser {
+			trimmed = trimmed[1:]
+		}
+	}
+	a.sessions.Store(id, channelSession{messages: trimmed, lastActive: time.Now()})
+}
 
 func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {
 	if event.Message.Author.Bot {
@@ -251,7 +283,8 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
 	}
 
-	messages := []anthropic.MessageParam{anthropic.NewUserMessage(blocks...)}
+	prior := a.getSession(event.ChannelID)
+	messages := append(prior, anthropic.NewUserMessage(blocks...))
 
 	var pendingText string
 	for range maxToolIter {
@@ -269,6 +302,8 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		if msg.StopReason != anthropic.StopReasonToolUse {
 			for _, block := range msg.Content {
 				if block.Type == "text" && block.Text != "" {
+					saved := append(messages, msg.ToParam())
+					a.putSession(event.ChannelID, saved)
 					return rickResponse{text: block.Text}, nil
 				}
 			}

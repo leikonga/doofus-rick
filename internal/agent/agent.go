@@ -37,6 +37,7 @@ type Agent struct {
 	giphy          *client.GiphyClient
 	shell          *client.Shell
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
+	sessions       sync.Map // snowflake.ID -> channelSession
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client) *Agent {
