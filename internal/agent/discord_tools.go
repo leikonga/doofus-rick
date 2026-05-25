@@ -310,6 +310,7 @@ func (a *Agent) sendFileTool() ricktool {
 
 			clean := filepath.Clean(in.Path)
 			if !strings.HasPrefix(clean, a.config.WorkDir) {
+				slog.Warn("send_file rejected path outside workdir", "path", clean, "workdir", a.config.WorkDir)
 				return toolResult{content: "path must be inside " + a.config.WorkDir}, nil
 			}
 
