@@ -110,7 +110,7 @@ func (a *Agent) sendMessageTool() ricktool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content)); err != nil {
 				return toolResult{}, err
 			}
-			return toolResult{content: "message sent"}, nil
+			return toolResult{content: "message sent", done: true}, nil
 		},
 	}
 }
@@ -233,7 +233,7 @@ func (a *Agent) createPollTool() ricktool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll)); err != nil {
 				return toolResult{}, err
 			}
-			return toolResult{content: "poll created"}, nil
+			return toolResult{content: "poll created", done: true}, nil
 		},
 	}
 }
@@ -335,7 +335,7 @@ func (a *Agent) sendFileTool() ricktool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, msg); err != nil {
 				return toolResult{}, err
 			}
-			return toolResult{content: "file sent"}, nil
+			return toolResult{content: "file sent", done: true}, nil
 		},
 	}
 }
@@ -426,7 +426,7 @@ func (a *Agent) sendEmbedTool() ricktool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, msg); err != nil {
 				return toolResult{}, err
 			}
-			return toolResult{content: "embed sent"}, nil
+			return toolResult{content: "embed sent", done: true}, nil
 		},
 	}
 }

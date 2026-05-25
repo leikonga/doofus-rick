@@ -282,6 +282,7 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		messages = append(messages, msg.ToParam())
 
 		var resultBlocks []anthropic.ContentBlockParamUnion
+		var toolDone bool
 		for _, block := range msg.Content {
 			if block.Type == "text" && block.Text != "" {
 				pendingText = block.Text
@@ -305,7 +306,14 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 			if result.response != nil {
 				return *result.response, nil
 			}
+			if result.done {
+				toolDone = true
+			}
 			resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, result.content, false))
+		}
+
+		if toolDone {
+			return rickResponse{decline: true}, nil
 		}
 
 		if len(resultBlocks) == 0 {

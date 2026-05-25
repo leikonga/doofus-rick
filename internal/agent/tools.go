@@ -24,6 +24,7 @@ type rickResponse struct {
 type toolResult struct {
 	response *rickResponse
 	content  string
+	done     bool // tool already posted to Discord; stop after this iteration
 }
 
 type ricktool struct {
@@ -385,7 +386,7 @@ func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
 				slog.Warn("failed to send quote embed", "error", sendErr)
 			}
 
-			return toolResult{content: "quote saved"}, nil
+			return toolResult{content: "quote saved", done: true}, nil
 		},
 	}
 }
