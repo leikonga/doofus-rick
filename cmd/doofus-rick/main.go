@@ -11,20 +11,22 @@ import (
 
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
+	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/web"
 )
 
 func main() {
-	handler := slog.NewTextHandler(os.Stdout, nil)
-	slog.SetDefault(slog.New(handler))
+	textHandler := slog.NewTextHandler(os.Stdout, nil)
+	logHandler, logBuf := logbuf.New(textHandler)
+	slog.SetDefault(slog.New(logHandler))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	c := config.LoadConfig()
 	db := store.MustInit(c)
-	rick := discordpkg.New(ctx, db, c)
+	rick := discordpkg.New(ctx, db, c, logBuf)
 	go func() {
 		if err := rick.Run(); err != nil {
 			slog.Error("failed to connect to discord", "error", err)

@@ -12,6 +12,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
@@ -36,11 +37,12 @@ type Agent struct {
 	brave          *client.BraveClient
 	giphy          *client.GiphyClient
 	shell          *client.Shell
+	logBuf         *logbuf.Buffer
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	sessions       sync.Map // snowflake.ID -> channelSession
 }
 
-func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client) *Agent {
+func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	return &Agent{
 		store:         s,
@@ -51,5 +53,6 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client)
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
 		shell:         client.NewShell(c.WorkDir),
+		logBuf:        lb,
 	}
 }

@@ -36,6 +36,7 @@ type ricktool struct {
 func (a *Agent) buildTools(event *events.MessageCreate) []ricktool {
 	tools := []ricktool{
 		a.declineTool(),
+		a.checkLogsTool(),
 		a.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", a.giphy.Search),
 		a.webSearchTool(),
 		a.fetchPageTool(),
@@ -501,6 +502,24 @@ func (a *Agent) reactTool(event *events.MessageCreate) ricktool {
 				}
 			}
 			return toolResult{content: "reactions added"}, nil
+		},
+	}
+}
+
+func (a *Agent) checkLogsTool() ricktool {
+	return ricktool{
+		name: "check_logs",
+		def: anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        "check_logs",
+				Description: anthropic.String("Check recent warnings and errors from Rick's own process logs. Use when asked why Rick didn't respond or what went wrong."),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: map[string]any{},
+				},
+			},
+		},
+		execute: func(_ context.Context, _ json.RawMessage) (toolResult, error) {
+			return toolResult{content: a.logBuf.Recent()}, nil
 		},
 	}
 }

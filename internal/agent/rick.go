@@ -27,7 +27,6 @@ const (
 	historyLimit   = 7
 	maxImages      = 5
 	maxToolIter    = 8
-	rickFallback   = "najo woas i etz ned"
 	sessionTTL     = 30 * time.Minute
 	maxSessionMsgs = 30
 )
@@ -78,14 +77,12 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 		systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 		if err != nil {
 			slog.Warn("failed to read system prompt file", "error", err, "path", a.config.SystemPromptFile)
-			a.replyFallback(event)
 			return
 		}
 
 		msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
 		if err != nil {
 			slog.Warn("failed to fetch channel history", "error", err)
-			a.replyFallback(event)
 			return
 		}
 		slices.Reverse(msgs)
@@ -210,7 +207,6 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 		resp, err := a.callClaude(ctx, fullSystem, prompt, imageURLs, event)
 		if err != nil {
 			slog.Warn("claude api call failed", "error", err)
-			a.replyFallback(event)
 			return
 		}
 
@@ -310,8 +306,8 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 			if pendingText != "" {
 				return rickResponse{text: pendingText}, nil
 			}
-			slog.Warn("no text in non-tool response, using fallback", "stop_reason", msg.StopReason)
-			return rickResponse{text: rickFallback}, nil
+			slog.Warn("no text in non-tool response, declining", "stop_reason", msg.StopReason)
+			return rickResponse{decline: true}, nil
 		}
 
 		messages = append(messages, msg.ToParam())
@@ -352,14 +348,14 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		}
 
 		if len(resultBlocks) == 0 {
-			slog.Warn("tool_use stop reason but no actionable tool blocks, using fallback")
-			break
+			slog.Warn("tool_use stop reason but no actionable tool blocks, declining")
+			return rickResponse{decline: true}, nil
 		}
 		messages = append(messages, anthropic.NewUserMessage(resultBlocks...))
 	}
-	slog.Warn("tool iteration limit reached, using fallback", "max_iter", maxToolIter)
+	slog.Warn("tool iteration limit reached, declining", "max_iter", maxToolIter)
 
-	return rickResponse{text: rickFallback}, nil
+	return rickResponse{decline: true}, nil
 }
 
 func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
@@ -374,17 +370,6 @@ func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 			return
 		case <-ticker.C:
 		}
-	}
-}
-
-func (a *Agent) replyFallback(event *events.MessageCreate) {
-	_, err := event.Client().Rest.CreateMessage(event.ChannelID,
-		discord.NewMessageCreate().
-			WithContent(rickFallback).
-			WithMessageReferenceByID(event.MessageID),
-	)
-	if err != nil {
-		slog.Warn("failed to send fallback reply", "error", err)
 	}
 }
 
