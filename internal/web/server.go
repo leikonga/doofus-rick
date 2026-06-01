@@ -32,7 +32,7 @@ func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
 		slog.Warn("session secret is not set, sessions will not be persisted")
 	}
 	if c.DiscordClientID == "" || c.DiscordClientSecret == "" || c.DiscordRedirectURI == "" {
-		slog.Warn("discord oauth credentials are not set, login will not work")
+		slog.Warn("discord oauth credentials are not set, web login is disabled")
 	}
 
 	gob.Register(&oauth2.Token{})
