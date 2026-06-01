@@ -444,10 +444,10 @@ func (a *Agent) searchMembersTool() ricktool {
 					Properties: map[string]any{
 						"query": map[string]any{
 							"type":        "string",
-							"description": "Name substring to search for (case-insensitive).",
+							"description": "Name substring to search for (case-insensitive). Use an empty string to list all members.",
 						},
 					},
-					Required: []string{"query"},
+					Required: []string{},
 				},
 			},
 		},
@@ -463,12 +463,18 @@ func (a *Agent) searchMembersTool() ricktool {
 			if err != nil {
 				return toolResult{}, err
 			}
+			botID := a.discordClient.ID()
 			var sb strings.Builder
 			for _, m := range members {
-				name := m.EffectiveName()
-				if strings.Contains(strings.ToLower(name), q) || strings.Contains(strings.ToLower(m.User.Username), q) {
-					fmt.Fprintf(&sb, "%s %s\n", m.User.ID, name)
+				displayName := m.EffectiveName()
+				if !strings.Contains(strings.ToLower(displayName), q) && !strings.Contains(strings.ToLower(m.User.Username), q) {
+					continue
 				}
+				self := ""
+				if m.User.ID == botID {
+					self = " [this is you, the bot]"
+				}
+				fmt.Fprintf(&sb, "snowflake=%s username=%s display_name=%s%s\n", m.User.ID, m.User.Username, displayName, self)
 			}
 			if sb.Len() == 0 {
 				return toolResult{content: "no members found"}, nil
