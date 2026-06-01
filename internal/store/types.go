@@ -9,11 +9,11 @@ import (
 // StringSlice is a JSON-serialized string slice compatible with any SQL driver.
 type StringSlice []string
 
-func (s StringSlice) Value() (driver.Value, error) {
-	if s == nil {
+func (s *StringSlice) Value() (driver.Value, error) {
+	if s == nil || *s == nil {
 		return "[]", nil
 	}
-	b, err := json.Marshal([]string(s))
+	b, err := json.Marshal([]string(*s))
 	return string(b), err
 }
 
@@ -34,4 +34,4 @@ func (s *StringSlice) Scan(value any) error {
 	return json.Unmarshal(raw, s)
 }
 
-func (StringSlice) GormDataType() string { return "text" }
+func (*StringSlice) GormDataType() string { return "text" }
