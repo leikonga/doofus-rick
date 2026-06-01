@@ -32,6 +32,10 @@ func (s *Store) GetQuotesByParticipant(ctx context.Context, userID string) []Quo
 
 func (s *Store) SearchQuotes(ctx context.Context, query string) []Quote {
 	var quotes []Quote
-	s.db.WithContext(ctx).Where("content ILIKE ?", "%"+query+"%").Order("created_at desc").Find(&quotes)
+	q := s.db.WithContext(ctx).Order("created_at desc")
+	if query != "" {
+		q = q.Where("LOWER(content) LIKE LOWER(?)", "%"+query+"%")
+	}
+	q.Find(&quotes)
 	return quotes
 }
