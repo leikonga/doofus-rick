@@ -143,4 +143,8 @@ fabric.properties
 # godotenv
 .env
 
+# claude
+plans
+examples-master
+
 # End of https://www.toptal.com/developers/gitignore/api/go,goland

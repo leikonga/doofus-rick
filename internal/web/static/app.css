@@ -1,0 +1,23 @@
+.quote-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+a.quote-card {
+    text-decoration: none;
+    color: inherit;
+}
+a.quote-card article {
+    margin: 0;
+}
+
+.quote-card blockquote {
+    margin: 0;
+    font-style: italic;
+}
+.quote-card footer {
+    margin-top: 0.5rem;
+    color: var(--pico-muted-color);
+    font-size: 0.875rem;
+}

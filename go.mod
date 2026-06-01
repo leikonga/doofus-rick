@@ -13,7 +13,6 @@ require (
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 	maragu.dev/gomponents v1.3.0
-	maragu.dev/gomponents-htmx v0.6.1
 )
 
 require (

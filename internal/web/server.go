@@ -12,7 +12,7 @@ import (
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"golang.org/x/oauth2"
-	. "maragu.dev/gomponents"
+	g "maragu.dev/gomponents"
 )
 
 //go:embed static/*
@@ -66,7 +66,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
 }
 
-func (s *Server) render(w http.ResponseWriter, node Node) {
+func (s *Server) render(w http.ResponseWriter, node g.Node) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := node.Render(w); err != nil {
 		slog.Error("component render failed", "error", err)
