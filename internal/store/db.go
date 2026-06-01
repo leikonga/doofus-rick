@@ -34,5 +34,8 @@ func MustInit(c *config.Config) *Store {
 		panic(err)
 	}
 
+	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
+	db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
+
 	return &Store{db: db}
 }
