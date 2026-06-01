@@ -3,7 +3,7 @@ module github.com/leikonga/doofus-rick
 go 1.26
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.38.0
+	github.com/anthropics/anthropic-sdk-go v1.46.0
 	github.com/disgoorg/disgo v0.19.3
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/gorilla/sessions v1.4.0
@@ -36,6 +36,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
+	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

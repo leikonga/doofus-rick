@@ -53,11 +53,22 @@ func (a *Agent) putSession(id snowflake.ID, messages []anthropic.MessageParam) {
 	trimmed := messages
 	if len(trimmed) > maxSessionMsgs {
 		trimmed = trimmed[len(trimmed)-maxSessionMsgs:]
-		for len(trimmed) > 0 && trimmed[0].Role != anthropic.MessageParamRoleUser {
-			trimmed = trimmed[1:]
-		}
 	}
-	a.sessions.Store(id, channelSession{messages: trimmed, lastActive: time.Now()})
+	for len(trimmed) > 0 && !isUserTurnStart(trimmed[0]) {
+		trimmed = trimmed[1:]
+	}
+	a.sessions.Store(id, channelSession{messages: slices.Clone(trimmed), lastActive: time.Now()})
+}
+
+// isUserTurnStart reports whether m begins a genuine user turn, i.e. a user
+// message whose first content block is not a tool_result. Trimming a session
+// must not leave a leading tool_result, which would have no preceding tool_use
+// and be rejected by the API.
+func isUserTurnStart(m anthropic.MessageParam) bool {
+	if m.Role != anthropic.MessageParamRoleUser {
+		return false
+	}
+	return len(m.Content) == 0 || m.Content[0].OfToolResult == nil
 }
 
 func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {

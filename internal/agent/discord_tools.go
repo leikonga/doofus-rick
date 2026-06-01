@@ -652,8 +652,8 @@ func (a *Agent) getUserInfoTool() ricktool {
 					}
 				case discord.ActivityTypeCustom:
 					sb.WriteString("custom status:")
-					if act.Emoji != nil {
-						fmt.Fprintf(&sb, " %s", act.Emoji.Name)
+					if act.Emoji != nil && act.Emoji.Name != nil {
+						fmt.Fprintf(&sb, " %s", *act.Emoji.Name)
 					}
 					if act.State != nil {
 						fmt.Fprintf(&sb, " %s", *act.State)
