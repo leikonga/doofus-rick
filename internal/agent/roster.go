@@ -19,12 +19,12 @@ func (a *Agent) buildUserRoster(overwrites discord.PermissionOverwrites) string 
 		if !memberCanSeeChannel(m, overwrites) {
 			continue
 		}
-		fmt.Fprintf(&sb, "%s <@%s>", m.EffectiveName(), m.User.ID)
+		fmt.Fprintf(&sb, "snowflake=%s username=%s display_name=%s", m.User.ID, m.User.Username, m.EffectiveName())
 		if ch, ok := vcs[m.User.ID]; ok {
 			if ch != "" {
-				fmt.Fprintf(&sb, " (in VC: %s)", ch)
+				fmt.Fprintf(&sb, " vc=%s", ch)
 			} else {
-				sb.WriteString(" (in VC)")
+				sb.WriteString(" vc=unknown")
 			}
 		}
 		sb.WriteByte('\n')

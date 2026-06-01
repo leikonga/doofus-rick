@@ -57,6 +57,7 @@ func (b *Bot) Run() error {
 		),
 		disgobot.WithEventListeners(r),
 		disgobot.WithEventListenerFunc(func(e *events.MessageCreate) { b.agent.HandleMention(b.ctx, e) }),
+		disgobot.WithEventListenerFunc(b.onGuildReady),
 		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
 		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
 	)

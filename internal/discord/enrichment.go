@@ -28,6 +28,15 @@ func (b *Bot) GetUsernameForID(id string) (string, error) {
 	return user.EffectiveName(), nil
 }
 
+func (b *Bot) onGuildReady(event *events.GuildReady) {
+	for _, p := range event.Guild.Presences {
+		b.presences.Store(p.PresenceUser.ID, UserPresence{
+			Status:     p.Status,
+			Activities: p.Activities,
+		})
+	}
+}
+
 func (b *Bot) onPresenceUpdate(event *events.PresenceUpdate) {
 	b.presences.Store(event.Presence.PresenceUser.ID, UserPresence{
 		Status:     event.Presence.Status,

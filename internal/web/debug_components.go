@@ -16,7 +16,7 @@ func DebugListPage(entries []*tracer.Entry) g.Node {
 	return debugLayout(
 		g.Group([]g.Node{
 			H2(g.Text("trace timeline")),
-			P(g.Textf("%d entries (successes: in-memory ring, failures: persisted)", len(entries))),
+			P(g.Textf("%d entries (only failures are persisted, rest is in-memory)", len(entries))),
 			Figure(
 				g.Attr("role", "region"),
 				g.Attr("aria-label", "trace timeline"),
