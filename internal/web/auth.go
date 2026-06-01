@@ -13,6 +13,10 @@ const SessionKey = "doofus-rick-session"
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.authEnabled {
+			next(w, r)
+			return
+		}
 		session, err := s.session.Get(r, SessionKey)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -32,6 +36,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled {
+		http.Error(w, "auth not configured", http.StatusNotImplemented)
+		return
+	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

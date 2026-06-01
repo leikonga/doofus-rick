@@ -16,11 +16,13 @@ type Config struct {
 	DiscordClientSecret string
 	DiscordRedirectURI  string
 
-	DBHost string
-	DBUser string
-	DBPass string
-	DBName string
-	DBPort string
+	DBDriver string
+	DBPath   string
+	DBHost   string
+	DBUser   string
+	DBPass   string
+	DBName   string
+	DBPort   string
 
 	Port          string
 	SessionSecret string
@@ -51,11 +53,13 @@ func LoadConfig() *Config {
 		DiscordClientSecret: getEnv("DISCORD_CLIENT_SECRET", ""),
 		DiscordRedirectURI:  getEnv("DISCORD_REDIRECT_URI", ""),
 
-		DBHost: getEnv("DB_HOST", "localhost"),
-		DBUser: getEnv("DB_USER", "postgres"),
-		DBPass: getEnv("DB_PASS", ""),
-		DBName: getEnv("DB_NAME", "postgres"),
-		DBPort: getEnv("DB_PORT", "5432"),
+		DBDriver: getEnv("DB_DRIVER", "sqlite"),
+		DBPath:   getEnv("DB_PATH", "doofus-rick.db"),
+		DBHost:   getEnv("DB_HOST", "localhost"),
+		DBUser:   getEnv("DB_USER", "postgres"),
+		DBPass:   getEnv("DB_PASS", ""),
+		DBName:   getEnv("DB_NAME", "postgres"),
+		DBPort:   getEnv("DB_PORT", "5432"),
 
 		Port:          normalizeAddress(getEnv("PORT", ":8080")),
 		SessionSecret: getEnv("SESSION_SECRET", ""),

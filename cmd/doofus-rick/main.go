@@ -16,6 +16,8 @@ import (
 	"github.com/leikonga/doofus-rick/internal/web"
 )
 
+const envProduction = "production"
+
 func main() {
 	textHandler := slog.NewTextHandler(os.Stdout, nil)
 	logHandler, logBuf := logbuf.New(textHandler)
@@ -26,6 +28,9 @@ func main() {
 
 	c := config.LoadConfig()
 	db := store.MustInit(c)
+	if os.Getenv("APP_ENV") != envProduction {
+		db.MaybeSeed(ctx)
+	}
 	rick := discordpkg.New(ctx, db, c, logBuf)
 	go func() {
 		if err := rick.Run(); err != nil {

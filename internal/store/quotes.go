@@ -26,7 +26,7 @@ func (s *Store) CreateQuote(ctx context.Context, quote Quote) error {
 
 func (s *Store) GetQuotesByParticipant(ctx context.Context, userID string) []Quote {
 	var quotes []Quote
-	s.db.WithContext(ctx).Where("? = ANY(participants)", userID).Order("created_at desc").Find(&quotes)
+	s.db.WithContext(ctx).Where(`participants LIKE ?`, `%"`+userID+`"%`).Order("created_at desc").Find(&quotes)
 	return quotes
 }
 

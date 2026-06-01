@@ -24,6 +24,7 @@ type Server struct {
 	config      *config.Config
 	session     *sessions.CookieStore
 	oauthConfig *oauth2.Config
+	authEnabled bool
 }
 
 func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
@@ -46,11 +47,14 @@ func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
 		Scopes: []string{"identify", "guilds"},
 	}
 
+	authEnabled := c.DiscordClientID != "" && c.DiscordClientSecret != "" && c.SessionSecret != ""
+
 	return &Server{
 		store:       s,
 		bot:         b,
 		session:     sessions.NewCookieStore([]byte(c.SessionSecret)),
 		oauthConfig: oa,
+		authEnabled: authEnabled,
 	}
 }
 

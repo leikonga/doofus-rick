@@ -17,7 +17,7 @@ func (s *Store) SearchMemory(ctx context.Context, query, userID string) ([]Memor
 		db = db.Where("user_id = ? OR user_id = ''", userID)
 	}
 	if query != "" {
-		db = db.Where("content ILIKE ?", "%"+query+"%")
+		db = db.Where("LOWER(content) LIKE LOWER(?)", "%"+query+"%")
 	}
 	return memories, db.Find(&memories).Error
 }

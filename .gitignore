@@ -139,6 +139,8 @@ fabric.properties
 
 # Binary name on *nix
 /doofus-rick
+doofus-rick.db
+system_prompt.txt
 
 # godotenv
 .env

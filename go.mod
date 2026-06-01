@@ -8,9 +8,9 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/gorilla/sessions v1.4.0
 	github.com/joho/godotenv v1.5.1
-	github.com/lib/pq v1.12.3
 	golang.org/x/oauth2 v0.36.0
 	gorm.io/driver/postgres v1.6.0
+	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 	maragu.dev/gomponents v1.3.0
 )
@@ -33,6 +33,7 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
