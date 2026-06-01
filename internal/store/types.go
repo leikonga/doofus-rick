@@ -31,7 +31,21 @@ func (s *StringSlice) Scan(value any) error {
 	default:
 		return fmt.Errorf("cannot scan %T into StringSlice", value)
 	}
-	return json.Unmarshal(raw, s)
+	if err := json.Unmarshal(raw, s); err == nil {
+		return nil
+	}
+	// Legacy data stored participants as a JSON object keyed by Discord ID.
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		*s = keys
+		return nil
+	}
+	*s = nil
+	return nil
 }
 
 func (*StringSlice) GormDataType() string { return "text" }

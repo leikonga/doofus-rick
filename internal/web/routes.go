@@ -1,9 +1,12 @@
 package web
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/leikonga/doofus-rick/internal/store"
+	"gorm.io/gorm"
 )
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +38,12 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	quote, err := s.store.GetQuote(r.Context(), id)
 	if err != nil {
-		http.NotFound(w, r)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			http.NotFound(w, r)
+		} else {
+			slog.Error("failed to get quote", "id", id, "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
 		return
 	}
 
