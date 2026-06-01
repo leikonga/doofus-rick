@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/tracer"
 	"github.com/leikonga/doofus-rick/internal/web"
 )
 
@@ -31,7 +33,14 @@ func main() {
 	if os.Getenv("APP_ENV") != envProduction {
 		db.MaybeSeed(ctx)
 	}
-	rick := discordpkg.New(ctx, db, c, logBuf)
+
+	tr := tracer.New(func(e *tracer.Entry) {
+		tctx, tcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer tcancel()
+		db.SaveFailureTrace(tctx, e)
+	})
+
+	rick := discordpkg.New(ctx, db, c, logBuf, tr)
 	go func() {
 		if err := rick.Run(); err != nil {
 			slog.Error("failed to connect to discord", "error", err)
@@ -39,7 +48,7 @@ func main() {
 		}
 	}()
 
-	srv := web.NewServer(db, c, rick)
+	srv := web.NewServer(db, c, rick, tr)
 	mux := http.NewServeMux()
 	srv.RegisterRoutes(mux)
 	httpSrv := &http.Server{Addr: c.Port, Handler: mux}

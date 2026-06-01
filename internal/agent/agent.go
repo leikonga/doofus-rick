@@ -14,6 +14,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
 // DiscordState is the subset of discord.Bot state the agent reads.
@@ -38,11 +39,12 @@ type Agent struct {
 	giphy          *client.GiphyClient
 	shell          *client.Shell
 	logBuf         *logbuf.Buffer
+	tracer         *tracer.Tracer
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	sessions       sync.Map // snowflake.ID -> channelSession
 }
 
-func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer) *Agent {
+func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	return &Agent{
 		store:         s,
@@ -54,5 +56,6 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
 		shell:         client.NewShell(c.WorkDir),
 		logBuf:        lb,
+		tracer:        tr,
 	}
 }

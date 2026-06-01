@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -275,9 +276,21 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
-func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (rickResponse, error) {
-	allTools := a.buildTools(event)
+func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (retResp rickResponse, retErr error) {
+	rec := a.tracer.Start(event.ChannelID.String(), event.Message.Author.ID.String(), systemPrompt, prompt)
+	defer func() {
+		resp, err := retResp, retErr
+		go func() {
+			e := rec.Finish(resp.text, resp.decline, err)
+			if e.InputTokens > 0 || e.OutputTokens > 0 {
+				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, a.config.AnthropicModel, e.InputTokens, e.OutputTokens)
+			}
+		}()
+	}()
 
+	allTools := a.buildTools(event)
 	defs := make([]anthropic.ToolUnionParam, len(allTools))
 	lookup := make(map[string]ricktool, len(allTools))
 	for i, t := range allTools {
@@ -293,8 +306,21 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 	prior := a.getSession(event.ChannelID)
 	messages := append(prior, anthropic.NewUserMessage(blocks...))
 
+	validated, repaired := validateConversation(messages)
+	if repaired {
+		if len(validated) == 0 {
+			slog.Warn("conversation empty after repair, declining")
+			return rickResponse{decline: true}, nil
+		}
+		messages = validated
+	}
+
 	var pendingText string
 	for range maxToolIter {
+		if msgsJSON, err := json.Marshal(messages); err == nil {
+			rec.SetMessages(msgsJSON)
+		}
+
 		msg, err := a.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
 			Model:     a.config.AnthropicModel,
 			MaxTokens: maxTokens,
@@ -303,8 +329,10 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 			Messages:  messages,
 		})
 		if err != nil {
+			slog.Warn("claude api error", "error", err)
 			return rickResponse{}, err
 		}
+		rec.AddTokens(msg.Usage.InputTokens, msg.Usage.OutputTokens)
 
 		if msg.StopReason != anthropic.StopReasonToolUse {
 			for _, block := range msg.Content {
@@ -342,12 +370,15 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 			result, err := tool.execute(ctx, block.Input)
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", block.Name, "error", err)
+				rec.AddTool(block.Name, string(block.Input), err.Error(), true)
 				resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, err.Error(), true))
 				continue
 			}
 			if result.response != nil {
+				rec.AddTool(block.Name, string(block.Input), "(terminal)", false)
 				return *result.response, nil
 			}
+			rec.AddTool(block.Name, string(block.Input), result.content, false)
 			if result.done {
 				toolDone = true
 			}
@@ -357,7 +388,6 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		if toolDone {
 			return rickResponse{decline: true}, nil
 		}
-
 		if len(resultBlocks) == 0 {
 			slog.Warn("tool_use stop reason but no actionable tool blocks, declining")
 			return rickResponse{decline: true}, nil
@@ -365,7 +395,6 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		messages = append(messages, anthropic.NewUserMessage(resultBlocks...))
 	}
 	slog.Warn("tool iteration limit reached, declining", "max_iter", maxToolIter)
-
 	return rickResponse{decline: true}, nil
 }
 

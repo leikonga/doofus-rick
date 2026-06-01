@@ -32,3 +32,24 @@ type Reminder struct {
 	FireAt    time.Time `gorm:"type:timestamptz;not null;index"`
 	Fired     bool      `gorm:"not null;default:false"`
 }
+
+type TokenUsage struct {
+	gorm.Model
+
+	ChannelID    string `gorm:"not null;index"`
+	UserID       string `gorm:"not null;index"`
+	ModelName    string `gorm:"not null"`
+	InputTokens  int64  `gorm:"not null"`
+	OutputTokens int64  `gorm:"not null"`
+}
+
+type FailureTrace struct {
+	gorm.Model
+
+	TraceID   string `gorm:"not null;uniqueIndex"`
+	ChannelID string `gorm:"not null;index"`
+	UserID    string `gorm:"not null"`
+	Blob      string `gorm:"type:text;not null"`
+	Decline   bool   `gorm:"not null"`
+	ErrMsg    string `gorm:"type:text"`
+}

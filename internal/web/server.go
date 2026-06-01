@@ -11,6 +11,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/tracer"
 	"golang.org/x/oauth2"
 	g "maragu.dev/gomponents"
 )
@@ -22,12 +23,13 @@ type Server struct {
 	store       *store.Store
 	bot         *discordpkg.Bot
 	config      *config.Config
+	tracer      *tracer.Tracer
 	session     *sessions.CookieStore
 	oauthConfig *oauth2.Config
 	authEnabled bool
 }
 
-func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
+func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot, tr *tracer.Tracer) *Server {
 	if c.SessionSecret == "" {
 		slog.Warn("session secret is not set, sessions will not be persisted")
 	}
@@ -52,6 +54,8 @@ func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot) *Server {
 	return &Server{
 		store:       s,
 		bot:         b,
+		config:      c,
+		tracer:      tr,
 		session:     sessions.NewCookieStore([]byte(c.SessionSecret)),
 		oauthConfig: oa,
 		authEnabled: authEnabled,
@@ -68,6 +72,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.authMiddleware(s.handleHome))
 	mux.HandleFunc("GET /search", s.authMiddleware(s.handleSearch))
 	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
+	mux.HandleFunc("GET /debug", s.authMiddleware(s.handleDebug))
+	mux.HandleFunc("GET /debug/trace/{id}", s.authMiddleware(s.handleDebugTrace))
 }
 
 func (s *Server) render(w http.ResponseWriter, node g.Node) {

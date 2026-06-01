@@ -18,6 +18,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
 type Bot struct {
@@ -27,17 +28,19 @@ type Bot struct {
 	client        *disgobot.Client
 	agent         *agent.Agent
 	logBuf        *logbuf.Buffer
+	tracer        *tracer.Tracer
 	cache         UserCache
 	presences     sync.Map // snowflake.ID -> UserPresence
 	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 }
 
-func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer) *Bot {
+func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer, tr *tracer.Tracer) *Bot {
 	return &Bot{
 		ctx:    ctx,
 		store:  s,
 		config: c,
 		logBuf: lb,
+		tracer: tr,
 	}
 }
 
@@ -61,7 +64,7 @@ func (b *Bot) Run() error {
 		return err
 	}
 	b.client = client
-	b.agent = agent.New(b.store, b.config, b, b.client, b.logBuf)
+	b.agent = agent.New(b.store, b.config, b, b.client, b.logBuf, b.tracer)
 
 	if b.config.DiscordGuild == "" {
 		slog.Warn("no discord guild configured, skipping command registration")

@@ -41,6 +41,12 @@ func rootLayout(props QuotesPageProps, content g.Node) g.Node {
 						H1(g.Text("doofus-rick")),
 						P(g.Text(props.Description)),
 					),
+					Nav(
+						Ul(
+							Li(A(Href("/"), g.Text("quotes"))),
+							Li(A(Href("/debug"), g.Text("debug"))),
+						),
+					),
 				),
 				Main(Class("container"),
 					Div(ID("main-content"), content),
