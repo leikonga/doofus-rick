@@ -89,7 +89,7 @@ func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
 	quote := store.Quote{
 		Creator:      creatorID,
 		Content:      content,
-		Participants: participants,
+		Participants: (*store.StringSlice)(&participants),
 	}
 
 	if err := b.store.CreateQuote(ctx, quote); err != nil {

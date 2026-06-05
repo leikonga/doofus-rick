@@ -361,7 +361,7 @@ func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
 			q := store.Quote{
 				Content:      in.Content,
 				Creator:      creatorID,
-				Participants: in.ParticipantIDs,
+				Participants: (*store.StringSlice)(&in.ParticipantIDs),
 			}
 			if err := a.store.CreateQuote(ctx, q); err != nil {
 				return toolResult{}, err

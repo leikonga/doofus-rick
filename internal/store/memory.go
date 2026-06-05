@@ -6,7 +6,7 @@ func (s *Store) SaveMemory(ctx context.Context, userID, content string, tags []s
 	return s.db.WithContext(ctx).Create(&Memory{
 		UserID:  userID,
 		Content: content,
-		Tags:    tags,
+		Tags:    (*StringSlice)(&tags),
 	}).Error
 }
 

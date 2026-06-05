@@ -82,8 +82,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getParticipants(q store.Quote) (participants []string) {
-	participants = make([]string, len(q.Participants))
-	for j, id := range q.Participants {
+	if q.Participants == nil {
+		return
+	}
+	participants = make([]string, len(*q.Participants))
+	for j, id := range *q.Participants {
 		name, err := s.bot.GetUsernameForID(id)
 		if err != nil {
 			name = id
