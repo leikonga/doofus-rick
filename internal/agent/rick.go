@@ -23,54 +23,11 @@ var (
 )
 
 const (
-	maxContextLen  = 500
-	maxTokens      = int64(512)
-	historyLimit   = 7
-	maxImages      = 5
-	maxToolIter    = 8
-	sessionTTL     = 30 * time.Minute
-	maxSessionMsgs = 30
+	maxContextLen = 500
+	maxTokens     = int64(512)
+	historyLimit  = 7
+	maxToolIter   = 8
 )
-
-type channelSession struct {
-	messages   []anthropic.MessageParam
-	lastActive time.Time
-}
-
-func (a *Agent) getSession(id snowflake.ID) []anthropic.MessageParam {
-	v, ok := a.sessions.Load(id)
-	if !ok {
-		return nil
-	}
-	s := v.(channelSession)
-	if time.Since(s.lastActive) > sessionTTL {
-		a.sessions.Delete(id)
-		return nil
-	}
-	return s.messages
-}
-
-func (a *Agent) putSession(id snowflake.ID, messages []anthropic.MessageParam) {
-	trimmed := messages
-	if len(trimmed) > maxSessionMsgs {
-		trimmed = trimmed[len(trimmed)-maxSessionMsgs:]
-	}
-	for len(trimmed) > 0 && !isUserTurnStart(trimmed[0]) {
-		trimmed = trimmed[1:]
-	}
-	a.sessions.Store(id, channelSession{messages: slices.Clone(trimmed), lastActive: time.Now()})
-}
-
-// isUserTurnStart reports whether m begins a genuine user turn, i.e. a user
-// message whose first content block is not a tool_result. Trimming a session
-// must not leave a leading tool_result, which would have no preceding tool_use
-// and be rejected by the API.
-func isUserTurnStart(m anthropic.MessageParam) bool {
-	if m.Role != anthropic.MessageParamRoleUser {
-		return false
-	}
-	return len(m.Content) == 0 || m.Content[0].OfToolResult == nil
-}
 
 func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {
 	if event.Message.Author.Bot {
@@ -82,169 +39,168 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
+	go a.handleMention(ctx, event)
+}
 
-		systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
-		if err != nil {
-			slog.Warn("failed to read system prompt file", "error", err, "path", a.config.SystemPromptFile)
-			return
+func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
+	if err != nil {
+		slog.Warn("failed to read system prompt file", "error", err, "path", a.config.SystemPromptFile)
+		return
+	}
+
+	botID := event.Client().ID()
+	msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
+	if err != nil {
+		slog.Warn("failed to fetch channel history", "error", err)
+		return
+	}
+	slices.Reverse(msgs)
+
+	lines := a.buildHistoryLines(botID, event.MessageID, msgs)
+
+	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
+		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
+		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
+			ts := refMsg.CreatedAt.Format("15:04")
+			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content))}, lines...)
+		}
+	}
+
+	triggerContent := strings.TrimSpace(
+		strings.NewReplacer(
+			fmt.Sprintf("<@%s>", botID), "",
+			fmt.Sprintf("<@!%s>", botID), "",
+		).Replace(event.Message.Content),
+	)
+	triggerContent = a.resolveMentions(triggerContent)
+
+	var triggerParts []string
+	if triggerContent != "" {
+		triggerParts = append(triggerParts, triggerContent)
+	}
+	for _, s := range event.Message.StickerItems {
+		triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
+	}
+
+	attachments := classifyAttachments(ctx, event.Message.Attachments)
+	triggerParts = append(triggerParts, attachments.unsupported...)
+
+	triggerName := a.memberName(event.Message.Author)
+	var trigger string
+	if len(triggerParts) > 0 {
+		trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
+	} else {
+		trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
+	}
+
+	var channelName, channelTopic string
+	var channelOverwrites discord.PermissionOverwrites
+	if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
+		channelName = ch.Name()
+		if gmc, ok := ch.(discord.GuildMessageChannel); ok {
+			if gmc.Topic() != nil {
+				channelTopic = *gmc.Topic()
+			}
+			channelOverwrites = gmc.PermissionOverwrites()
+		}
+	}
+
+	fullSystem := string(systemPrompt)
+	fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
+	if roster := a.buildUserRoster(channelOverwrites); roster != "" {
+		fullSystem += "\n\n" + roster
+	}
+
+	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
+	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
+		go func() {
+			defer a.typingChannels.Delete(event.ChannelID)
+			a.keepTyping(ctx, event)
+		}()
+	}
+
+	resp, err := a.callClaude(ctx, claudeRequest{
+		systemPrompt: fullSystem,
+		prompt:       prompt,
+		imageURLs:    attachments.imageURLs,
+		docBlocks:    attachments.docBlocks,
+		event:        event,
+	})
+	if err != nil {
+		slog.Warn("claude api call failed", "error", err)
+		return
+	}
+
+	if resp.decline {
+		if resp.emoji != "" {
+			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
+				slog.Warn("failed to add reaction", "error", err)
+			}
+		}
+		return
+	}
+
+	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
+	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
+	if sanitizedResponse != "" {
+		msg = msg.WithContent(sanitizedResponse)
+	}
+	if resp.embed != nil {
+		msg = msg.WithEmbeds(*resp.embed)
+	}
+	if sanitizedResponse != "" || resp.embed != nil {
+		if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
+			slog.Warn("failed to send rick response", "error", err)
+		}
+	}
+}
+
+// buildHistoryLines renders recent channel messages (excluding the
+// triggering message and the bot's own messages) into the chat-log lines
+// shown to Claude as context.
+func (a *Agent) buildHistoryLines(botID, skipID snowflake.ID, msgs []discord.Message) []string {
+	var lines []string
+	for _, msg := range msgs {
+		if msg.ID == skipID || msg.Author.ID == botID || strings.HasPrefix(msg.Content, "/") {
+			continue
 		}
 
-		msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
-		if err != nil {
-			slog.Warn("failed to fetch channel history", "error", err)
-			return
+		var parts []string
+		content := a.resolveMentions(msg.Content)
+		if len(content) > maxContextLen {
+			content = content[:maxContextLen] + "..."
 		}
-		slices.Reverse(msgs)
-
-		var lines []string
-		for _, msg := range msgs {
-			if msg.ID == event.MessageID {
-				continue
-			}
-			if msg.Author.ID == botID {
-				continue
-			}
-			if strings.HasPrefix(msg.Content, "/") {
-				continue
-			}
-
-			var parts []string
-			content := a.resolveMentions(msg.Content)
-			if len(content) > maxContextLen {
-				content = content[:maxContextLen] + "..."
-			}
-			if content != "" {
-				parts = append(parts, content)
-			}
-			for _, s := range msg.StickerItems {
-				parts = append(parts, "(sticker: "+s.Name+")")
-			}
-			for _, att := range msg.Attachments {
-				if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
-					parts = append(parts, "(sent an image)")
-				} else {
-					parts = append(parts, "(sent: "+att.Filename+")")
-				}
-			}
-			if len(parts) == 0 {
-				continue
-			}
-
-			var name string
-			if msg.Author.Bot {
-				name = msg.Author.Username + " (bot)"
+		if content != "" {
+			parts = append(parts, content)
+		}
+		for _, s := range msg.StickerItems {
+			parts = append(parts, "(sticker: "+s.Name+")")
+		}
+		for _, att := range msg.Attachments {
+			if isImageAttachment(att) {
+				parts = append(parts, "(sent an image)")
 			} else {
-				name = a.memberName(msg.Author)
-			}
-			ts := msg.CreatedAt.Format("15:04")
-			lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
-		}
-
-		if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
-			refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
-			if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
-				ts := refMsg.CreatedAt.Format("15:04")
-				lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content))}, lines...)
+				parts = append(parts, unsupportedLabel(att))
 			}
 		}
-
-		triggerContent := strings.TrimSpace(
-			strings.NewReplacer(
-				fmt.Sprintf("<@%s>", botID), "",
-				fmt.Sprintf("<@!%s>", botID), "",
-			).Replace(event.Message.Content),
-		)
-		triggerContent = a.resolveMentions(triggerContent)
-
-		var triggerParts []string
-		if triggerContent != "" {
-			triggerParts = append(triggerParts, triggerContent)
-		}
-		for _, s := range event.Message.StickerItems {
-			triggerParts = append(triggerParts, "(sticker: "+s.Name+")")
-		}
-		for _, att := range event.Message.Attachments {
-			if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") {
-				triggerParts = append(triggerParts, "(sent: "+att.Filename+")")
-			}
+		if len(parts) == 0 {
+			continue
 		}
 
-		triggerName := a.memberName(event.Message.Author)
-		var trigger string
-		if len(triggerParts) > 0 {
-			trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
+		var name string
+		if msg.Author.Bot {
+			name = msg.Author.Username + " (bot)"
 		} else {
-			trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
+			name = a.memberName(msg.Author)
 		}
-
-		var imageURLs []string
-		for _, att := range event.Message.Attachments {
-			if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") {
-				imageURLs = append(imageURLs, att.URL)
-				if len(imageURLs) >= maxImages {
-					break
-				}
-			}
-		}
-
-		var channelName, channelTopic string
-		var channelOverwrites discord.PermissionOverwrites
-		if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
-			channelName = ch.Name()
-			if gmc, ok := ch.(discord.GuildMessageChannel); ok {
-				if gmc.Topic() != nil {
-					channelTopic = *gmc.Topic()
-				}
-				channelOverwrites = gmc.PermissionOverwrites()
-			}
-		}
-
-		fullSystem := string(systemPrompt)
-		fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
-		if roster := a.buildUserRoster(channelOverwrites); roster != "" {
-			fullSystem += "\n\n" + roster
-		}
-
-		prompt := buildPrompt(channelName, channelTopic, lines, trigger)
-		if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
-			go func() {
-				defer a.typingChannels.Delete(event.ChannelID)
-				a.keepTyping(ctx, event)
-			}()
-		}
-
-		resp, err := a.callClaude(ctx, fullSystem, prompt, imageURLs, event)
-		if err != nil {
-			slog.Warn("claude api call failed", "error", err)
-			return
-		}
-
-		if resp.decline {
-			if resp.emoji != "" {
-				if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
-					slog.Warn("failed to add reaction", "error", err)
-				}
-			}
-			return
-		}
-
-		sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
-		msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
-		if sanitizedResponse != "" {
-			msg = msg.WithContent(sanitizedResponse)
-		}
-		if resp.embed != nil {
-			msg = msg.WithEmbeds(*resp.embed)
-		}
-		if sanitizedResponse != "" || resp.embed != nil {
-			if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
-				slog.Warn("failed to send rick response", "error", err)
-			}
-		}
-	}()
+		ts := msg.CreatedAt.Format("15:04")
+		lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
+	}
+	return lines
 }
 
 func buildPrompt(channelName, channelTopic string, lines []string, trigger string) string {
@@ -276,8 +232,18 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
-func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, imageURLs []string, event *events.MessageCreate) (retResp rickResponse, retErr error) {
-	rec := a.tracer.Start(event.ChannelID.String(), event.Message.Author.ID.String(), systemPrompt, prompt)
+// claudeRequest bundles the inputs to callClaude: the rendered prompt plus
+// whatever images and documents the triggering message attached.
+type claudeRequest struct {
+	systemPrompt string
+	prompt       string
+	imageURLs    []string
+	docBlocks    []anthropic.ContentBlockParamUnion
+	event        *events.MessageCreate
+}
+
+func (a *Agent) callClaude(ctx context.Context, req claudeRequest) (retResp rickResponse, retErr error) {
+	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt, req.prompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
@@ -290,7 +256,7 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		}()
 	}()
 
-	allTools := a.buildTools(event)
+	allTools := a.buildTools(req.event)
 	defs := make([]anthropic.ToolUnionParam, len(allTools))
 	lookup := make(map[string]ricktool, len(allTools))
 	for i, t := range allTools {
@@ -298,12 +264,13 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		lookup[t.name] = t
 	}
 
-	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(prompt)}
-	for _, url := range imageURLs {
+	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(req.prompt)}
+	for _, url := range req.imageURLs {
 		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
 	}
+	blocks = append(blocks, req.docBlocks...)
 
-	prior := a.getSession(event.ChannelID)
+	prior := a.getSession(req.event.ChannelID)
 	messages := append(prior, anthropic.NewUserMessage(blocks...))
 
 	validated, repaired := validateConversation(messages)
@@ -324,7 +291,7 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 		msg, err := a.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
 			Model:     a.config.AnthropicModel,
 			MaxTokens: maxTokens,
-			System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
+			System:    []anthropic.TextBlockParam{{Text: req.systemPrompt}},
 			Tools:     defs,
 			Messages:  messages,
 		})
@@ -338,7 +305,7 @@ func (a *Agent) callClaude(ctx context.Context, systemPrompt, prompt string, ima
 			for _, block := range msg.Content {
 				if block.Type == "text" && block.Text != "" {
 					saved := append(messages, msg.ToParam())
-					a.putSession(event.ChannelID, saved)
+					a.putSession(req.event.ChannelID, saved)
 					return rickResponse{text: block.Text}, nil
 				}
 			}
