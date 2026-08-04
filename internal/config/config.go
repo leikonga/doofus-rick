@@ -37,6 +37,9 @@ type Config struct {
 	BraveAPIKey string
 
 	WorkDir string
+
+	ArchiveEnabled      bool
+	ArchiveDenyChannels string
 }
 
 func LoadConfig() *Config {
@@ -75,6 +78,9 @@ func LoadConfig() *Config {
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 
 		WorkDir: getEnv("RICK_WORK_DIR", "/rick/work"),
+
+		ArchiveEnabled:      getEnvBool("ARCHIVE_ENABLED", true),
+		ArchiveDenyChannels: getEnv("ARCHIVE_DENY_CHANNELS", ""),
 	}
 }
 
@@ -93,6 +99,19 @@ func getEnvInt64(key string, fallback int64) int64 {
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		slog.Warn("invalid int env var, using fallback", "key", key, "value", value, "error", err)
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		slog.Warn("invalid bool env var, using fallback", "key", key, "value", value, "error", err)
 		return fallback
 	}
 	return parsed

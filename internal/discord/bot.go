@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,15 +34,17 @@ type Bot struct {
 	cache         UserCache
 	presences     sync.Map // snowflake.ID -> UserPresence
 	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
+	httpClient    *http.Client
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer, tr *tracer.Tracer) *Bot {
 	return &Bot{
-		ctx:    ctx,
-		store:  s,
-		config: c,
-		logBuf: lb,
-		tracer: tr,
+		ctx:        ctx,
+		store:      s,
+		config:     c,
+		logBuf:     lb,
+		tracer:     tr,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -60,6 +64,7 @@ func (b *Bot) Run() error {
 		disgobot.WithEventListenerFunc(b.onGuildReady),
 		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
 		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
+		disgobot.WithEventListenerFunc(b.onMessageCreate),
 	)
 	if err != nil {
 		return err
@@ -116,4 +121,83 @@ func (b *Bot) fireReminders(ctx context.Context) {
 			slog.Warn("failed to mark reminder fired", "id", r.ID, "error", err)
 		}
 	}
+}
+
+func (b *Bot) onMessageCreate(e *events.MessageCreate) {
+	if !b.config.ArchiveEnabled {
+		return
+	}
+
+	if e.Message.Author.Bot {
+		return
+	}
+
+	if strings.HasPrefix(e.Message.Content, "/") {
+		return
+	}
+
+	if b.isChannelDenied(e.ChannelID) {
+		return
+	}
+
+	isForgotten, err := b.store.IsAuthorForgotten(context.Background(), uint64(e.Message.Author.ID))
+	if err != nil {
+		slog.Warn("failed to check if author is forgotten", "error", err)
+		return
+	}
+	if isForgotten {
+		return
+	}
+
+	content := e.Message.Content
+	if len(content) > 10000 {
+		content = content[:10000]
+	}
+
+	attachmentsJSON, _ := b.serializeAttachments(e.Message.Attachments)
+
+	msg := store.Message{
+		ID:          uint64(e.Message.ID),
+		ChannelID:   uint64(e.ChannelID),
+		AuthorID:    uint64(e.Message.Author.ID),
+		AuthorName:  e.Message.Author.Username,
+		Content:     content,
+		ReplyToID:   nil,
+		IsBot:       e.Message.Author.Bot,
+		Attachments: attachmentsJSON,
+		CreatedAt:   e.Message.CreatedAt,
+		EditedAt:    nil,
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := b.store.CreateMessage(ctx, msg); err != nil {
+			slog.Warn("failed to archive message", "error", err)
+		}
+	}()
+}
+
+func (b *Bot) isChannelDenied(channelID snowflake.ID) bool {
+	if b.config.ArchiveDenyChannels == "" {
+		return false
+	}
+	denied := strings.Split(b.config.ArchiveDenyChannels, ",")
+	for _, d := range denied {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if d == channelID.String() {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Bot) serializeAttachments(attachments []discord.Attachment) (*string, error) {
+	if len(attachments) == 0 {
+		return nil, nil
+	}
+	return &attachments[0].Filename, nil
 }

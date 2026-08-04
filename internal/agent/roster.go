@@ -33,10 +33,6 @@ func (a *Agent) buildUserRoster(overwrites discord.PermissionOverwrites) string 
 	return sb.String()
 }
 
-// memberCanSeeChannel checks channel permission overwrites to determine visibility.
-// It does not account for base role permissions (guild-level), which requires
-// fetching the full guild. For channels with no restrictive overwrites (the common
-// case), all members pass through, which is correct.
 func memberCanSeeChannel(member discord.Member, overwrites discord.PermissionOverwrites) bool {
 	if len(overwrites) == 0 {
 		return true

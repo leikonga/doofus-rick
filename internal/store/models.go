@@ -45,3 +45,21 @@ type FailureTrace struct {
 	Decline   bool   `gorm:"not null"`
 	ErrMsg    string `gorm:"type:text"`
 }
+
+type Message struct {
+	ID          uint64 `gorm:"primaryKey"`
+	ChannelID   uint64 `gorm:"not null;index:idx_messages_channel_created"`
+	AuthorID    uint64 `gorm:"not null;index:idx_messages_author_created"`
+	AuthorName  string `gorm:"not null"`
+	Content     string `gorm:"not null"`
+	ReplyToID   *uint64
+	IsBot       bool
+	Attachments *string
+	CreatedAt   time.Time `gorm:"not null"`
+	EditedAt    *time.Time
+}
+
+type ForgottenAuthor struct {
+	UserID    uint64    `gorm:"primaryKey"`
+	CreatedAt time.Time `gorm:"not null"`
+}
