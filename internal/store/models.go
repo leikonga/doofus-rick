@@ -65,7 +65,7 @@ type ForgottenAuthor struct {
 }
 
 type BackfillState struct {
-	ID            int    `gorm:"primaryKey;default:1"`
+	ID            int    `gorm:"primaryKey;autoIncrement:false;default:1"`
 	Status        string `gorm:"not null"`
 	StartedAt     *time.Time
 	FinishedAt    *time.Time
