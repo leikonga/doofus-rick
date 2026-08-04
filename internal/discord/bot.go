@@ -460,7 +460,9 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 	b.backfillMutex.Lock()
 	defer b.backfillMutex.Unlock()
 
-	state, err := b.store.GetBackfillState(ctx)
+	slog.Info("backfill worker starting")
+
+	state, err := b.store.GetOrCreateBackfillState(ctx)
 	if err != nil {
 		slog.Warn("failed to get backfill state", "error", err)
 		return
@@ -486,11 +488,18 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
 			slog.Warn("failed to finalize backfill state", "error", err)
 		}
+		slog.Info("backfill worker finished", "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
 	}()
 
 	delay, err := time.ParseDuration(b.config.BackfillDelay)
 	if err != nil {
 		delay = 1 * time.Second
+	}
+
+	if seeded, err := b.seedBackfillChannels(ctx); err != nil {
+		slog.Warn("failed to seed backfill channels from guild", "error", err)
+	} else if seeded > 0 {
+		slog.Info("seeded new channels for backfill", "count", seeded)
 	}
 
 	channels, err := b.store.GetBackfillChannels(ctx, 100)
@@ -506,6 +515,8 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 		slog.Warn("failed to update channels total", "error", err)
 		return
 	}
+
+	slog.Info("backfill processing channels", "count", len(channels))
 
 	for _, ch := range channels {
 		select {
@@ -542,7 +553,36 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
 			slog.Warn("failed to update backfill progress", "error", err)
 		}
+		slog.Info("backfill channel done", "channel", ch.ChannelID, "messages_seen", ch.MessagesSeen,
+			"progress", fmt.Sprintf("%d/%d", state.ChannelsDone, state.ChannelsTotal))
 	}
+}
+
+// seedBackfillChannels inserts a pending backfill_channel row for every
+// guild message channel not already tracked, so enabling backfill picks up
+// the whole guild without requiring channels to be seeded by hand.
+func (b *Bot) seedBackfillChannels(ctx context.Context) (int, error) {
+	if b.config.DiscordGuild == "" {
+		return 0, nil
+	}
+	guildID, err := snowflake.Parse(b.config.DiscordGuild)
+	if err != nil {
+		return 0, err
+	}
+
+	channels, err := b.client.Rest.GetGuildChannels(guildID)
+	if err != nil {
+		return 0, err
+	}
+
+	var ids []uint64
+	for _, ch := range channels {
+		if _, ok := ch.(discord.GuildMessageChannel); ok {
+			ids = append(ids, uint64(ch.ID()))
+		}
+	}
+
+	return b.store.SeedBackfillChannels(ctx, ids)
 }
 
 func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.Duration) error {

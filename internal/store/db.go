@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 //go:embed migrations/*.sql
@@ -24,13 +26,21 @@ func MustInit(c *config.Config) *Store {
 	var db *gorm.DB
 	var err error
 
+	gormConfig := &gorm.Config{
+		Logger: logger.New(&slogLogger{slog.Default()}, logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
+	}
+
 	switch c.DBDriver {
 	case "postgres":
 		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 			c.DBHost, c.DBUser, c.DBPass, c.DBName, c.DBPort)
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		db, err = gorm.Open(postgres.Open(dsn), gormConfig)
 	default:
-		db, err = gorm.Open(sqlite.Open(c.DBPath), &gorm.Config{})
+		db, err = gorm.Open(sqlite.Open(c.DBPath), gormConfig)
 	}
 
 	if err != nil {

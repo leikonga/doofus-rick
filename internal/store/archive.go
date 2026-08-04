@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *Store) CreateMessage(ctx context.Context, msg Message) error {
@@ -46,6 +48,44 @@ func (s *Store) GetBackfillState(ctx context.Context) (*BackfillState, error) {
 		return nil, err
 	}
 	return &state, nil
+}
+
+// GetOrCreateBackfillState returns the singleton backfill state row,
+// creating it as idle if this is the first time backfill has ever run.
+func (s *Store) GetOrCreateBackfillState(ctx context.Context) (*BackfillState, error) {
+	state, err := s.GetBackfillState(ctx)
+	if err == nil {
+		return state, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	state = &BackfillState{ID: 1, Status: "idle", UpdatedAt: time.Now()}
+	if err := s.db.WithContext(ctx).Create(state).Error; err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+// SeedBackfillChannels inserts a pending row per channel ID not already
+// tracked, so newly enabled backfill picks up every channel in the guild.
+// Existing rows (including completed ones) are left untouched.
+func (s *Store) SeedBackfillChannels(ctx context.Context, channelIDs []uint64) (int, error) {
+	if len(channelIDs) == 0 {
+		return 0, nil
+	}
+
+	rows := make([]BackfillChannel, len(channelIDs))
+	for i, id := range channelIDs {
+		rows[i] = BackfillChannel{ChannelID: id, UpdatedAt: time.Now()}
+	}
+
+	tx := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&rows)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(tx.RowsAffected), nil
 }
 
 func (s *Store) UpdateBackfillState(ctx context.Context, state *BackfillState) error {
