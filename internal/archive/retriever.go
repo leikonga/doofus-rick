@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -75,15 +76,15 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 
 	querySQL := `
 		with vec as (
-			select c.id, row_number() over (order by e.embedding <=> $1::halfvec) as rank
+			select c.id, row_number() over (order by e.embedding <=> @vec::halfvec) as rank
 			from chunks c join chunk_embeddings e on e.chunk_id = c.id
-			where e.model = $5 and c.channel_id = any($2)
-			order by e.embedding <=> $1::halfvec limit 50
+			where e.model = @model and c.channel_id = any(@channels)
+			order by e.embedding <=> @vec::halfvec limit 50
 		),
 		lex as (
 			select c.id, row_number() over (order by ts_rank_cd(tsv, q) desc) as rank
-			from chunks c, plainto_tsquery('simple', $3) q
-			where tsv @@ q and c.channel_id = any($2)
+			from chunks c, plainto_tsquery('simple', @query) q
+			where tsv @@ q and c.channel_id = any(@channels)
 			order by ts_rank_cd(tsv, q) desc limit 50
 		)
 		select c.id, c.channel_id, c.content,
@@ -94,10 +95,16 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 		left join lex on lex.id = c.id
 		where vec.id is not null or lex.id is not null
 		order by score desc
-		limit $4;
+		limit @topk;
 	`
 
-	err = r.store.DB().WithContext(ctx).Raw(querySQL, queryVector, channelIDs, query, r.config.TopK, r.config.EmbedModel).Scan(&chunks).Error
+	err = r.store.DB().WithContext(ctx).Raw(querySQL,
+		sql.Named("vec", queryVector),
+		sql.Named("channels", channelIDs),
+		sql.Named("query", query),
+		sql.Named("topk", r.config.TopK),
+		sql.Named("model", r.config.EmbedModel),
+	).Scan(&chunks).Error
 	if err != nil {
 		return nil, err
 	}
