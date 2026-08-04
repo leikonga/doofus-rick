@@ -45,6 +45,25 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
+	// Typing starts immediately, in parallel with history/roster/recall
+	// fetches below, so the indicator isn't gated behind the (sometimes
+	// multi-second) embedding call recall retrieval makes.
+	var theatreDone <-chan struct{}
+	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
+		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
+			theatreDone = a.runTypingTheatre(ctx, event, seq)
+			go func() {
+				<-theatreDone
+				a.typingChannels.Delete(event.ChannelID)
+			}()
+		} else {
+			go func() {
+				defer a.typingChannels.Delete(event.ChannelID)
+				a.keepTyping(ctx, event)
+			}()
+		}
+	}
+
 	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 	if err != nil {
 		slog.Warn("failed to read system prompt file", "error", err, "path", a.config.SystemPromptFile)
@@ -108,27 +127,16 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		}
 	}
 
+	recallCh := make(chan string, 1)
+	go func() {
+		recallCh <- a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(event.Message.Author.ID))
+	}()
+
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 
 	prompt := buildPrompt(channelName, channelTopic, messages, trigger)
 
-	recall := a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(event.Message.Author.ID))
-
-	var theatreDone <-chan struct{}
-	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
-		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
-			theatreDone = a.runTypingTheatre(ctx, event, seq)
-			go func() {
-				<-theatreDone
-				a.typingChannels.Delete(event.ChannelID)
-			}()
-		} else {
-			go func() {
-				defer a.typingChannels.Delete(event.ChannelID)
-				a.keepTyping(ctx, event)
-			}()
-		}
-	}
+	recall := <-recallCh
 
 	resp, err := a.callModel(ctx, modelRequest{
 		systemPrompt: string(systemPrompt),
