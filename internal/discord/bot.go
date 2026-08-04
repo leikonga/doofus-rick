@@ -555,12 +555,19 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 		}
 
 		state.ChannelsDone++
+		state.MessagesSeen += ch.MessagesSeen
 		state.UpdatedAt = time.Now()
 		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
 			slog.Warn("failed to update backfill progress", "error", err)
 		}
+
+		elapsed := time.Since(*state.StartedAt)
+		remaining := state.ChannelsTotal - state.ChannelsDone
+		eta := (elapsed / time.Duration(state.ChannelsDone)) * time.Duration(remaining)
 		slog.Info("backfill channel done", "channel", ch.ChannelID, "messages_seen", ch.MessagesSeen,
-			"progress", fmt.Sprintf("%d/%d", state.ChannelsDone, state.ChannelsTotal))
+			"progress", fmt.Sprintf("%d/%d", state.ChannelsDone, state.ChannelsTotal),
+			"total_messages_seen", state.MessagesSeen,
+			"elapsed", elapsed.Round(time.Second), "eta", eta.Round(time.Second))
 	}
 }
 
@@ -593,6 +600,7 @@ func (b *Bot) seedBackfillChannels(ctx context.Context) (int, error) {
 
 func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.Duration) error {
 	botID := b.client.ID()
+	channelStart := time.Now()
 
 	newestMsg, err := b.client.Rest.GetMessages(snowflake.ID(channelID), 0, 0, 0, 1)
 	if err != nil {
@@ -700,6 +708,12 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 		if err := b.store.SaveBackfillChannel(ctx, channel); err != nil {
 			slog.Warn("failed to save backfill cursor", "error", err)
 		}
+
+		elapsed := time.Since(channelStart)
+		rate := float64(channel.MessagesSeen) / elapsed.Seconds()
+		slog.Info("backfill channel progress", "channel", channelID, "messages_seen", channel.MessagesSeen,
+			"batch_size", len(msgs), "elapsed", elapsed.Round(time.Second),
+			"rate_per_sec", fmt.Sprintf("%.1f", rate))
 
 		if len(msgs) < b.config.BackfillBatch {
 			break
