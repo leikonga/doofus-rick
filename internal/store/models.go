@@ -85,3 +85,20 @@ type BackfillChannel struct {
 	LastError     *string
 	UpdatedAt     time.Time `gorm:"not null"`
 }
+
+type Chunk struct {
+	ID             uint64    `gorm:"primaryKey"`
+	ChannelID      uint64    `gorm:"not null;index:idx_chunks_channel_ended"`
+	Content        string    `gorm:"not null"`
+	StartedAt      time.Time `gorm:"not null"`
+	EndedAt        time.Time `gorm:"not null"`
+	MessageCount   int       `gorm:"not null"`
+	FirstMessageID uint64    `gorm:"not null"`
+	LastMessageID  uint64    `gorm:"not null"`
+}
+
+type ChunkEmbedding struct {
+	ChunkID   uint64    `gorm:"primaryKey"`
+	Model     string    `gorm:"primaryKey"`
+	Embedding []float32 `gorm:"type:halfvec(1024);not null"`
+}

@@ -86,3 +86,33 @@ func (s *Store) GetMessagesSince(ctx context.Context, channelID uint64, sinceID 
 	err := s.db.WithContext(ctx).Where("channel_id = ? AND id > ?", channelID, sinceID).Order("id asc").Limit(limit).Find(&msgs).Error
 	return msgs, err
 }
+
+func (s *Store) CreateChunk(ctx context.Context, chunk Chunk) error {
+	return s.db.WithContext(ctx).Create(&chunk).Error
+}
+
+func (s *Store) SaveChunkEmbedding(ctx context.Context, embedding ChunkEmbedding) error {
+	return s.db.WithContext(ctx).Create(&embedding).Error
+}
+
+func (s *Store) GetChunksWithoutEmbedding(ctx context.Context, model string, limit int) ([]Chunk, error) {
+	var chunks []Chunk
+	err := s.db.WithContext(ctx).
+		Where("id NOT IN (SELECT chunk_id FROM chunk_embeddings WHERE model = ?)", model).
+		Order("id").Limit(limit).Find(&chunks).Error
+	return chunks, err
+}
+
+func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
+	var chunk Chunk
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&chunk).Error
+	return &chunk, err
+}
+
+func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, sinceID uint64, limit int) ([]Message, error) {
+	var msgs []Message
+	err := s.db.WithContext(ctx).
+		Where("channel_id = ? AND id > ? AND id NOT IN (SELECT last_message_id FROM chunks WHERE channel_id = ?)", channelID, sinceID, channelID).
+		Order("id").Limit(limit).Find(&msgs).Error
+	return msgs, err
+}

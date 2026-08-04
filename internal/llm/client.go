@@ -41,6 +41,11 @@ type CompletionResponse struct {
 	OutputTokens int64
 }
 
+type EmbeddingResponse struct {
+	Embeddings  [][]float32
+	InputTokens int64
+}
+
 func (c *Client) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
 	chatMessages := make([]components.ChatMessages, 0, len(req.Messages)+1)
 	chatMessages = append(chatMessages, components.CreateChatMessagesSystem(components.ChatSystemMessage{
@@ -75,6 +80,11 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 		resp.InputTokens = res.ChatResult.Usage.PromptTokens
 		resp.OutputTokens = res.ChatResult.Usage.CompletionTokens
 	}
+	return resp, nil
+}
+
+func (c *Client) Embed(ctx context.Context, req CompletionRequest) (EmbeddingResponse, error) {
+	var resp EmbeddingResponse
 	return resp, nil
 }
 

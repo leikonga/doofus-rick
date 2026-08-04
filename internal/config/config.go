@@ -44,6 +44,12 @@ type Config struct {
 	BackfillEnabled bool
 	BackfillDelay   string
 	BackfillBatch   int
+
+	ChunkGap      string
+	ChunkMaxMsgs  int
+	ChunkMaxChars int
+
+	RickEmbedModel string
 }
 
 func LoadConfig() *Config {
@@ -89,6 +95,12 @@ func LoadConfig() *Config {
 		BackfillEnabled: getEnvBool("BACKFILL_ENABLED", false),
 		BackfillDelay:   getEnv("BACKFILL_DELAY", "1s"),
 		BackfillBatch:   getEnvInt("BACKFILL_BATCH", 100),
+
+		ChunkGap:      getEnv("CHUNK_GAP", "10m"),
+		ChunkMaxMsgs:  getEnvInt("CHUNK_MAX_MSGS", 15),
+		ChunkMaxChars: getEnvInt("CHUNK_MAX_CHARS", 2000),
+
+		RickEmbedModel: getEnv("RICK_EMBED_MODEL", "qwen/qwen3-embedding-8b"),
 	}
 }
 
