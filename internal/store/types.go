@@ -58,9 +58,13 @@ func (*StringSlice) GormDataType() string { return "text" }
 // cannot accept.
 type HalfVector []float32
 
-func (v *HalfVector) Value() (driver.Value, error) {
-	parts := make([]string, len(*v))
-	for i, f := range *v {
+// Value uses a value receiver, unlike Scan below: the ChunkEmbedding.Embedding
+// field is a bare HalfVector (not *HalfVector), and gorm's AddVar type-switches
+// on the field's own value, so a pointer-receiver Value here would never match
+// driver.Valuer and the field would fall back to the driver's raw encoding.
+func (v HalfVector) Value() (driver.Value, error) {
+	parts := make([]string, len(v))
+	for i, f := range v {
 		parts[i] = strconv.FormatFloat(float64(f), 'f', -1, 32)
 	}
 	return "[" + strings.Join(parts, ",") + "]", nil
@@ -98,4 +102,4 @@ func (v *HalfVector) Scan(value any) error {
 	return nil
 }
 
-func (*HalfVector) GormDataType() string { return "halfvec(1024)" }
+func (HalfVector) GormDataType() string { return "halfvec(1024)" }
