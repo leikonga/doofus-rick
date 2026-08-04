@@ -38,9 +38,9 @@ func (b *Bot) onGuildReady(event *events.GuildReady) {
 }
 
 func (b *Bot) onPresenceUpdate(event *events.PresenceUpdate) {
-	b.presences.Store(event.Presence.PresenceUser.ID, UserPresence{
-		Status:     event.Presence.Status,
-		Activities: event.Presence.Activities,
+	b.presences.Store(event.PresenceUser.ID, UserPresence{
+		Status:     event.Status,
+		Activities: event.Activities,
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	g "maragu.dev/gomponents"
+	//nolint:staticcheck // ST1001: dot-import is the documented gomponents/html idiom, keeps the HTML DSL terse
 	. "maragu.dev/gomponents/html"
 )
 

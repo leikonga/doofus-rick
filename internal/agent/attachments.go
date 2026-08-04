@@ -62,7 +62,7 @@ func fetchAttachmentText(ctx context.Context, url string, maxBytes int64) (strin
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status %d fetching attachment", resp.StatusCode)
 	}

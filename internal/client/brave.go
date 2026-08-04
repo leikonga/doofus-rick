@@ -73,7 +73,7 @@ func (c *BraveClient) Search(ctx context.Context, query, freshness string) (stri
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("brave search returned %d", resp.StatusCode)
@@ -113,7 +113,7 @@ func (c *BraveClient) FetchPage(ctx context.Context, rawURL string) (string, err
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("fetch returned %d", resp.StatusCode)
@@ -182,7 +182,7 @@ func (c *BraveClient) SearchImage(ctx context.Context, query string) (string, er
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("brave image search returned %d", resp.StatusCode)
