@@ -74,10 +74,6 @@ type Config struct {
 	TypingTheatre  bool
 	TypingMaxDelay string
 	TypingChance   float64
-
-	BudgetMonthlyUSD float64
-
-	RickFallbackModel string
 }
 
 func LoadConfig() *Config {
@@ -153,10 +149,6 @@ func LoadConfig() *Config {
 		TypingTheatre:  getEnvBool("TYPING_THEATRE", false),
 		TypingMaxDelay: getEnv("TYPING_MAX_DELAY", "20s"),
 		TypingChance:   getEnvFloat64("TYPING_CHANCE", 0.25),
-
-		BudgetMonthlyUSD: getEnvFloat64("BUDGET_MONTHLY_USD", 0),
-
-		RickFallbackModel: getEnv("RICK_FALLBACK_MODEL", ""),
 	}
 }
 

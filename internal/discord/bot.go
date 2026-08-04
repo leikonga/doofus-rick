@@ -47,7 +47,6 @@ type Bot struct {
 	ambientClassifier *ambient.Classifier
 	ambientWindow     time.Duration
 	affinityScorer    *archive.AffinityScorer
-	budgetGuard       *archive.BudgetGuard
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer, tr *tracer.Tracer) *Bot {
@@ -93,7 +92,6 @@ func (b *Bot) Run() error {
 	}, b.store)
 	llmClient := llm.NewClient(b.config.OpenRouterAPIKey)
 	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, llmClient)
-	b.budgetGuard = archive.NewBudgetGuard(b.config, b.store)
 
 	if b.config.AmbientEnabled {
 		b.ambientWindow = parseDurationOr(b.config.AmbientWindow, 90*time.Second)
@@ -276,16 +274,6 @@ func (b *Bot) checkAmbient(channelID snowflake.ID) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-
-		if b.budgetGuard != nil {
-			disable, err := b.budgetGuard.ShouldDisableAmbient(ctx)
-			if err != nil {
-				slog.Warn("budget check failed", "error", err)
-			} else if disable {
-				slog.Warn("monthly budget threshold reached, skipping ambient response", "channel", channelID)
-				return
-			}
-		}
 
 		since := time.Now().Add(-b.ambientWindow)
 		msgs, err := b.store.GetRecentMessagesSince(ctx, uint64(channelID), since, 200)

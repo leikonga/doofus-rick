@@ -269,7 +269,7 @@ type modelRequest struct {
 }
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
-	model := a.selectModel(ctx)
+	model := a.config.RickModel
 
 	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.prompt)
 	defer func() {
@@ -423,26 +423,6 @@ func (a *Agent) runTypingTheatre(ctx context.Context, event *events.MessageCreat
 		}
 	}()
 	return done
-}
-
-// selectModel falls back to RICK_FALLBACK_MODEL once the monthly budget is
-// exhausted, so archiving and retrieval keep running (they're cheap) while
-// generation moves to a cheaper model instead of stopping outright.
-func (a *Agent) selectModel(ctx context.Context) string {
-	if a.budgetGuard == nil || a.config.RickFallbackModel == "" {
-		return a.config.RickModel
-	}
-	ok, err := a.budgetGuard.Check(ctx)
-	if err != nil {
-		slog.Warn("budget check failed", "error", err)
-		return a.config.RickModel
-	}
-	if !ok {
-		slog.Warn("monthly budget exceeded, falling back to cheaper model",
-			"model", a.config.RickModel, "fallback_model", a.config.RickFallbackModel)
-		return a.config.RickFallbackModel
-	}
-	return a.config.RickModel
 }
 
 func (a *Agent) memberName(user discord.User) string {

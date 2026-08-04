@@ -42,7 +42,6 @@ type Agent struct {
 	tracer         *tracer.Tracer
 	retriever      *archive.Retriever
 	affinity       *archive.Affinity
-	budgetGuard    *archive.BudgetGuard
 	typingTheatre  *archive.TypingTheatre
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 }
@@ -75,7 +74,6 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			DecayPerDay: c.AffinityDecayPerDay,
 			Model:       c.AffinityModel,
 		}, s),
-		budgetGuard: archive.NewBudgetGuard(c, s),
 		typingTheatre: archive.NewTypingTheatre(archive.TypingTheatreConfig{
 			Enabled:  c.TypingTheatre,
 			MaxDelay: typingMaxDelay,
