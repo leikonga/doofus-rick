@@ -649,6 +649,10 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 		}
 
 		for _, msg := range msgs {
+			if msg.ID < snowflake.ID(oldestFetched) || oldestFetched == 0 {
+				oldestFetched = uint64(msg.ID)
+			}
+
 			if msg.Author.ID == botID {
 				continue
 			}
@@ -667,10 +671,6 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 				continue
 			}
 			if isForgotten {
-				continue
-			}
-
-			if msg.ID >= snowflake.ID(oldestFetched) && oldestFetched > 0 {
 				continue
 			}
 
@@ -700,7 +700,6 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 			}
 
 			channel.MessagesSeen++
-			oldestFetched = uint64(msg.ID)
 		}
 
 		channel.OldestFetched = &oldestFetched
