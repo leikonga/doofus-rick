@@ -282,6 +282,7 @@ func (b *Bot) checkAmbient(channelID snowflake.ID) {
 			if err != nil {
 				slog.Warn("budget check failed", "error", err)
 			} else if disable {
+				slog.Warn("monthly budget threshold reached, skipping ambient response", "channel", channelID)
 				return
 			}
 		}

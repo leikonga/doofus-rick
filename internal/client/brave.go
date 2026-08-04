@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -69,6 +70,7 @@ func (c *BraveClient) Search(ctx context.Context, query, freshness string) (stri
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", c.apiKey)
 
+	slog.Info("brave search request", "endpoint", "llm/context", "query", query)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
@@ -178,6 +180,7 @@ func (c *BraveClient) SearchImage(ctx context.Context, query string) (string, er
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", c.apiKey)
 
+	slog.Info("brave search request", "endpoint", "images/search", "query", query)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err

@@ -430,6 +430,8 @@ func (a *Agent) selectModel(ctx context.Context) string {
 		return a.config.RickModel
 	}
 	if !ok {
+		slog.Warn("monthly budget exceeded, falling back to cheaper model",
+			"model", a.config.RickModel, "fallback_model", a.config.RickFallbackModel)
 		return a.config.RickFallbackModel
 	}
 	return a.config.RickModel

@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
@@ -76,8 +78,10 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 		Tools:     toSDKTools(req.Tools),
 	}
 
+	start := time.Now()
 	res, err := c.sdk.Chat.Send(ctx, chatReq, nil)
 	if err != nil {
+		slog.Warn("openrouter chat request failed", "model", req.Model, "latency_ms", time.Since(start).Milliseconds(), "error", err)
 		return CompletionResponse{}, err
 	}
 	if res.ChatResult == nil || len(res.ChatResult.Choices) == 0 {
@@ -93,15 +97,19 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 		resp.InputTokens = res.ChatResult.Usage.PromptTokens
 		resp.OutputTokens = res.ChatResult.Usage.CompletionTokens
 	}
+	slog.Info("openrouter chat completed", "model", req.Model, "input_tokens", resp.InputTokens,
+		"output_tokens", resp.OutputTokens, "latency_ms", time.Since(start).Milliseconds())
 	return resp, nil
 }
 
 func (c *Client) Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
+	start := time.Now()
 	res, err := c.sdk.Embeddings.Generate(ctx, operations.CreateEmbeddingsRequest{
 		Model: req.Model,
 		Input: operations.CreateInputUnionArrayOfStr(req.Input),
 	})
 	if err != nil {
+		slog.Warn("openrouter embeddings request failed", "model", req.Model, "latency_ms", time.Since(start).Milliseconds(), "error", err)
 		return EmbeddingResponse{}, err
 	}
 	if res.CreateEmbeddingsResponseBody == nil {
@@ -120,6 +128,8 @@ func (c *Client) Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResp
 	if body.Usage != nil {
 		resp.InputTokens = body.Usage.PromptTokens
 	}
+	slog.Info("openrouter embeddings completed", "model", req.Model, "inputs", len(req.Input),
+		"input_tokens", resp.InputTokens, "latency_ms", time.Since(start).Milliseconds())
 	return resp, nil
 }
 
