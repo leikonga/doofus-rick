@@ -40,6 +40,10 @@ type Config struct {
 
 	ArchiveEnabled      bool
 	ArchiveDenyChannels string
+
+	BackfillEnabled bool
+	BackfillDelay   string
+	BackfillBatch   int
 }
 
 func LoadConfig() *Config {
@@ -81,6 +85,10 @@ func LoadConfig() *Config {
 
 		ArchiveEnabled:      getEnvBool("ARCHIVE_ENABLED", true),
 		ArchiveDenyChannels: getEnv("ARCHIVE_DENY_CHANNELS", ""),
+
+		BackfillEnabled: getEnvBool("BACKFILL_ENABLED", false),
+		BackfillDelay:   getEnv("BACKFILL_DELAY", "1s"),
+		BackfillBatch:   getEnvInt("BACKFILL_BATCH", 100),
 	}
 }
 
@@ -97,6 +105,19 @@ func getEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		slog.Warn("invalid int env var, using fallback", "key", key, "value", value, "error", err)
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt(key string, fallback int) int {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		slog.Warn("invalid int env var, using fallback", "key", key, "value", value, "error", err)
 		return fallback

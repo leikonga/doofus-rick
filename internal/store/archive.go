@@ -36,3 +36,53 @@ func (s *Store) DeleteMessagesByAuthor(ctx context.Context, authorID uint64) err
 func (s *Store) DeleteQuotesByAuthor(ctx context.Context, authorID string) error {
 	return s.db.WithContext(ctx).Where("creator = ? OR participants LIKE ?", authorID, "%"+authorID+"%").Delete(&Quote{}).Error
 }
+
+func (s *Store) GetBackfillState(ctx context.Context) (*BackfillState, error) {
+	var state BackfillState
+	err := s.db.WithContext(ctx).Where("id = 1").First(&state).Error
+	if err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func (s *Store) UpdateBackfillState(ctx context.Context, state *BackfillState) error {
+	return s.db.WithContext(ctx).Save(state).Error
+}
+
+func (s *Store) GetBackfillChannels(ctx context.Context, limit int) ([]BackfillChannel, error) {
+	var channels []BackfillChannel
+	err := s.db.WithContext(ctx).Where("done = false").Order("oldest_fetched").Limit(limit).Find(&channels).Error
+	return channels, err
+}
+
+func (s *Store) GetBackfillChannel(ctx context.Context, channelID uint64) (*BackfillChannel, error) {
+	var channel BackfillChannel
+	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&channel).Error
+	return &channel, err
+}
+
+func (s *Store) SaveBackfillChannel(ctx context.Context, channel *BackfillChannel) error {
+	return s.db.WithContext(ctx).Save(channel).Error
+}
+
+func (s *Store) GetOldestFetchedMessage(ctx context.Context, channelID uint64) (*Message, error) {
+	var msg Message
+	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("id desc").First(&msg).Error
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func (s *Store) GetMessagesBefore(ctx context.Context, channelID uint64, beforeID uint64, limit int) ([]Message, error) {
+	var msgs []Message
+	err := s.db.WithContext(ctx).Where("channel_id = ? AND id < ?", channelID, beforeID).Order("id desc").Limit(limit).Find(&msgs).Error
+	return msgs, err
+}
+
+func (s *Store) GetMessagesSince(ctx context.Context, channelID uint64, sinceID uint64, limit int) ([]Message, error) {
+	var msgs []Message
+	err := s.db.WithContext(ctx).Where("channel_id = ? AND id > ?", channelID, sinceID).Order("id asc").Limit(limit).Find(&msgs).Error
+	return msgs, err
+}

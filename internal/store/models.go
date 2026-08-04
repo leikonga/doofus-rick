@@ -63,3 +63,25 @@ type ForgottenAuthor struct {
 	UserID    uint64    `gorm:"primaryKey"`
 	CreatedAt time.Time `gorm:"not null"`
 }
+
+type BackfillState struct {
+	ID            int    `gorm:"primaryKey;default:1"`
+	Status        string `gorm:"not null"`
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+	LastError     *string
+	ChannelsTotal int
+	ChannelsDone  int
+	MessagesSeen  int64     `gorm:"default:0"`
+	UpdatedAt     time.Time `gorm:"not null"`
+}
+
+type BackfillChannel struct {
+	ChannelID     uint64 `gorm:"primaryKey"`
+	NewestAtStart *uint64
+	OldestFetched *uint64
+	Done          bool  `gorm:"default:false"`
+	MessagesSeen  int64 `gorm:"default:0"`
+	LastError     *string
+	UpdatedAt     time.Time `gorm:"not null"`
+}

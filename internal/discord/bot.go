@@ -35,6 +35,7 @@ type Bot struct {
 	presences     sync.Map // snowflake.ID -> UserPresence
 	voiceChannels sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 	httpClient    *http.Client
+	backfillMutex sync.Mutex
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer, tr *tracer.Tracer) *Bot {
@@ -83,6 +84,10 @@ func (b *Bot) Run() error {
 
 	if err = client.OpenGateway(b.ctx); err != nil {
 		return err
+	}
+
+	if b.config.BackfillEnabled {
+		go b.runBackfillWorker(b.ctx)
 	}
 
 	go b.runReminderLoop(b.ctx)
@@ -200,4 +205,207 @@ func (b *Bot) serializeAttachments(attachments []discord.Attachment) (*string, e
 		return nil, nil
 	}
 	return &attachments[0].Filename, nil
+}
+
+func (b *Bot) runBackfillWorker(ctx context.Context) {
+	b.backfillMutex.Lock()
+	defer b.backfillMutex.Unlock()
+
+	state, err := b.store.GetBackfillState(ctx)
+	if err != nil {
+		slog.Warn("failed to get backfill state", "error", err)
+		return
+	}
+
+	if state.Status == "running" {
+		slog.Info("backfill already running, skipping")
+		return
+	}
+
+	state.Status = "running"
+	state.StartedAt = &[]time.Time{time.Now()}[0]
+	state.UpdatedAt = time.Now()
+	if err := b.store.UpdateBackfillState(ctx, state); err != nil {
+		slog.Warn("failed to update backfill state", "error", err)
+		return
+	}
+
+	defer func() {
+		state.Status = "done"
+		state.FinishedAt = &[]time.Time{time.Now()}[0]
+		state.UpdatedAt = time.Now()
+		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
+			slog.Warn("failed to finalize backfill state", "error", err)
+		}
+	}()
+
+	delay, err := time.ParseDuration(b.config.BackfillDelay)
+	if err != nil {
+		delay = 1 * time.Second
+	}
+
+	channels, err := b.store.GetBackfillChannels(ctx, 100)
+	if err != nil {
+		slog.Warn("failed to get backfill channels", "error", err)
+		return
+	}
+
+	state.ChannelsTotal = len(channels)
+	state.ChannelsDone = 0
+	state.UpdatedAt = time.Now()
+	if err := b.store.UpdateBackfillState(ctx, state); err != nil {
+		slog.Warn("failed to update channels total", "error", err)
+		return
+	}
+
+	for _, ch := range channels {
+		select {
+		case <-ctx.Done():
+			state.Status = "failed"
+			errMsg := "interrupted"
+			state.LastError = &errMsg
+			state.UpdatedAt = time.Now()
+			b.store.UpdateBackfillState(ctx, state)
+			return
+		default:
+		}
+
+		if err := b.backfillChannel(ctx, ch.ChannelID, delay); err != nil {
+			ch.LastError = &[]string{err.Error()}[0]
+			ch.UpdatedAt = time.Now()
+			b.store.SaveBackfillChannel(ctx, &ch)
+			slog.Warn("backfill failed for channel", "channel", ch.ChannelID, "error", err)
+			continue
+		}
+
+		ch.Done = true
+		ch.UpdatedAt = time.Now()
+		b.store.SaveBackfillChannel(ctx, &ch)
+
+		state.ChannelsDone++
+		state.UpdatedAt = time.Now()
+		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
+			slog.Warn("failed to update backfill progress", "error", err)
+		}
+	}
+}
+
+func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.Duration) error {
+	botID := b.client.ID()
+
+	newestMsg, err := b.client.Rest.GetMessages(snowflake.ID(channelID), 0, 0, 0, 1)
+	if err != nil {
+		return err
+	}
+
+	var newestAtStart uint64
+	if len(newestMsg) > 0 {
+		newestAtStart = uint64(newestMsg[0].ID)
+	}
+
+	channel, err := b.store.GetBackfillChannel(ctx, channelID)
+	if err != nil {
+		channel = &store.BackfillChannel{
+			ChannelID:     channelID,
+			NewestAtStart: &newestAtStart,
+			OldestFetched: nil,
+			Done:          false,
+		}
+	}
+
+	oldestFetched := uint64(0)
+	if channel.OldestFetched != nil {
+		oldestFetched = *channel.OldestFetched
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		var before uint64
+		if oldestFetched > 0 {
+			before = oldestFetched
+		}
+
+		msgs, err := b.client.Rest.GetMessages(snowflake.ID(channelID), snowflake.ID(before), 0, 0, b.config.BackfillBatch)
+		if err != nil {
+			return err
+		}
+
+		if len(msgs) == 0 {
+			break
+		}
+
+		for _, msg := range msgs {
+			if msg.Author.ID == botID {
+				continue
+			}
+
+			if strings.HasPrefix(msg.Content, "/") {
+				continue
+			}
+
+			if b.isChannelDenied(snowflake.ID(channelID)) {
+				continue
+			}
+
+			isForgotten, err := b.store.IsAuthorForgotten(ctx, uint64(msg.Author.ID))
+			if err != nil {
+				slog.Warn("failed to check if author is forgotten", "error", err)
+				continue
+			}
+			if isForgotten {
+				continue
+			}
+
+			if msg.ID >= snowflake.ID(oldestFetched) && oldestFetched > 0 {
+				continue
+			}
+
+			content := msg.Content
+			if len(content) > 10000 {
+				content = content[:10000]
+			}
+
+			attachmentsJSON, _ := b.serializeAttachments(msg.Attachments)
+
+			storedMsg := store.Message{
+				ID:          uint64(msg.ID),
+				ChannelID:   uint64(channelID),
+				AuthorID:    uint64(msg.Author.ID),
+				AuthorName:  msg.Author.Username,
+				Content:     content,
+				ReplyToID:   nil,
+				IsBot:       msg.Author.Bot,
+				Attachments: attachmentsJSON,
+				CreatedAt:   msg.CreatedAt,
+				EditedAt:    nil,
+			}
+
+			if err := b.store.CreateMessage(ctx, storedMsg); err != nil {
+				slog.Warn("failed to archive message during backfill", "error", err)
+				continue
+			}
+
+			channel.MessagesSeen++
+			oldestFetched = uint64(msg.ID)
+		}
+
+		channel.OldestFetched = &oldestFetched
+		channel.UpdatedAt = time.Now()
+		if err := b.store.SaveBackfillChannel(ctx, channel); err != nil {
+			slog.Warn("failed to save backfill cursor", "error", err)
+		}
+
+		if len(msgs) < b.config.BackfillBatch {
+			break
+		}
+
+		time.Sleep(delay)
+	}
+
+	return nil
 }
