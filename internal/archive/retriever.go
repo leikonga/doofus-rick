@@ -78,13 +78,13 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 		with vec as (
 			select c.id, row_number() over (order by e.embedding <=> @vec::halfvec) as rank
 			from chunks c join chunk_embeddings e on e.chunk_id = c.id
-			where e.model = @model and c.channel_id = any(@channels)
+			where e.model = @model and c.channel_id in (@channels)
 			order by e.embedding <=> @vec::halfvec limit 50
 		),
 		lex as (
 			select c.id, row_number() over (order by ts_rank_cd(tsv, q) desc) as rank
 			from chunks c, plainto_tsquery('simple', @query) q
-			where tsv @@ q and c.channel_id = any(@channels)
+			where tsv @@ q and c.channel_id in (@channels)
 			order by ts_rank_cd(tsv, q) desc limit 50
 		)
 		select c.id, c.channel_id, c.content,
