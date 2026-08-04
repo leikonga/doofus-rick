@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -42,7 +43,6 @@ type Chunk struct {
 	Messages       []store.Message
 	StartedAt      time.Time
 	EndedAt        time.Time
-	MessageCount   int
 	FirstMessageID uint64
 	LastMessageID  uint64
 	Content        string
@@ -55,27 +55,20 @@ func (c *Chunker) ChunkMessages(messages []store.Message) []Chunk {
 
 	var chunks []Chunk
 	var current Chunk
+	var currentChars int
 	var lastTime time.Time
 
 	for i, msg := range messages {
-		if i == 0 {
-			current = Chunk{
-				ChannelID:      msg.ChannelID,
-				Messages:       []store.Message{msg},
-				StartedAt:      msg.CreatedAt,
-				EndedAt:        msg.CreatedAt,
-				FirstMessageID: msg.ID,
-				LastMessageID:  msg.ID,
+		startNew := i == 0
+		if !startNew {
+			gap := msg.CreatedAt.Sub(lastTime)
+			if gap > c.config.ChunkGap || len(current.Messages) >= c.config.ChunkMaxMsgs || currentChars+len(msg.Content) > c.config.ChunkMaxChars {
+				chunks = append(chunks, current)
+				startNew = true
 			}
-			lastTime = msg.CreatedAt
-			continue
 		}
 
-		gap := msg.CreatedAt.Sub(lastTime)
-		if gap > c.config.ChunkGap || current.MessageCount >= c.config.ChunkMaxMsgs || len(current.Content)+len(msg.Content) > c.config.ChunkMaxChars {
-			if current.MessageCount > 0 {
-				chunks = append(chunks, current)
-			}
+		if startNew {
 			current = Chunk{
 				ChannelID:      msg.ChannelID,
 				Messages:       []store.Message{msg},
@@ -84,16 +77,18 @@ func (c *Chunker) ChunkMessages(messages []store.Message) []Chunk {
 				FirstMessageID: msg.ID,
 				LastMessageID:  msg.ID,
 			}
+			currentChars = len(msg.Content)
 		} else {
 			current.Messages = append(current.Messages, msg)
 			current.EndedAt = msg.CreatedAt
 			current.LastMessageID = msg.ID
+			currentChars += len(msg.Content)
 		}
 
 		lastTime = msg.CreatedAt
 	}
 
-	if current.MessageCount > 0 {
+	if len(current.Messages) > 0 {
 		chunks = append(chunks, current)
 	}
 
@@ -101,12 +96,12 @@ func (c *Chunker) ChunkMessages(messages []store.Message) []Chunk {
 }
 
 func (c *Chunker) BuildChunkContent(chunk Chunk) string {
-	var content string
+	var content strings.Builder
 	for _, msg := range chunk.Messages {
 		ts := msg.CreatedAt.Format("15:04")
-		content += "[" + ts + " " + msg.AuthorName + "]: " + msg.Content + "\n"
+		content.WriteString("[" + ts + " " + msg.AuthorName + "]: " + msg.Content + "\n")
 	}
-	return content
+	return content.String()
 }
 
 func (c *Chunker) ChunkAndSave(ctx context.Context, messages []store.Message) error {

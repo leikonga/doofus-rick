@@ -7,6 +7,7 @@ import (
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
 	"github.com/OpenRouterTeam/go-sdk/models/components"
+	"github.com/OpenRouterTeam/go-sdk/models/operations"
 	"github.com/OpenRouterTeam/go-sdk/optionalnullable"
 )
 
@@ -26,6 +27,12 @@ func NewClient(apiKey string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey))}
 }
 
+// newClientWithServerURL points the SDK at an arbitrary base URL, for tests
+// that stand up a local fake of the OpenRouter API.
+func newClientWithServerURL(apiKey, serverURL string) *Client {
+	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL))}
+}
+
 type CompletionRequest struct {
 	Model     string
 	MaxTokens int64
@@ -39,6 +46,11 @@ type CompletionResponse struct {
 	StopReason   StopReason
 	InputTokens  int64
 	OutputTokens int64
+}
+
+type EmbeddingRequest struct {
+	Model string
+	Input []string
 }
 
 type EmbeddingResponse struct {
@@ -83,8 +95,30 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 	return resp, nil
 }
 
-func (c *Client) Embed(ctx context.Context, req CompletionRequest) (EmbeddingResponse, error) {
-	var resp EmbeddingResponse
+func (c *Client) Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error) {
+	res, err := c.sdk.Embeddings.Generate(ctx, operations.CreateEmbeddingsRequest{
+		Model: req.Model,
+		Input: operations.CreateInputUnionArrayOfStr(req.Input),
+	})
+	if err != nil {
+		return EmbeddingResponse{}, err
+	}
+	if res.CreateEmbeddingsResponseBody == nil {
+		return EmbeddingResponse{}, fmt.Errorf("llm: empty embeddings response")
+	}
+
+	body := res.CreateEmbeddingsResponseBody
+	resp := EmbeddingResponse{Embeddings: make([][]float32, len(body.Data))}
+	for i, d := range body.Data {
+		vec := make([]float32, len(d.Embedding.ArrayOfNumber))
+		for j, v := range d.Embedding.ArrayOfNumber {
+			vec[j] = float32(v)
+		}
+		resp.Embeddings[i] = vec
+	}
+	if body.Usage != nil {
+		resp.InputTokens = body.Usage.PromptTokens
+	}
 	return resp, nil
 }
 

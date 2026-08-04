@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"math"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -23,13 +24,10 @@ func NewEmbedder(config EmbeddingConfig, s *store.Store, c *llm.Client) *Embedde
 }
 
 func (e *Embedder) EmbedChunk(ctx context.Context, chunk store.Chunk) error {
-	client := llm.NewClient("")
-
-	req := llm.CompletionRequest{
+	resp, err := e.llm.Embed(ctx, llm.EmbeddingRequest{
 		Model: e.config.Model,
-	}
-
-	resp, err := client.Embed(ctx, req)
+		Input: []string{chunk.Content},
+	})
 	if err != nil {
 		return err
 	}
@@ -64,9 +62,9 @@ func truncateTo1024(vec []float32) []float32 {
 		sumSq += float64(v) * float64(v)
 	}
 	if sumSq > 0 {
-		norm := 1.0 / (sumSq + 1e-10)
+		invNorm := 1.0 / math.Sqrt(sumSq)
 		for i := range result {
-			result[i] = float32(float64(result[i]) * norm)
+			result[i] = float32(float64(result[i]) * invNorm)
 		}
 	}
 

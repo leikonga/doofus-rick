@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
@@ -39,14 +40,14 @@ func (c *Classifier) Classify(ctx context.Context, messages []llm.Message) (Clas
 		return ClassifierResult{}, nil
 	}
 
-	var content string
+	var content strings.Builder
 	for i, msg := range messages {
 		if i >= 10 {
 			break
 		}
 		for _, part := range msg.Parts {
 			if part.Type == "text" {
-				content += fmt.Sprintf("[%s]: %s\n", msg.Role, part.Text)
+				content.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, part.Text))
 			}
 		}
 	}
@@ -58,7 +59,7 @@ func (c *Classifier) Classify(ctx context.Context, messages []llm.Message) (Clas
 Return ONLY valid JSON, no other text.
 
 Conversation:
-` + content
+` + content.String()
 
 	req := llm.CompletionRequest{
 		Model:     c.config.Model,

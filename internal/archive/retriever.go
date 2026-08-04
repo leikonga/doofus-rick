@@ -3,30 +3,34 @@ package archive
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type RetrievalConfig struct {
-	TopK     int
-	MinScore float64
+	TopK       int
+	MinScore   float64
+	EmbedModel string
 }
 
 type Retriever struct {
 	config RetrievalConfig
 	store  *store.Store
+	llm    *llm.Client
 }
 
-func NewRetriever(config RetrievalConfig, s *store.Store) *Retriever {
+func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retriever {
 	if config.TopK == 0 {
 		config.TopK = 3
 	}
 	if config.MinScore == 0 {
 		config.MinScore = 0.02
 	}
-	return &Retriever{config: config, store: s}
+	return &Retriever{config: config, store: s, llm: c}
 }
 
 type RetrievedChunk struct {
@@ -43,6 +47,18 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 
 	queryText := fmt.Sprintf("Instruct: Given a question, retrieve relevant chat logs\nQuery: %s", query)
 
+	embedResp, err := r.llm.Embed(ctx, llm.EmbeddingRequest{
+		Model: r.config.EmbedModel,
+		Input: []string{queryText},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(embedResp.Embeddings) == 0 {
+		return nil, fmt.Errorf("archive: empty query embedding")
+	}
+	queryVector := vectorLiteral(truncateTo1024(embedResp.Embeddings[0]))
+
 	var chunks []struct {
 		ID             uint64  `gorm:"column:id"`
 		ChannelID      uint64  `gorm:"column:channel_id"`
@@ -54,10 +70,10 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 
 	querySQL := `
 		with vec as (
-			select c.id, row_number() over (order by e.embedding <=> $1) as rank
+			select c.id, row_number() over (order by e.embedding <=> $1::halfvec) as rank
 			from chunks c join chunk_embeddings e on e.chunk_id = c.id
 			where e.model = $5 and c.channel_id = any($2)
-			order by e.embedding <=> $1 limit 50
+			order by e.embedding <=> $1::halfvec limit 50
 		),
 		lex as (
 			select c.id, row_number() over (order by ts_rank_cd(tsv, q) desc) as rank
@@ -76,7 +92,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 		limit $4;
 	`
 
-	err := r.store.DB().WithContext(ctx).Raw(querySQL, queryText, channelIDs, queryText, r.config.TopK, "qwen/qwen3-embedding-8b").Scan(&chunks).Error
+	err = r.store.DB().WithContext(ctx).Raw(querySQL, queryVector, channelIDs, query, r.config.TopK, r.config.EmbedModel).Scan(&chunks).Error
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +111,16 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	}
 
 	return results, nil
+}
+
+// vectorLiteral renders a vector in pgvector's text input format, e.g.
+// "[0.1,0.2,0.3]", for binding against a halfvec column in a raw query.
+func vectorLiteral(vec []float32) string {
+	parts := make([]string, len(vec))
+	for i, v := range vec {
+		parts[i] = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {

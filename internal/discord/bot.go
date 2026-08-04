@@ -187,8 +187,8 @@ func (b *Bot) isChannelDenied(channelID snowflake.ID) bool {
 	if b.config.ArchiveDenyChannels == "" {
 		return false
 	}
-	denied := strings.Split(b.config.ArchiveDenyChannels, ",")
-	for _, d := range denied {
+	denied := strings.SplitSeq(b.config.ArchiveDenyChannels, ",")
+	for d := range denied {
 		d = strings.TrimSpace(d)
 		if d == "" {
 			continue
