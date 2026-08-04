@@ -15,14 +15,6 @@ type Quote struct {
 	Votes        int          `gorm:"not null;default:0"`
 }
 
-type Memory struct {
-	gorm.Model
-
-	UserID  string       `gorm:"index"`
-	Content string       `gorm:"not null"`
-	Tags    *StringSlice `gorm:"type:text"`
-}
-
 type Reminder struct {
 	gorm.Model
 

@@ -4,8 +4,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
 const (
@@ -14,11 +14,11 @@ const (
 )
 
 type channelSession struct {
-	messages   []anthropic.MessageParam
+	messages   []llm.Message
 	lastActive time.Time
 }
 
-func (a *Agent) getSession(id snowflake.ID) []anthropic.MessageParam {
+func (a *Agent) getSession(id snowflake.ID) []llm.Message {
 	v, ok := a.sessions.Load(id)
 	if !ok {
 		return nil
@@ -31,7 +31,7 @@ func (a *Agent) getSession(id snowflake.ID) []anthropic.MessageParam {
 	return s.messages
 }
 
-func (a *Agent) putSession(id snowflake.ID, messages []anthropic.MessageParam) {
+func (a *Agent) putSession(id snowflake.ID, messages []llm.Message) {
 	trimmed := messages
 	if len(trimmed) > maxSessionMsgs {
 		trimmed = trimmed[len(trimmed)-maxSessionMsgs:]
@@ -42,13 +42,8 @@ func (a *Agent) putSession(id snowflake.ID, messages []anthropic.MessageParam) {
 	a.sessions.Store(id, channelSession{messages: slices.Clone(trimmed), lastActive: time.Now()})
 }
 
-// isUserTurnStart reports whether m begins a genuine user turn, i.e., a user
-// message whose first content block is not a tool_result. Trimming a session
-// must not leave a leading tool_result, which would have no preceding tool_use
-// and be rejected by the API.
-func isUserTurnStart(m anthropic.MessageParam) bool {
-	if m.Role != anthropic.MessageParamRoleUser {
-		return false
-	}
-	return len(m.Content) == 0 || m.Content[0].OfToolResult == nil
+// isUserTurnStart reports whether m begins a genuine user turn; a trimmed
+// session must never start on a tool message, which the API would reject.
+func isUserTurnStart(m llm.Message) bool {
+	return m.Role == llm.RoleUser
 }

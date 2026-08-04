@@ -3,6 +3,7 @@ package config
 import (
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -27,9 +28,10 @@ type Config struct {
 	Port          string
 	SessionSecret string
 
-	AnthropicAPIKey  string
+	OpenRouterAPIKey string
 	SystemPromptFile string
-	AnthropicModel   string
+	RickModel        string
+	RickMaxTokens    int64
 
 	GiphyAPIKey string
 	BraveAPIKey string
@@ -64,9 +66,10 @@ func LoadConfig() *Config {
 		Port:          normalizeAddress(getEnv("PORT", ":8080")),
 		SessionSecret: getEnv("SESSION_SECRET", ""),
 
-		AnthropicAPIKey:  getEnv("ANTHROPIC_API_KEY", ""),
+		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
 		SystemPromptFile: getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
-		AnthropicModel:   getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+		RickModel:        getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
+		RickMaxTokens:    getEnvInt64("RICK_MAX_TOKENS", 512),
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
@@ -80,6 +83,19 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		slog.Warn("invalid int env var, using fallback", "key", key, "value", value, "error", err)
+		return fallback
+	}
+	return parsed
 }
 
 func normalizeAddress(addr string) string {

@@ -5,13 +5,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -32,7 +31,7 @@ type DiscordState interface {
 type Agent struct {
 	store          *store.Store
 	config         *config.Config
-	anthropic      anthropic.Client
+	llm            *llm.Client
 	discord        DiscordState
 	discordClient  *disgobot.Client
 	brave          *client.BraveClient
@@ -49,7 +48,7 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	return &Agent{
 		store:         s,
 		config:        c,
-		anthropic:     anthropic.NewClient(option.WithAPIKey(c.AnthropicAPIKey)),
+		llm:           llm.NewClient(c.OpenRouterAPIKey),
 		discord:       ds,
 		discordClient: dc,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),

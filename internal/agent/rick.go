@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
 var (
@@ -24,7 +24,6 @@ var (
 
 const (
 	maxContextLen = 500
-	maxTokens     = int64(512)
 	historyLimit  = 7
 	maxToolIter   = 8
 )
@@ -123,45 +122,39 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		}()
 	}
 
-	resp, err := a.callClaude(ctx, claudeRequest{
+	resp, err := a.callModel(ctx, modelRequest{
 		systemPrompt: fullSystem,
 		prompt:       prompt,
 		imageURLs:    attachments.imageURLs,
-		docBlocks:    attachments.docBlocks,
+		fileParts:    attachments.fileParts,
 		event:        event,
 	})
 	if err != nil {
-		slog.Warn("claude api call failed", "error", err)
+		slog.Warn("model call failed", "error", err)
 		return
 	}
 
-	if resp.decline {
-		if resp.emoji != "" {
-			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.emoji); err != nil {
+	if resp.Decline {
+		if resp.Emoji != "" {
+			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.Emoji); err != nil {
 				slog.Warn("failed to add reaction", "error", err)
 			}
 		}
 		return
 	}
 
-	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.text, ""))
-	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID)
-	if sanitizedResponse != "" {
-		msg = msg.WithContent(sanitizedResponse)
+	sanitizedResponse := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.Text, ""))
+	if sanitizedResponse == "" {
+		return
 	}
-	if resp.embed != nil {
-		msg = msg.WithEmbeds(*resp.embed)
-	}
-	if sanitizedResponse != "" || resp.embed != nil {
-		if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
-			slog.Warn("failed to send rick response", "error", err)
-		}
+	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID).WithContent(sanitizedResponse)
+	if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
+		slog.Warn("failed to send rick response", "error", err)
 	}
 }
 
-// buildHistoryLines renders recent channel messages (excluding the
-// triggering message and the bot's own messages) into the chat-log lines
-// shown to Claude as context.
+// buildHistoryLines renders recent channel messages, excluding the
+// triggering message and the bot's own, into chat-log lines for context.
 func (a *Agent) buildHistoryLines(botID, skipID snowflake.ID, msgs []discord.Message) []string {
 	var lines []string
 	for _, msg := range msgs {
@@ -232,52 +225,46 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 	return sb.String()
 }
 
-// claudeRequest bundles the inputs to callClaude: the rendered prompt plus
-// whatever images and documents the triggering message attached.
-type claudeRequest struct {
+// modelRequest bundles the inputs to callModel: the rendered prompt plus
+// whatever images and files the triggering message attached.
+type modelRequest struct {
 	systemPrompt string
 	prompt       string
 	imageURLs    []string
-	docBlocks    []anthropic.ContentBlockParamUnion
+	fileParts    []llm.ContentPart
 	event        *events.MessageCreate
 }
 
-func (a *Agent) callClaude(ctx context.Context, req claudeRequest) (retResp rickResponse, retErr error) {
+func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
 	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt, req.prompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
-			e := rec.Finish(resp.text, resp.decline, err)
+			e := rec.Finish(resp.Text, resp.Decline, err)
 			if e.InputTokens > 0 || e.OutputTokens > 0 {
 				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, a.config.AnthropicModel, e.InputTokens, e.OutputTokens)
+				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, a.config.RickModel, e.InputTokens, e.OutputTokens)
 			}
 		}()
 	}()
 
-	allTools := a.buildTools(req.event)
-	defs := make([]anthropic.ToolUnionParam, len(allTools))
-	lookup := make(map[string]ricktool, len(allTools))
-	for i, t := range allTools {
-		defs[i] = t.def
-		lookup[t.name] = t
-	}
+	tools := a.buildTools(req.event)
 
-	blocks := []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(req.prompt)}
+	parts := []llm.ContentPart{llm.TextPart(req.prompt)}
 	for _, url := range req.imageURLs {
-		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: url}))
+		parts = append(parts, llm.ImagePart(url))
 	}
-	blocks = append(blocks, req.docBlocks...)
+	parts = append(parts, req.fileParts...)
 
 	prior := a.getSession(req.event.ChannelID)
-	messages := append(prior, anthropic.NewUserMessage(blocks...))
+	messages := append(prior, llm.NewUserMessage(parts...))
 
 	validated, repaired := validateConversation(messages)
 	if repaired {
 		if len(validated) == 0 {
 			slog.Warn("conversation empty after repair, declining")
-			return rickResponse{decline: true}, nil
+			return llm.RickResponse{Decline: true}, nil
 		}
 		messages = validated
 	}
@@ -288,81 +275,87 @@ func (a *Agent) callClaude(ctx context.Context, req claudeRequest) (retResp rick
 			rec.SetMessages(msgsJSON)
 		}
 
-		msg, err := a.anthropic.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     a.config.AnthropicModel,
-			MaxTokens: maxTokens,
-			System:    []anthropic.TextBlockParam{{Text: req.systemPrompt}},
-			Tools:     defs,
+		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
+			Model:     a.config.RickModel,
+			MaxTokens: a.config.RickMaxTokens,
+			System:    req.systemPrompt,
 			Messages:  messages,
+			Tools:     tools,
 		})
 		if err != nil {
-			slog.Warn("claude api error", "error", err)
-			return rickResponse{}, err
+			slog.Warn("model api error", "error", err)
+			return llm.RickResponse{}, err
 		}
-		rec.AddTokens(msg.Usage.InputTokens, msg.Usage.OutputTokens)
+		rec.AddTokens(resp.InputTokens, resp.OutputTokens)
 
-		if msg.StopReason != anthropic.StopReasonToolUse {
-			for _, block := range msg.Content {
-				if block.Type == "text" && block.Text != "" {
-					saved := append(messages, msg.ToParam())
-					a.putSession(req.event.ChannelID, saved)
-					return rickResponse{text: block.Text}, nil
-				}
+		if resp.StopReason != llm.StopToolCalls {
+			text := messageText(resp.Message)
+			if text != "" {
+				saved := append(messages, resp.Message)
+				a.putSession(req.event.ChannelID, saved)
+				return llm.RickResponse{Text: text}, nil
 			}
 			if pendingText != "" {
-				return rickResponse{text: pendingText}, nil
+				return llm.RickResponse{Text: pendingText}, nil
 			}
-			slog.Warn("no text in non-tool response, declining", "stop_reason", msg.StopReason)
-			return rickResponse{decline: true}, nil
+			slog.Warn("no text in non-tool response, declining", "stop_reason", resp.StopReason)
+			return llm.RickResponse{Decline: true}, nil
 		}
 
-		messages = append(messages, msg.ToParam())
+		messages = append(messages, resp.Message)
 
-		var resultBlocks []anthropic.ContentBlockParamUnion
+		if text := messageText(resp.Message); text != "" {
+			pendingText = text
+		}
+
+		var toolMessages []llm.Message
 		var toolDone bool
-		for _, block := range msg.Content {
-			if block.Type == "text" && block.Text != "" {
-				pendingText = block.Text
-				continue
-			}
-			if block.Type != "tool_use" {
-				continue
-			}
-			tool, ok := lookup[block.Name]
+		for _, call := range resp.Message.ToolCalls {
+			tool, ok := tools.Find(call.Name)
 			if !ok {
-				slog.Warn("unknown tool called by claude", "tool", block.Name)
+				slog.Warn("unknown tool called by model", "tool", call.Name)
 				continue
 			}
-			slog.Info("tool call", "tool", block.Name, "input", string(block.Input))
-			result, err := tool.execute(ctx, block.Input)
+			slog.Info("tool call", "tool", call.Name, "input", call.Arguments)
+			result, err := tool.Execute(ctx, json.RawMessage(call.Arguments))
 			if err != nil {
-				slog.Warn("tool execution failed", "tool", block.Name, "error", err)
-				rec.AddTool(block.Name, string(block.Input), err.Error(), true)
-				resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, err.Error(), true))
+				slog.Warn("tool execution failed", "tool", call.Name, "error", err)
+				rec.AddTool(call.Name, call.Arguments, err.Error(), true)
+				toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, err.Error()))
 				continue
 			}
-			if result.response != nil {
-				rec.AddTool(block.Name, string(block.Input), "(terminal)", false)
-				return *result.response, nil
+			if result.Response != nil {
+				rec.AddTool(call.Name, call.Arguments, "(terminal)", false)
+				return *result.Response, nil
 			}
-			rec.AddTool(block.Name, string(block.Input), result.content, false)
-			if result.done {
+			rec.AddTool(call.Name, call.Arguments, result.Content, false)
+			if result.Done {
 				toolDone = true
 			}
-			resultBlocks = append(resultBlocks, anthropic.NewToolResultBlock(block.ID, result.content, false))
+			toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, result.Content))
 		}
 
 		if toolDone {
-			return rickResponse{decline: true}, nil
+			return llm.RickResponse{Decline: true}, nil
 		}
-		if len(resultBlocks) == 0 {
-			slog.Warn("tool_use stop reason but no actionable tool blocks, declining")
-			return rickResponse{decline: true}, nil
+		if len(toolMessages) == 0 {
+			slog.Warn("tool_calls stop reason but no actionable tool calls, declining")
+			return llm.RickResponse{Decline: true}, nil
 		}
-		messages = append(messages, anthropic.NewUserMessage(resultBlocks...))
+		messages = append(messages, toolMessages...)
 	}
 	slog.Warn("tool iteration limit reached, declining", "max_iter", maxToolIter)
-	return rickResponse{decline: true}, nil
+	return llm.RickResponse{Decline: true}, nil
+}
+
+func messageText(m llm.Message) string {
+	var sb strings.Builder
+	for _, p := range m.Parts {
+		if p.Type == "text" {
+			sb.WriteString(p.Text)
+		}
+	}
+	return sb.String()
 }
 
 func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {

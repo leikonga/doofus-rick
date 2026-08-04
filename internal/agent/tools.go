@@ -2,48 +2,25 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-type rickResponse struct {
-	text    string
-	decline bool
-	emoji   string
-	embed   *discord.Embed
-}
-
-type toolResult struct {
-	response *rickResponse
-	content  string
-	done     bool // tool already posted to Discord; stop after this iteration
-}
-
-type ricktool struct {
-	name    string
-	def     anthropic.ToolUnionParam
-	execute func(ctx context.Context, input json.RawMessage) (toolResult, error)
-}
-
-func (a *Agent) buildTools(event *events.MessageCreate) []ricktool {
-	tools := []ricktool{
+func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
+	tools := llm.Tools{
 		a.declineTool(),
 		a.checkLogsTool(),
-		a.mediaResponseTool("gif_search", "Search for a GIF and post it as a response.", a.giphy.Search),
+		a.mediaSearchTool(),
 		a.webSearchTool(),
 		a.fetchPageTool(),
-		a.rememberTool(),
-		a.recallTool(),
 		a.shellExecTool(),
-		a.mediaResponseTool("image_search", "Search for a static image and post it as a response. Supports site: operators.", a.brave.SearchImage),
 		a.reactTool(event),
 		a.saveQuoteTool(event),
 		a.getUserQuotesTool(),
@@ -52,311 +29,106 @@ func (a *Agent) buildTools(event *events.MessageCreate) []ricktool {
 	return append(tools, a.discordTools()...)
 }
 
-func (a *Agent) declineTool() ricktool {
-	return ricktool{
-		name: "decline",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "decline",
-				Description: anthropic.String("Decline to respond and optionally react with an emoji instead."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"emoji": map[string]any{
-							"type":        "string",
-							"description": "Unicode emoji to react with.",
-						},
-					},
-				},
-			},
-		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Emoji string `json:"emoji"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-			return toolResult{response: &rickResponse{decline: true, emoji: in.Emoji}}, nil
-		},
-	}
+type declineIn struct {
+	Emoji string `json:"emoji" jsonschema:"description=Unicode emoji to react with."`
 }
 
-func (a *Agent) mediaResponseTool(name, desc string, fetch func(context.Context, string) (string, error)) ricktool {
-	return ricktool{
-		name: name,
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        name,
-				Description: anthropic.String(desc),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "Search query.",
-						},
-						"caption": map[string]any{
-							"type":        "string",
-							"description": "Optional short text to post alongside the result.",
-						},
-					},
-					Required: []string{"query"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Query   string `json:"query"`
-				Caption string `json:"caption"`
+func (a *Agent) declineTool() llm.Tool {
+	return llm.NewTool("decline", "Decline to respond and optionally react with an emoji instead.",
+		func(_ context.Context, in declineIn) (llm.Result, error) {
+			return llm.Result{Response: &llm.RickResponse{Decline: true, Emoji: in.Emoji}}, nil
+		})
+}
+
+type mediaSearchIn struct {
+	Type    string `json:"type" jsonschema:"required,enum=gif,enum=image,description=Kind of media to search for."`
+	Query   string `json:"query" jsonschema:"required,description=Search query. Supports site: operators for images."`
+	Caption string `json:"caption" jsonschema:"description=Optional short text to post alongside the result."`
+}
+
+func (a *Agent) mediaSearchTool() llm.Tool {
+	return llm.NewTool("media_search", "Search for a GIF or a static image and post it as a response.",
+		func(ctx context.Context, in mediaSearchIn) (llm.Result, error) {
+			var url string
+			var err error
+			switch in.Type {
+			case "gif":
+				url, err = a.giphy.Search(ctx, in.Query)
+			case "image":
+				url, err = a.brave.SearchImage(ctx, in.Query)
+			default:
+				return llm.Result{}, fmt.Errorf("unknown media type %q, must be gif or image", in.Type)
 			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-			url, err := fetch(ctx, in.Query)
 			if err != nil {
-				return toolResult{}, err
+				return llm.Result{}, err
 			}
 			text := url
 			if in.Caption != "" {
 				text = in.Caption + "\n" + url
 			}
-			return toolResult{response: &rickResponse{text: text}}, nil
-		},
-	}
+			return llm.Result{Response: &llm.RickResponse{Text: text}}, nil
+		})
 }
 
-func (a *Agent) webSearchTool() ricktool {
-	return ricktool{
-		name: "web_search",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name: "web_search",
-				Description: anthropic.String("Search the web and get titles, URLs, and descriptions from the top results. " +
-					"Supports standard operators like site:, intitle:, etc. " +
-					"Use fetch_page to read the full content of any result URL. " +
-					"Set freshness to 'pd' (24h), 'pw' (7d), 'pm' (31d), or 'py' (1y) to restrict to recent content."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "Search query.",
-						},
-						"freshness": map[string]any{
-							"type":        "string",
-							"description": "Restrict results by age: pd=24h, pw=7 days, pm=31 days, py=1 year.",
-						},
-					},
-					Required: []string{"query"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Query     string `json:"query"`
-				Freshness string `json:"freshness"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
+type webSearchIn struct {
+	Query     string `json:"query" jsonschema:"required,description=Search query."`
+	Freshness string `json:"freshness" jsonschema:"description=Restrict results by age: pd=24h, pw=7 days, pm=31 days, py=1 year."`
+}
+
+func (a *Agent) webSearchTool() llm.Tool {
+	return llm.NewTool("web_search",
+		"Search the web and get titles, URLs, and descriptions from the top results. "+
+			"Supports standard operators like site:, intitle:, etc. "+
+			"Use fetch_page to read the full content of any result URL.",
+		func(ctx context.Context, in webSearchIn) (llm.Result, error) {
 			result, err := a.brave.Search(ctx, in.Query, in.Freshness)
 			if err != nil {
-				return toolResult{}, err
+				return llm.Result{}, err
 			}
-			return toolResult{content: result}, nil
-		},
-	}
+			return llm.Result{Content: result}, nil
+		})
 }
 
-func (a *Agent) fetchPageTool() ricktool {
-	return ricktool{
-		name: "fetch_page",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "fetch_page",
-				Description: anthropic.String("Fetch and read the text content of a web page. Use after web_search to dig into a specific result."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"url": map[string]any{
-							"type":        "string",
-							"description": "URL to fetch.",
-						},
-					},
-					Required: []string{"url"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				URL string `json:"url"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
+type fetchPageIn struct {
+	URL string `json:"url" jsonschema:"required,description=URL to fetch."`
+}
+
+func (a *Agent) fetchPageTool() llm.Tool {
+	return llm.NewTool("fetch_page", "Fetch and read the text content of a web page. Use after web_search to dig into a specific result.",
+		func(ctx context.Context, in fetchPageIn) (llm.Result, error) {
 			content, err := a.brave.FetchPage(ctx, in.URL)
 			if err != nil {
-				return toolResult{}, err
+				return llm.Result{}, err
 			}
-			return toolResult{content: content}, nil
-		},
-	}
+			return llm.Result{Content: content}, nil
+		})
 }
 
-func (a *Agent) rememberTool() ricktool {
-	return ricktool{
-		name: "remember",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "remember",
-				Description: anthropic.String("Save a piece of text to persistent memory, optionally associated with a user."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"content": map[string]any{
-							"type":        "string",
-							"description": "Text to store.",
-						},
-						"user_id": map[string]any{
-							"type":        "string",
-							"description": "Discord user ID to associate this memory with.",
-						},
-						"tags": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Tags for filtering during recall.",
-						},
-					},
-					Required: []string{"content"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Content string   `json:"content"`
-				UserID  string   `json:"user_id"`
-				Tags    []string `json:"tags"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-			if err := a.store.SaveMemory(ctx, in.UserID, in.Content, in.Tags); err != nil {
-				return toolResult{}, err
-			}
-			return toolResult{content: "remembered"}, nil
-		},
-	}
+type shellExecIn struct {
+	Command string `json:"command" jsonschema:"required,description=Shell command to run."`
 }
 
-func (a *Agent) recallTool() ricktool {
-	return ricktool{
-		name: "recall",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "recall",
-				Description: anthropic.String("Search persistent memory by keyword, optionally filtered by user."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "Search term to match against stored memories.",
-						},
-						"user_id": map[string]any{
-							"type":        "string",
-							"description": "Filter to memories about this Discord user ID.",
-						},
-					},
-					Required: []string{"query"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Query  string `json:"query"`
-				UserID string `json:"user_id"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-			memories, err := a.store.SearchMemory(ctx, in.Query, in.UserID)
-			if err != nil {
-				return toolResult{}, err
-			}
-			if len(memories) == 0 {
-				return toolResult{content: "no memories found"}, nil
-			}
-			var sb strings.Builder
-			for _, m := range memories {
-				fmt.Fprintf(&sb, "- [%s] %s\n", m.CreatedAt.Format("2006-01-02"), m.Content)
-			}
-			return toolResult{content: sb.String()}, nil
-		},
-	}
+func (a *Agent) shellExecTool() llm.Tool {
+	return llm.NewTool("shell_exec",
+		"Run a shell command and return stdout+stderr. "+
+			"Runs as an unprivileged user in an Alpine Linux environment. "+
+			"Available: bash, curl, jq, git, openssh-client, python3, uv, make, coreutils, sqlite3, diffutils, patch, bc, file, dig, openssl, imagemagick. "+
+			"Working directory is /rick/work; persistent across calls, use it freely to store files, scripts, databases, cloned repos, etc. "+
+			"HOME is also /rick/work. "+
+			"Python packages can be installed inline with: uv run --with <pkg> python3 -c '...'.",
+		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
+			return llm.Result{Content: a.shell.Exec(ctx, in.Command)}, nil
+		})
 }
 
-func (a *Agent) shellExecTool() ricktool {
-	return ricktool{
-		name: "shell_exec",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name: "shell_exec",
-				Description: anthropic.String("Run a shell command and return stdout+stderr. " +
-					"Runs as an unprivileged user in an Alpine Linux environment. " +
-					"Available: bash, curl, jq, git, openssh-client, python3, uv, make, coreutils, sqlite3, diffutils, patch, bc, file, dig, openssl, imagemagick. " +
-					"Working directory is /rick/work — persistent across calls; use it freely to store files, scripts, databases, cloned repos, etc. " +
-					"HOME is also /rick/work. " +
-					"Python packages can be installed inline with: uv run --with <pkg> python3 -c '...'."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"command": map[string]any{
-							"type":        "string",
-							"description": "Shell command to run.",
-						},
-					},
-					Required: []string{"command"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Command string `json:"command"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-			return toolResult{content: a.shell.Exec(ctx, in.Command)}, nil
-		},
-	}
+type saveQuoteIn struct {
+	Content        string   `json:"content" jsonschema:"required,description=The quote text to save."`
+	ParticipantIDs []string `json:"participant_ids" jsonschema:"description=Discord snowflakes of any additional participants in the quote."`
 }
 
-func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
-	return ricktool{
-		name: "save_quote",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "save_quote",
-				Description: anthropic.String("Save a quote to the quote book and display it as a quote embed. Use when someone says something memorable or worth archiving."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"content": map[string]any{
-							"type":        "string",
-							"description": "The quote text to save.",
-						},
-						"participant_ids": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Discord snowflakes of any additional participants in the quote.",
-						},
-					},
-					Required: []string{"content"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Content        string   `json:"content"`
-				ParticipantIDs []string `json:"participant_ids"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
-
+func (a *Agent) saveQuoteTool(event *events.MessageCreate) llm.Tool {
+	return llm.NewTool("save_quote", "Save a quote to the quote book and display it as a quote embed. Use when someone says something memorable or worth archiving.",
+		func(ctx context.Context, in saveQuoteIn) (llm.Result, error) {
 			creatorID := event.Message.Author.ID.String()
 			q := store.Quote{
 				Content:      in.Content,
@@ -364,7 +136,7 @@ func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
 				Participants: (*store.StringSlice)(&in.ParticipantIDs),
 			}
 			if err := a.store.CreateQuote(ctx, q); err != nil {
-				return toolResult{}, err
+				return llm.Result{}, err
 			}
 
 			author, err := a.discord.GetMemberForID(creatorID)
@@ -387,141 +159,71 @@ func (a *Agent) saveQuoteTool(event *events.MessageCreate) ricktool {
 				slog.Warn("failed to send quote embed", "error", sendErr)
 			}
 
-			return toolResult{content: "quote saved", done: true}, nil
-		},
-	}
+			return llm.Result{Content: "quote saved", Done: true}, nil
+		})
 }
 
-func (a *Agent) getUserQuotesTool() ricktool {
-	return ricktool{
-		name: "get_user_quotes",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "get_user_quotes",
-				Description: anthropic.String("Look up all saved quotes for a user by their Discord snowflake. Use to find ammunition for roasting someone."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"user_id": map[string]any{
-							"type":        "string",
-							"description": "Discord snowflake of the user to look up.",
-						},
-					},
-					Required: []string{"user_id"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				UserID string `json:"user_id"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
+type getUserQuotesIn struct {
+	UserID string `json:"user_id" jsonschema:"required,description=Discord snowflake of the user to look up."`
+}
 
+func (a *Agent) getUserQuotesTool() llm.Tool {
+	return llm.NewTool("get_user_quotes", "Look up all saved quotes for a user by their Discord snowflake. Use to find ammunition for roasting someone.",
+		func(ctx context.Context, in getUserQuotesIn) (llm.Result, error) {
 			quotes := a.store.GetQuotesByParticipant(ctx, in.UserID)
 			if len(quotes) == 0 {
-				return toolResult{content: "no quotes found for this user"}, nil
+				return llm.Result{Content: "no quotes found for this user"}, nil
 			}
-
 			var sb strings.Builder
 			for _, q := range quotes {
 				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
-			return toolResult{content: sb.String()}, nil
-		},
-	}
+			return llm.Result{Content: sb.String()}, nil
+		})
 }
 
-func (a *Agent) searchQuotesTool() ricktool {
-	return ricktool{
-		name: "search_quotes",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "search_quotes",
-				Description: anthropic.String("Search the quote book by content. Use when looking for a specific quote or when a user has no participant quotes on record."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "Text to search for within quote content.",
-						},
-					},
-					Required: []string{"query"},
-				},
-			},
-		},
-		execute: func(ctx context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Query string `json:"query"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
+type searchQuotesIn struct {
+	Query string `json:"query" jsonschema:"required,description=Text to search for within quote content."`
+}
+
+func (a *Agent) searchQuotesTool() llm.Tool {
+	return llm.NewTool("search_quotes", "Search the quote book by content. Use when looking for a specific quote or when a user has no participant quotes on record.",
+		func(ctx context.Context, in searchQuotesIn) (llm.Result, error) {
 			quotes := a.store.SearchQuotes(ctx, in.Query)
 			if len(quotes) == 0 {
-				return toolResult{content: "no quotes found"}, nil
+				return llm.Result{Content: "no quotes found"}, nil
 			}
 			var sb strings.Builder
 			for _, q := range quotes {
 				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
-			return toolResult{content: sb.String()}, nil
-		},
-	}
+			return llm.Result{Content: sb.String()}, nil
+		})
 }
 
-func (a *Agent) reactTool(event *events.MessageCreate) ricktool {
-	return ricktool{
-		name: "react",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "react",
-				Description: anthropic.String("Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{
-						"emojis": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Unicode emojis to react with.",
-						},
-					},
-					Required: []string{"emojis"},
-				},
-			},
-		},
-		execute: func(_ context.Context, input json.RawMessage) (toolResult, error) {
-			var in struct {
-				Emojis []string `json:"emojis"`
-			}
-			if err := json.Unmarshal(input, &in); err != nil {
-				return toolResult{}, err
-			}
+type reactIn struct {
+	Emojis []string `json:"emojis" jsonschema:"required,description=Unicode emojis to react with."`
+}
+
+func (a *Agent) reactTool(event *events.MessageCreate) llm.Tool {
+	return llm.NewTool("react", "Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response.",
+		func(_ context.Context, in reactIn) (llm.Result, error) {
 			for _, emoji := range in.Emojis {
 				if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, emoji); err != nil {
 					slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
 				}
 			}
-			return toolResult{content: "reactions added"}, nil
-		},
-	}
+			return llm.Result{Content: "reactions added"}, nil
+		})
 }
 
-func (a *Agent) checkLogsTool() ricktool {
-	return ricktool{
-		name: "check_logs",
-		def: anthropic.ToolUnionParam{
-			OfTool: &anthropic.ToolParam{
-				Name:        "check_logs",
-				Description: anthropic.String("Check recent warnings and errors from Rick's own process logs. Use when asked why Rick didn't respond or what went wrong."),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties: map[string]any{},
-				},
-			},
-		},
-		execute: func(_ context.Context, _ json.RawMessage) (toolResult, error) {
-			return toolResult{content: a.logBuf.Recent()}, nil
-		},
-	}
+type checkLogsIn struct{}
+
+func (a *Agent) checkLogsTool() llm.Tool {
+	return llm.NewTool("check_logs", "Check recent warnings and errors from Rick's own process logs. Use when asked why Rick didn't respond or what went wrong.",
+		func(_ context.Context, _ checkLogsIn) (llm.Result, error) {
+			return llm.Result{Content: a.logBuf.Recent()}, nil
+		})
 }
 
 func memberEmbedFooter(member *discord.Member, fallbackID string) *discord.EmbedFooter {
