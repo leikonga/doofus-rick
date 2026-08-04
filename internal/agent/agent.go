@@ -8,6 +8,7 @@ import (
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
@@ -39,15 +40,24 @@ type Agent struct {
 	shell          *client.Shell
 	logBuf         *logbuf.Buffer
 	tracer         *tracer.Tracer
+	retriever      *archive.Retriever
+	affinity       *archive.Affinity
+	budgetGuard    *archive.BudgetGuard
+	typingTheatre  *archive.TypingTheatre
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
+	llmClient := llm.NewClient(c.OpenRouterAPIKey)
+	typingMaxDelay, err := time.ParseDuration(c.TypingMaxDelay)
+	if err != nil {
+		typingMaxDelay = 20 * time.Second
+	}
 	return &Agent{
 		store:         s,
 		config:        c,
-		llm:           llm.NewClient(c.OpenRouterAPIKey),
+		llm:           llmClient,
 		discord:       ds,
 		discordClient: dc,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
@@ -55,5 +65,21 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		shell:         client.NewShell(c.WorkDir),
 		logBuf:        lb,
 		tracer:        tr,
+		retriever: archive.NewRetriever(archive.RetrievalConfig{
+			TopK:       c.RecallTopK,
+			MinScore:   c.RecallMinScore,
+			EmbedModel: c.RickEmbedModel,
+		}, s, llmClient),
+		affinity: archive.NewAffinity(archive.AffinityConfig{
+			Baseline:    c.AffinityBaseline,
+			DecayPerDay: c.AffinityDecayPerDay,
+			Model:       c.AffinityModel,
+		}, s),
+		budgetGuard: archive.NewBudgetGuard(c, s),
+		typingTheatre: archive.NewTypingTheatre(archive.TypingTheatreConfig{
+			Enabled:  c.TypingTheatre,
+			MaxDelay: typingMaxDelay,
+			Chance:   c.TypingChance,
+		}),
 	}
 }

@@ -11,7 +11,10 @@ import (
 )
 
 type mockDiscord struct {
-	users map[string]string
+	users      map[string]string
+	statuses   map[string]discord.OnlineStatus
+	voice      map[string]string
+	activities map[string][]discord.Activity
 }
 
 func (m *mockDiscord) GetMemberForID(_ string) (*discord.Member, error) { return nil, nil }
@@ -21,31 +24,21 @@ func (m *mockDiscord) GetUsernameForID(id string) (string, error) {
 	}
 	return "", nil
 }
-func (m *mockDiscord) OnlineMembers() []discord.Member                { return nil }
-func (m *mockDiscord) AllMembers() ([]discord.Member, error)          { return nil, nil }
-func (m *mockDiscord) VoiceChannels() map[snowflake.ID]string         { return nil }
-func (m *mockDiscord) VoiceChannelForID(_ string) string              { return "" }
-func (m *mockDiscord) GetStatusForID(_ string) discord.OnlineStatus   { return "" }
-func (m *mockDiscord) GetActivitiesForID(_ string) []discord.Activity { return nil }
+func (m *mockDiscord) OnlineMembers() []discord.Member        { return nil }
+func (m *mockDiscord) AllMembers() ([]discord.Member, error)  { return nil, nil }
+func (m *mockDiscord) VoiceChannels() map[snowflake.ID]string { return nil }
+func (m *mockDiscord) VoiceChannelForID(id string) string     { return m.voice[id] }
+func (m *mockDiscord) GetStatusForID(id string) discord.OnlineStatus {
+	return m.statuses[id]
+}
+func (m *mockDiscord) GetActivitiesForID(id string) []discord.Activity { return m.activities[id] }
 
 func newTestAgent(users map[string]string) *Agent {
 	return &Agent{discord: &mockDiscord{users: users}}
 }
 
-func textMsg() llm.Message {
-	return llm.NewUserMessage(llm.TextPart("hello"))
-}
-
-func toolResultMsg(id string) llm.Message {
-	return llm.NewToolResultMessage(id, "result")
-}
-
 func assistantMsg() llm.Message {
 	return llm.Message{Role: llm.RoleAssistant, Parts: []llm.ContentPart{llm.TextPart("response")}}
-}
-
-func assistantWithToolUse(id string) llm.Message {
-	return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "some_tool", Arguments: "{}"}}}
 }
 
 func TestBuildTranscript(t *testing.T) {
@@ -300,9 +293,19 @@ func TestBuildCachedPrefix(t *testing.T) {
 }
 
 func TestBuildUncachedTail(t *testing.T) {
-	got := buildUncachedTail("", "", "")
+	got := buildUncachedTail("", "")
 	if !strings.Contains(got, "<now>") {
 		t.Error("expected timestamp in uncached tail")
+	}
+}
+
+func TestBuildUncachedTail_IncludesGradDoAndRecall(t *testing.T) {
+	got := buildUncachedTail("<grad do>\nsnowflake=1 status=online\n</grad do>", "<recall>\nsome context\n</recall>\n")
+	if !strings.Contains(got, "<grad do>") {
+		t.Error("expected grad do block in uncached tail")
+	}
+	if !strings.Contains(got, "<recall>") {
+		t.Error("expected recall block in uncached tail")
 	}
 }
 

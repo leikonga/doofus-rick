@@ -2,6 +2,8 @@ package archive
 
 import (
 	"context"
+	"time"
+
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -43,6 +45,9 @@ func (b *BudgetGuard) ShouldDisableAmbient(ctx context.Context) (bool, error) {
 	return percent >= 0.80, nil
 }
 
+// GetSpent totals estimated spend since the start of the current calendar
+// month, so BUDGET_MONTHLY_USD is checked against this month's usage, not
+// all-time usage.
 func (b *BudgetGuard) GetSpent(ctx context.Context) (float64, error) {
 	var total float64
 
@@ -52,7 +57,9 @@ func (b *BudgetGuard) GetSpent(ctx context.Context) (float64, error) {
 		ModelName    string `gorm:"column:model_name"`
 	}
 
-	err := b.store.DB().WithContext(ctx).Model(&store.TokenUsage{}).Find(&usage).Error
+	err := b.store.DB().WithContext(ctx).Model(&store.TokenUsage{}).
+		Where("created_at >= ?", startOfMonth(time.Now())).
+		Find(&usage).Error
 	if err != nil {
 		return 0, err
 	}
@@ -65,11 +72,16 @@ func (b *BudgetGuard) GetSpent(ctx context.Context) (float64, error) {
 	return total, nil
 }
 
+func startOfMonth(t time.Time) time.Time {
+	y, m, _ := t.Date()
+	return time.Date(y, m, 1, 0, 0, 0, 0, t.Location())
+}
+
 func (b *BudgetGuard) estimateCost(model string, input, output int64) float64 {
-	switch {
-	case model == "anthropic/claude-sonnet-5":
+	switch model {
+	case "anthropic/claude-sonnet-5":
 		return float64(input)*0.000003 + float64(output)*0.000015
-	case model == "qwen/qwen3-embedding-8b":
+	case "qwen/qwen3-embedding-8b":
 		return float64(input) * 0.0000000625
 	default:
 		return float64(input)*0.0000005 + float64(output)*0.000001

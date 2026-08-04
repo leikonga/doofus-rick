@@ -27,9 +27,10 @@ func NewClient(apiKey string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey))}
 }
 
-// newClientWithServerURL points the SDK at an arbitrary base URL, for tests
-// that stand up a local fake of the OpenRouter API.
-func newClientWithServerURL(apiKey, serverURL string) *Client {
+// NewClientWithServerURL points the SDK at an arbitrary base URL, for tests
+// (in this package or others) that stand up a local fake of the OpenRouter
+// API instead of calling the real service.
+func NewClientWithServerURL(apiKey, serverURL string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL))}
 }
 

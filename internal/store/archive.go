@@ -119,6 +119,56 @@ func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, sinc
 	return msgs, err
 }
 
+// GetLastChunkedMessageID returns the highest message ID already covered by
+// a chunk for the channel, or 0 if none exist, so incremental chunking can
+// resume without rescanning already-chunked messages.
+func (s *Store) GetLastChunkedMessageID(ctx context.Context, channelID uint64) (uint64, error) {
+	var lastID uint64
+	err := s.db.WithContext(ctx).Model(&Chunk{}).
+		Where("channel_id = ?", channelID).
+		Select("COALESCE(MAX(last_message_id), 0)").
+		Scan(&lastID).Error
+	return lastID, err
+}
+
+// GetRecentMessagesSince returns human (non-bot) messages in a channel
+// created after the given time, oldest first.
+func (s *Store) GetRecentMessagesSince(ctx context.Context, channelID uint64, since time.Time, limit int) ([]Message, error) {
+	var msgs []Message
+	err := s.db.WithContext(ctx).
+		Where("channel_id = ? AND created_at > ?", channelID, since).
+		Order("id asc").Limit(limit).Find(&msgs).Error
+	return msgs, err
+}
+
+// ActiveAuthor is one row of the archive-activity leaderboard used to build
+// the roster: an author's most recent display name and how much they've
+// posted in the lookback window.
+type ActiveAuthor struct {
+	AuthorID   uint64 `gorm:"column:author_id"`
+	AuthorName string `gorm:"column:author_name"`
+	MsgCount   int64  `gorm:"column:msg_count"`
+}
+
+// GetActiveAuthors ranks non-bot authors by message volume since the given
+// time, most active first, using each author's most recent display name.
+func (s *Store) GetActiveAuthors(ctx context.Context, since time.Time, limit int) ([]ActiveAuthor, error) {
+	var authors []ActiveAuthor
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT m.author_id AS author_id,
+		       (SELECT m2.author_name FROM messages m2
+		        WHERE m2.author_id = m.author_id
+		        ORDER BY m2.created_at DESC LIMIT 1) AS author_name,
+		       COUNT(*) AS msg_count
+		FROM messages m
+		WHERE m.created_at > ? AND m.is_bot = ?
+		GROUP BY m.author_id
+		ORDER BY msg_count DESC
+		LIMIT ?
+	`, since, false, limit).Scan(&authors).Error
+	return authors, err
+}
+
 func (s *Store) GetAffinity(ctx context.Context, userID uint64) (*UserAffinity, error) {
 	var affinity UserAffinity
 	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&affinity).Error

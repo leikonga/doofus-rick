@@ -27,7 +27,7 @@ func TestClientEmbed_SendsInputAndModel(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newClientWithServerURL("test-key", srv.URL)
+	c := NewClientWithServerURL("test-key", srv.URL)
 	resp, err := c.Embed(context.Background(), EmbeddingRequest{
 		Model: "qwen/qwen3-embedding-8b",
 		Input: []string{"hello world"},
@@ -65,7 +65,7 @@ func TestClientEmbed_EmptyResponseIsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newClientWithServerURL("test-key", srv.URL)
+	c := NewClientWithServerURL("test-key", srv.URL)
 	resp, err := c.Embed(context.Background(), EmbeddingRequest{Model: "m", Input: []string{"x"}})
 	if err != nil {
 		t.Fatalf("Embed returned error: %v", err)

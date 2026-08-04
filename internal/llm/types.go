@@ -1,5 +1,3 @@
-// Package llm is a vendor-neutral chat completion abstraction. Only client.go
-// may import the OpenRouter SDK.
 package llm
 
 import (

@@ -25,14 +25,11 @@ type Classifier struct {
 	client *llm.Client
 }
 
-func NewClassifier(config ClassifierConfig, apiKey string) *Classifier {
+func NewClassifier(config ClassifierConfig, c *llm.Client) *Classifier {
 	if config.MinScore == 0 {
 		config.MinScore = 90
 	}
-	return &Classifier{
-		config: config,
-		client: llm.NewClient(apiKey),
-	}
+	return &Classifier{config: config, client: c}
 }
 
 func (c *Classifier) Classify(ctx context.Context, messages []llm.Message) (ClassifierResult, error) {
@@ -47,7 +44,7 @@ func (c *Classifier) Classify(ctx context.Context, messages []llm.Message) (Clas
 		}
 		for _, part := range msg.Parts {
 			if part.Type == "text" {
-				content.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, part.Text))
+				fmt.Fprintf(&content, "[%s]: %s\n", msg.Role, part.Text)
 			}
 		}
 	}

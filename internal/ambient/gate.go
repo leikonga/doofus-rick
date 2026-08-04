@@ -2,13 +2,15 @@ package ambient
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"gorm.io/gorm"
 )
 
-type AmbientConfig struct {
+type GateConfig struct {
 	Enabled      bool
 	Window       time.Duration
 	MinMsgs      int
@@ -26,12 +28,12 @@ type GateResult struct {
 	Reason string
 }
 
-type Ambient struct {
-	config AmbientConfig
+type Gate struct {
+	config GateConfig
 	store  *store.Store
 }
 
-func NewAmbient(config AmbientConfig, s *store.Store) *Ambient {
+func NewGate(config GateConfig, s *store.Store) *Gate {
 	if config.Window == 0 {
 		config.Window = 90 * time.Second
 	}
@@ -53,79 +55,114 @@ func NewAmbient(config AmbientConfig, s *store.Store) *Ambient {
 	if config.MinScore == 0 {
 		config.MinScore = 90
 	}
-	return &Ambient{config: config, store: s}
+	return &Gate{config: config, store: s}
 }
 
-func (a *Ambient) CheckGate(ctx context.Context, channelID snowflake.ID, rickID snowflake.ID, msgs []store.Message) GateResult {
-	if !a.config.Enabled {
+func (g *Gate) CheckGate(ctx context.Context, channelID snowflake.ID, rickID snowflake.ID, msgs []store.Message) GateResult {
+	if !g.config.Enabled {
 		return GateResult{Passed: false, Reason: "ambient disabled"}
 	}
 
-	if len(msgs) < a.config.MinMsgs {
+	if len(msgs) < g.config.MinMsgs {
 		return GateResult{Passed: false, Reason: "not enough messages"}
 	}
 
 	authors := make(map[uint64]bool)
 	for _, msg := range msgs {
-		if !msg.IsBot {
-			authors[msg.AuthorID] = true
+		if msg.IsBot {
+			if msg.AuthorID == uint64(rickID) {
+				return GateResult{Passed: false, Reason: "rick already spoke in this burst"}
+			}
+			continue
 		}
+		authors[msg.AuthorID] = true
 	}
-	if len(authors) < a.config.MinAuthors {
+	if len(authors) < g.config.MinAuthors {
 		return GateResult{Passed: false, Reason: "not enough authors"}
 	}
 
-	state, err := a.store.GetAmbientState(ctx, uint64(channelID))
+	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
-		return GateResult{Passed: false, Reason: "failed to get state"}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return GateResult{Passed: false, Reason: "failed to get state"}
+		}
+		// No state row yet means ambient has never fired in this channel.
+		state = &store.AmbientState{ChannelID: uint64(channelID)}
+	}
+
+	if state.LastUnpromptedIgnored {
+		return GateResult{Passed: false, Reason: "last unprompted message was ignored"}
 	}
 
 	now := time.Now()
 
 	if state.LastFire != nil {
-		if now.Sub(*state.LastFire) < a.config.Cooldown {
+		if now.Sub(*state.LastFire) < g.config.Cooldown {
 			return GateResult{Passed: false, Reason: "in cooldown"}
 		}
 	}
 
-	if state.FiresToday >= a.config.DailyCap {
+	if state.FiresToday >= g.config.DailyCap {
 		return GateResult{Passed: false, Reason: "daily cap reached"}
 	}
 
-	if now.Sub(state.LastEval) < a.config.EvalDebounce {
+	if now.Sub(state.LastEval) < g.config.EvalDebounce {
 		return GateResult{Passed: false, Reason: "eval debounce"}
 	}
 
 	return GateResult{Passed: true}
 }
 
-func (a *Ambient) LogFire(ctx context.Context, channelID snowflake.ID, score int, hook string) error {
+func (g *Gate) LogFire(ctx context.Context, channelID snowflake.ID, score int, hook string) error {
 	log := store.AmbientLog{
 		ChannelID: uint64(channelID),
 		FiredAt:   time.Now(),
 		Score:     score,
 		Hook:      &[]string{hook}[0],
 	}
-	return a.store.LogAmbientFire(ctx, log)
+	return g.store.LogAmbientFire(ctx, log)
 }
 
-func (a *Ambient) UpdateState(ctx context.Context, channelID snowflake.ID, score int, hook string) error {
-	state, err := a.store.GetAmbientState(ctx, uint64(channelID))
+// UpdateState records a fire and the ID of the unprompted message Rick just
+// sent, so a later mechanism can mark it ignored if nobody engages with it.
+// unpromptedMsgID is 0 when the send failed and no message exists to track.
+func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, score int, hook string, unpromptedMsgID uint64) error {
+	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
-		state = &store.AmbientState{
-			ChannelID: uint64(channelID),
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
 		}
+		state = &store.AmbientState{ChannelID: uint64(channelID)}
 	}
 
 	state.LastEval = time.Now()
 	state.LastFire = &[]time.Time{time.Now()}[0]
-	state.LastUnpromptedID = nil
 	state.LastUnpromptedIgnored = false
+	if unpromptedMsgID != 0 {
+		state.LastUnpromptedID = &unpromptedMsgID
+	} else {
+		state.LastUnpromptedID = nil
+	}
 	state.UpdatedAt = time.Now()
 
-	if err := a.store.UpdateAmbientState(ctx, state); err != nil {
+	if err := g.store.UpdateAmbientState(ctx, state); err != nil {
 		return err
 	}
 
-	return a.store.IncrementAmbientFiresToday(ctx, uint64(channelID))
+	return g.store.IncrementAmbientFiresToday(ctx, uint64(channelID))
+}
+
+// EvalTouch records that the gate was evaluated for a channel without
+// firing, so EvalDebounce is honored even when the gate rejects early.
+func (g *Gate) EvalTouch(ctx context.Context, channelID snowflake.ID) error {
+	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		state = &store.AmbientState{ChannelID: uint64(channelID)}
+	}
+	state.LastEval = time.Now()
+	state.UpdatedAt = time.Now()
+	return g.store.UpdateAmbientState(ctx, state)
 }

@@ -154,7 +154,7 @@ func LoadConfig() *Config {
 		TypingMaxDelay: getEnv("TYPING_MAX_DELAY", "20s"),
 		TypingChance:   getEnvFloat64("TYPING_CHANCE", 0.25),
 
-		BudgetMonthlyUSD: getEnvFloat64("BUDGET_MONTHLY_USD", 15),
+		BudgetMonthlyUSD: getEnvFloat64("BUDGET_MONTHLY_USD", 0),
 
 		RickFallbackModel: getEnv("RICK_FALLBACK_MODEL", ""),
 	}

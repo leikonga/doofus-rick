@@ -108,21 +108,32 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		}
 	}
 
-	roster := a.buildUserRoster(channelOverwrites)
+	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 
 	prompt := buildPrompt(channelName, channelTopic, messages, trigger)
 
+	recall := a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(event.Message.Author.ID))
+
+	var theatreDone <-chan struct{}
 	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
-		go func() {
-			defer a.typingChannels.Delete(event.ChannelID)
-			a.keepTyping(ctx, event)
-		}()
+		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
+			theatreDone = a.runTypingTheatre(ctx, event, seq)
+			go func() {
+				<-theatreDone
+				a.typingChannels.Delete(event.ChannelID)
+			}()
+		} else {
+			go func() {
+				defer a.typingChannels.Delete(event.ChannelID)
+				a.keepTyping(ctx, event)
+			}()
+		}
 	}
 
 	resp, err := a.callModel(ctx, modelRequest{
 		systemPrompt: string(systemPrompt),
-		cachedPrefix: buildCachedPrefix(roster, channelName, channelTopic),
-		uncachedTail: buildUncachedTail(roster, channelName, channelTopic),
+		cachedPrefix: buildCachedPrefix(leit, channelName, channelTopic),
+		uncachedTail: buildUncachedTail(gradDo, recall),
 		prompt:       prompt,
 		imageURLs:    attachments.imageURLs,
 		fileParts:    attachments.fileParts,
@@ -131,6 +142,13 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	if err != nil {
 		slog.Warn("model call failed", "error", err)
 		return
+	}
+
+	if theatreDone != nil {
+		select {
+		case <-theatreDone:
+		case <-ctx.Done():
+		}
 	}
 
 	if resp.Decline {
@@ -243,6 +261,8 @@ type modelRequest struct {
 }
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
+	model := a.selectModel(ctx)
+
 	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.prompt)
 	defer func() {
 		resp, err := retResp, retErr
@@ -251,7 +271,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			if e.InputTokens > 0 || e.OutputTokens > 0 {
 				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, a.config.RickModel, e.InputTokens, e.OutputTokens)
+				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, model, e.InputTokens, e.OutputTokens)
 			}
 		}()
 	}()
@@ -278,7 +298,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		}
 
 		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
-			Model:     a.config.RickModel,
+			Model:     model,
 			MaxTokens: a.config.RickMaxTokens,
 			System:    systemFull,
 			Messages:  messages,
@@ -373,6 +393,48 @@ func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 	}
 }
 
+// runTypingTheatre plays a scripted [type, silent, type] sequence instead of
+// a continuous typing indicator, and returns a channel closed once it's
+// done, so the caller can hold the response back until the sequence plays
+// out rather than sending as soon as the model responds.
+func (a *Agent) runTypingTheatre(ctx context.Context, event *events.MessageCreate, sequence []time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i, d := range sequence {
+			if i%2 == 0 {
+				if err := event.Client().Rest.SendTyping(event.ChannelID); err != nil {
+					slog.Warn("failed to send typing indicator", "error", err)
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(d):
+			}
+		}
+	}()
+	return done
+}
+
+// selectModel falls back to RICK_FALLBACK_MODEL once the monthly budget is
+// exhausted, so archiving and retrieval keep running (they're cheap) while
+// generation moves to a cheaper model instead of stopping outright.
+func (a *Agent) selectModel(ctx context.Context) string {
+	if a.budgetGuard == nil || a.config.RickFallbackModel == "" {
+		return a.config.RickModel
+	}
+	ok, err := a.budgetGuard.Check(ctx)
+	if err != nil {
+		slog.Warn("budget check failed", "error", err)
+		return a.config.RickModel
+	}
+	if !ok {
+		return a.config.RickFallbackModel
+	}
+	return a.config.RickModel
+}
+
 func (a *Agent) memberName(user discord.User) string {
 	name, err := a.discord.GetUsernameForID(user.ID.String())
 	if err != nil || name == "" {
@@ -409,8 +471,64 @@ func buildCachedPrefix(roster, channelName, channelTopic string) string {
 	return sb.String()
 }
 
-func buildUncachedTail(roster, channelName, channelTopic string) string {
+func buildUncachedTail(gradDo, recall string) string {
 	var sb strings.Builder
-	sb.WriteString("<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>")
+	fmt.Fprintf(&sb, "<now>%s</now>", time.Now().Format("2006-01-02 15:04 MST"))
+	if gradDo != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(gradDo)
+	}
+	if recall != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(recall)
+	}
 	return sb.String()
+}
+
+// buildRecallBlock runs the hybrid retrieval pre-fetch for the triggering
+// message and renders it for the uncached tail, or "" if recall is off, the
+// query is empty, no channels are visible, or nothing clears
+// RECALL_MIN_SCORE. Never blocks the persona call on failure.
+func (a *Agent) buildRecallBlock(ctx context.Context, query string, channelIDs []uint64) string {
+	if !a.config.RecallEnabled || a.retriever == nil || query == "" || len(channelIDs) == 0 {
+		return ""
+	}
+	chunks, err := a.retriever.Retrieve(ctx, query, channelIDs)
+	if err != nil {
+		slog.Warn("recall retrieval failed", "error", err)
+		return ""
+	}
+	return a.retriever.BuildRecallBlock(chunks)
+}
+
+// visibleChannelIDs lists the guild message channels the given member can
+// see, so recall retrieval isn't scoped to just the channel a mention
+// happened to land in and doesn't leak content from channels the asking
+// user can't access.
+func (a *Agent) visibleChannelIDs(requesterID snowflake.ID) []uint64 {
+	guildID, err := snowflake.Parse(a.config.DiscordGuild)
+	if err != nil {
+		return nil
+	}
+	channels, err := a.discordClient.Rest.GetGuildChannels(guildID)
+	if err != nil {
+		slog.Warn("failed to list guild channels for recall scope", "error", err)
+		return nil
+	}
+	member, err := a.discord.GetMemberForID(requesterID.String())
+	if err != nil || member == nil {
+		return nil
+	}
+
+	var ids []uint64
+	for _, ch := range channels {
+		gmc, ok := ch.(discord.GuildMessageChannel)
+		if !ok {
+			continue
+		}
+		if memberCanSeeChannel(*member, gmc.PermissionOverwrites()) {
+			ids = append(ids, uint64(ch.ID()))
+		}
+	}
+	return ids
 }

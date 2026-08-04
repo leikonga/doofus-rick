@@ -24,6 +24,7 @@ func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
 		a.reactTool(event),
 		a.saveQuoteTool(event),
 		a.getUserQuotesTool(),
+		a.searchHistoryTool(event),
 	}
 	return append(tools, a.discordTools()...)
 }
@@ -178,6 +179,53 @@ func (a *Agent) getUserQuotesTool() llm.Tool {
 				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
 			return llm.Result{Content: sb.String()}, nil
+		})
+}
+
+type searchHistoryIn struct {
+	Query string `json:"query" jsonschema:"required,description=What to search for."`
+	Scope string `json:"scope" jsonschema:"required,enum=messages,enum=quotes,description=messages searches archived chat history via hybrid retrieval; quotes searches the quote book."`
+}
+
+// searchHistoryTool is the deliberate counterpart to the automatic recall
+// pre-fetch injected into every prompt: nothing depends on Rick calling
+// this, it's for digging on purpose when the automatic context missed
+// something. Folds the old search_quotes tool in via the scope param.
+func (a *Agent) searchHistoryTool(event *events.MessageCreate) llm.Tool {
+	return llm.NewTool("search_history", "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
+		func(ctx context.Context, in searchHistoryIn) (llm.Result, error) {
+			switch in.Scope {
+			case "quotes":
+				quotes := a.store.SearchQuotes(ctx, in.Query)
+				if len(quotes) == 0 {
+					return llm.Result{Content: "no matching quotes found"}, nil
+				}
+				var sb strings.Builder
+				for _, q := range quotes {
+					fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
+				}
+				return llm.Result{Content: sb.String()}, nil
+			case "messages", "":
+				channelIDs := a.visibleChannelIDs(event.Message.Author.ID)
+				if len(channelIDs) == 0 {
+					return llm.Result{Content: "no channels to search"}, nil
+				}
+				chunks, err := a.retriever.Retrieve(ctx, in.Query, channelIDs)
+				if err != nil {
+					return llm.Result{}, err
+				}
+				if len(chunks) == 0 {
+					return llm.Result{Content: "no matching history found"}, nil
+				}
+				var sb strings.Builder
+				for _, c := range chunks {
+					sb.WriteString(c.Content)
+					sb.WriteString("\n---\n")
+				}
+				return llm.Result{Content: sb.String()}, nil
+			default:
+				return llm.Result{}, fmt.Errorf("unknown scope %q, must be messages or quotes", in.Scope)
+			}
 		})
 }
 
