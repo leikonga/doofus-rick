@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 func (s *Store) CreateMessage(ctx context.Context, msg Message) error {
@@ -115,4 +117,52 @@ func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, sinc
 		Where("channel_id = ? AND id > ? AND id NOT IN (SELECT last_message_id FROM chunks WHERE channel_id = ?)", channelID, sinceID, channelID).
 		Order("id").Limit(limit).Find(&msgs).Error
 	return msgs, err
+}
+
+func (s *Store) GetAffinity(ctx context.Context, userID uint64) (*UserAffinity, error) {
+	var affinity UserAffinity
+	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&affinity).Error
+	if err != nil {
+		return nil, err
+	}
+	return &affinity, nil
+}
+
+func (s *Store) UpdateAffinity(ctx context.Context, affinity *UserAffinity) error {
+	return s.db.WithContext(ctx).Save(affinity).Error
+}
+
+func (s *Store) GetAmbientLog(ctx context.Context, channelID uint64, limit int) ([]AmbientLog, error) {
+	var logs []AmbientLog
+	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("fired_at desc").Limit(limit).Find(&logs).Error
+	return logs, err
+}
+
+func (s *Store) LogAmbientFire(ctx context.Context, log AmbientLog) error {
+	return s.db.WithContext(ctx).Create(&log).Error
+}
+
+func (s *Store) GetAmbientState(ctx context.Context, channelID uint64) (*AmbientState, error) {
+	var state AmbientState
+	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&state).Error
+	if err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func (s *Store) UpdateAmbientState(ctx context.Context, state *AmbientState) error {
+	return s.db.WithContext(ctx).Save(state).Error
+}
+
+func (s *Store) IncrementAmbientFiresToday(ctx context.Context, channelID uint64) error {
+	return s.db.WithContext(ctx).Model(&AmbientState{}).
+		Where("channel_id = ?", channelID).
+		UpdateColumn("fires_today", gorm.Expr("fires_today + 1")).Error
+}
+
+func (s *Store) ResetAmbientFiresToday(ctx context.Context, channelID uint64) error {
+	return s.db.WithContext(ctx).Model(&AmbientState{}).
+		Where("channel_id = ?", channelID).
+		UpdateColumn("fires_today", 0).Error
 }

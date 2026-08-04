@@ -117,3 +117,13 @@ type AmbientLog struct {
 	Score     int       `gorm:"not null"`
 	Hook      *string
 }
+
+type AmbientState struct {
+	ChannelID             uint64 `gorm:"primaryKey"`
+	LastEval              time.Time
+	LastFire              *time.Time
+	FiresToday            int
+	LastUnpromptedID      *uint64
+	LastUnpromptedIgnored bool
+	UpdatedAt             time.Time `gorm:"not null"`
+}

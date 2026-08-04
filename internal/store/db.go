@@ -41,7 +41,7 @@ func MustInit(c *config.Config) *Store {
 		panic(err)
 	}
 
-	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}); err != nil {
+	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
 		panic(err)
 	}
 

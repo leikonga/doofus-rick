@@ -76,6 +76,8 @@ type Config struct {
 	TypingChance   float64
 
 	BudgetMonthlyUSD float64
+
+	RickFallbackModel string
 }
 
 func LoadConfig() *Config {
@@ -153,6 +155,8 @@ func LoadConfig() *Config {
 		TypingChance:   getEnvFloat64("TYPING_CHANCE", 0.25),
 
 		BudgetMonthlyUSD: getEnvFloat64("BUDGET_MONTHLY_USD", 15),
+
+		RickFallbackModel: getEnv("RICK_FALLBACK_MODEL", ""),
 	}
 }
 
