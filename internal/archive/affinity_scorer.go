@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type AffinityScorerConfig struct {
@@ -23,13 +25,14 @@ type AffinityScorer struct {
 	config   AffinityScorerConfig
 	client   *llm.Client
 	affinity *Affinity
+	store    *store.Store
 }
 
-func NewAffinityScorer(config AffinityScorerConfig, c *llm.Client, aff *Affinity) *AffinityScorer {
+func NewAffinityScorer(config AffinityScorerConfig, c *llm.Client, aff *Affinity, s *store.Store) *AffinityScorer {
 	if config.MaxTokens == 0 {
 		config.MaxTokens = 300
 	}
-	return &AffinityScorer{config: config, client: c, affinity: aff}
+	return &AffinityScorer{config: config, client: c, affinity: aff, store: s}
 }
 
 type affinityDelta struct {
@@ -89,6 +92,7 @@ Conversation:
 	if err != nil {
 		return err
 	}
+	s.store.SaveTokenUsage(ctx, strconv.FormatUint(chunk.ChannelID, 10), "affinity-scorer", s.config.Model, resp.InputTokens, resp.OutputTokens)
 
 	var text strings.Builder
 	for _, p := range resp.Message.Parts {

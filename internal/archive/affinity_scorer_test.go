@@ -29,7 +29,7 @@ func TestAffinityScorer_NoOpWhenRickDidNotParticipate(t *testing.T) {
 	srv := chatCompletionServer(t, `{"users":[{"user_id":"1","delta":5,"reason":"nice"}]}`)
 	defer srv.Close()
 
-	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{})
+	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{}, nil)
 	chunk := Chunk{Messages: []store.Message{
 		{AuthorID: 1, IsBot: false},
 		{AuthorID: 2, IsBot: false},
@@ -44,7 +44,7 @@ func TestAffinityScorer_NoOpWhenNoOtherParticipants(t *testing.T) {
 	srv := chatCompletionServer(t, `{"users":[]}`)
 	defer srv.Close()
 
-	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{})
+	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{}, nil)
 	rickID := uint64(999)
 	chunk := Chunk{Messages: []store.Message{
 		{AuthorID: rickID, IsBot: true},

@@ -54,6 +54,11 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	if err != nil {
 		return nil, err
 	}
+	channelKey := "0"
+	if len(channelIDs) > 0 {
+		channelKey = strconv.FormatUint(channelIDs[0], 10)
+	}
+	r.store.SaveTokenUsage(ctx, channelKey, "retriever", r.config.EmbedModel, embedResp.InputTokens, 0)
 	if len(embedResp.Embeddings) == 0 {
 		return nil, fmt.Errorf("archive: empty query embedding")
 	}

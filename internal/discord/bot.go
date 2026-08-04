@@ -117,7 +117,7 @@ func (b *Bot) Run() error {
 			Model:     classifierModel,
 			MaxTokens: b.config.AmbientMaxTokens,
 			MinScore:  b.config.AmbientMinScore,
-		}, llmClient)
+		}, llmClient, b.store)
 	}
 
 	if b.config.AffinityEnabled {
@@ -130,7 +130,7 @@ func (b *Bot) Run() error {
 			DecayPerDay: b.config.AffinityDecayPerDay,
 			Model:       affinityModel,
 		}, b.store)
-		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff)
+		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff, b.store)
 	}
 
 	if b.config.DiscordGuild == "" {
@@ -311,7 +311,7 @@ func (b *Bot) checkAmbient(channelID snowflake.ID) {
 			llmMsgs = append(llmMsgs, llm.NewUserMessage(llm.TextPart(fmt.Sprintf("[%s]: %s", name, m.Content))))
 		}
 
-		classified, err := b.ambientClassifier.Classify(ctx, llmMsgs)
+		classified, err := b.ambientClassifier.Classify(ctx, uint64(channelID), llmMsgs)
 		if err != nil {
 			slog.Warn("ambient classification failed", "channel", channelID, "error", err)
 			return

@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"math"
+	"strconv"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -31,6 +32,7 @@ func (e *Embedder) EmbedChunk(ctx context.Context, chunk store.Chunk) error {
 	if err != nil {
 		return err
 	}
+	e.store.SaveTokenUsage(ctx, strconv.FormatUint(chunk.ChannelID, 10), "embedder", e.config.Model, resp.InputTokens, 0)
 
 	if len(resp.Embeddings) == 0 {
 		return nil

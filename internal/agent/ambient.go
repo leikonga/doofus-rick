@@ -60,6 +60,9 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 		System:    systemFull,
 		Messages:  []llm.Message{llm.NewUserMessage(llm.TextPart(prompt))},
 	})
+	if err == nil {
+		rec.AddTokens(resp.InputTokens, resp.OutputTokens)
+	}
 	go func() {
 		var text string
 		if err == nil {

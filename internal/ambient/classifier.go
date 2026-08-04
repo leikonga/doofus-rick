@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 type ClassifierConfig struct {
@@ -23,16 +25,17 @@ type ClassifierResult struct {
 type Classifier struct {
 	config ClassifierConfig
 	client *llm.Client
+	store  *store.Store
 }
 
-func NewClassifier(config ClassifierConfig, c *llm.Client) *Classifier {
+func NewClassifier(config ClassifierConfig, c *llm.Client, s *store.Store) *Classifier {
 	if config.MinScore == 0 {
 		config.MinScore = 90
 	}
-	return &Classifier{config: config, client: c}
+	return &Classifier{config: config, client: c, store: s}
 }
 
-func (c *Classifier) Classify(ctx context.Context, messages []llm.Message) (ClassifierResult, error) {
+func (c *Classifier) Classify(ctx context.Context, channelID uint64, messages []llm.Message) (ClassifierResult, error) {
 	if len(messages) == 0 {
 		return ClassifierResult{}, nil
 	}
@@ -71,6 +74,7 @@ Conversation:
 	if err != nil {
 		return ClassifierResult{}, err
 	}
+	c.store.SaveTokenUsage(ctx, strconv.FormatUint(channelID, 10), "ambient-classifier", c.config.Model, resp.InputTokens, resp.OutputTokens)
 
 	var result ClassifierResult
 	if err := json.Unmarshal([]byte(resp.Message.Parts[0].Text), &result); err != nil {
