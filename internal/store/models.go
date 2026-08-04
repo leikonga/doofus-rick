@@ -102,3 +102,18 @@ type ChunkEmbedding struct {
 	Model     string    `gorm:"primaryKey"`
 	Embedding []float32 `gorm:"type:halfvec(1024);not null"`
 }
+
+type UserAffinity struct {
+	UserID     uint64 `gorm:"primaryKey"`
+	Score      int    `gorm:"not null;default:-20"`
+	LastReason *string
+	UpdatedAt  time.Time `gorm:"not null"`
+}
+
+type AmbientLog struct {
+	ID        uint64    `gorm:"primaryKey"`
+	ChannelID uint64    `gorm:"not null"`
+	FiredAt   time.Time `gorm:"not null"`
+	Score     int       `gorm:"not null"`
+	Hook      *string
+}

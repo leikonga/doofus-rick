@@ -41,7 +41,7 @@ func MustInit(c *config.Config) *Store {
 		panic(err)
 	}
 
-	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}); err != nil {
+	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}); err != nil {
 		panic(err)
 	}
 
@@ -49,6 +49,10 @@ func MustInit(c *config.Config) *Store {
 	db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
 
 	return &Store{db: db}
+}
+
+func (s *Store) DB() *gorm.DB {
+	return s.db
 }
 
 func runMigrations(db *gorm.DB, driver string) error {
