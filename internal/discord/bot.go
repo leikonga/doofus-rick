@@ -469,12 +469,12 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 	}
 
 	if state.Status == "running" {
-		slog.Info("backfill already running, skipping")
-		return
+		slog.Warn("backfill state was left running, previous attempt likely crashed; resetting and starting anew")
 	}
 
 	state.Status = "running"
 	state.StartedAt = &[]time.Time{time.Now()}[0]
+	state.LastError = nil
 	state.UpdatedAt = time.Now()
 	if err := b.store.UpdateBackfillState(ctx, state); err != nil {
 		slog.Warn("failed to update backfill state", "error", err)
@@ -482,13 +482,19 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 	}
 
 	defer func() {
-		state.Status = "done"
+		if r := recover(); r != nil {
+			state.Status = "failed"
+			errMsg := fmt.Sprintf("panic: %v", r)
+			state.LastError = &errMsg
+		} else if state.Status == "running" {
+			state.Status = "done"
+		}
 		state.FinishedAt = &[]time.Time{time.Now()}[0]
 		state.UpdatedAt = time.Now()
-		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
+		if err := b.store.UpdateBackfillState(context.Background(), state); err != nil {
 			slog.Warn("failed to finalize backfill state", "error", err)
 		}
-		slog.Info("backfill worker finished", "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
+		slog.Info("backfill worker finished", "status", state.Status, "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
 	}()
 
 	delay, err := time.ParseDuration(b.config.BackfillDelay)
