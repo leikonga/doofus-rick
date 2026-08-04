@@ -1,16 +1,14 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
-
-// --- mock DiscordState ---
 
 type mockDiscord struct {
 	users map[string]string
@@ -21,7 +19,7 @@ func (m *mockDiscord) GetUsernameForID(id string) (string, error) {
 	if name, ok := m.users[id]; ok {
 		return name, nil
 	}
-	return "", fmt.Errorf("user %s not found", id)
+	return "", nil
 }
 func (m *mockDiscord) OnlineMembers() []discord.Member                { return nil }
 func (m *mockDiscord) AllMembers() ([]discord.Member, error)          { return nil, nil }
@@ -33,8 +31,6 @@ func (m *mockDiscord) GetActivitiesForID(_ string) []discord.Activity { return n
 func newTestAgent(users map[string]string) *Agent {
 	return &Agent{discord: &mockDiscord{users: users}}
 }
-
-// --- helpers ---
 
 func textMsg() llm.Message {
 	return llm.NewUserMessage(llm.TextPart("hello"))
@@ -52,14 +48,73 @@ func assistantWithToolUse(id string) llm.Message {
 	return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "some_tool", Arguments: "{}"}}}
 }
 
-// --- Tier 1: buildPrompt ---
+func TestBuildTranscript(t *testing.T) {
+	msgs := []discord.Message{
+		{
+			ID:        snowflake.ID(1),
+			Author:    discord.User{ID: snowflake.ID(100), Username: "alice"},
+			Content:   "hello",
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        snowflake.ID(2),
+			Author:    discord.User{ID: snowflake.ID(200), Username: "bob"},
+			Content:   "hi",
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        snowflake.ID(3),
+			Author:    discord.User{ID: snowflake.ID(300), Username: "rick"},
+			Content:   "yo",
+			CreatedAt: time.Now(),
+		},
+	}
+
+	a := newTestAgent(map[string]string{
+		"100": "alice",
+		"200": "bob",
+		"300": "rick",
+	})
+
+	got := buildTranscript(snowflake.ID(300), snowflake.ID(1), msgs, a.memberName)
+
+	if len(got) != 1 {
+		t.Errorf("expected 1 message, got %d", len(got))
+	}
+
+	if got[0].Role != llm.RoleUser {
+		t.Errorf("expected user role, got %s", got[0].Role)
+	}
+
+	content := partsText(got[0].Parts)
+	if len(content) == 0 {
+		t.Error("expected content in message")
+	}
+
+	if !strings.Contains(content[0], "bob") {
+		t.Error("should contain bob's message")
+	}
+
+	if strings.Contains(content[0], "alice") {
+		t.Error("should not contain alice's message (skipped)")
+	}
+
+	if strings.Contains(content[0], "rick") {
+		t.Error("should not contain rick's message (bot)")
+	}
+}
 
 func TestBuildPrompt(t *testing.T) {
+	messages := []llm.Message{
+		llm.NewUserMessage(llm.TextPart("[12:00 alice]: hi")),
+		llm.NewUserMessage(llm.TextPart("[12:01 bob]: hey")),
+	}
+
 	tests := []struct {
 		name        string
 		channelName string
 		topic       string
-		lines       []string
+		messages    []llm.Message
 		trigger     string
 		wantContain []string
 		wantAbsent  []string
@@ -81,28 +136,28 @@ func TestBuildPrompt(t *testing.T) {
 			wantContain: []string{"# channel: general", "# topic: off-topic stuff"},
 		},
 		{
-			name:        "lines only",
-			lines:       []string{"[12:00 alice]: hi", "[12:01 bob]: hey"},
-			wantContain: []string{"[context - recent chat", "[12:00 alice]: hi", "[12:01 bob]: hey"},
+			name:        "messages only",
+			messages:    messages,
+			wantContain: []string{"[12:00 alice]: hi", "[12:01 bob]: hey"},
 		},
 		{
 			name:        "trigger only",
 			trigger:     "[alice]: ping",
-			wantContain: []string{"[reply to this mention]", "[alice]: ping"},
+			wantContain: []string{"[alice]: ping"},
 		},
 		{
 			name:        "all fields",
 			channelName: "general",
 			topic:       "chat",
-			lines:       []string{"[12:00 alice]: hi"},
+			messages:    messages,
 			trigger:     "[bob]: what up",
-			wantContain: []string{"# channel: general", "# topic: chat", "[context - recent chat", "[reply to this mention]"},
+			wantContain: []string{"# channel: general", "# topic: chat", "[12:00 alice]: hi", "[bob]: what up"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildPrompt(tc.channelName, tc.topic, tc.lines, tc.trigger)
+			got := buildPrompt(tc.channelName, tc.topic, tc.messages, tc.trigger)
 			for _, want := range tc.wantContain {
 				if !strings.Contains(got, want) {
 					t.Errorf("missing %q in output:\n%s", want, got)
@@ -116,8 +171,6 @@ func TestBuildPrompt(t *testing.T) {
 		})
 	}
 }
-
-// --- Tier 1: resolveMentions ---
 
 func TestResolveMentions(t *testing.T) {
 	a := newTestAgent(map[string]string{
@@ -147,8 +200,6 @@ func TestResolveMentions(t *testing.T) {
 	}
 }
 
-// --- Tier 1: trailingTagRe ---
-
 func TestTrailingTagRe(t *testing.T) {
 	tests := []struct {
 		input string
@@ -173,8 +224,6 @@ func TestTrailingTagRe(t *testing.T) {
 		})
 	}
 }
-
-// --- Tier 1: messageText ---
 
 func TestMessageText(t *testing.T) {
 	tests := []struct {
@@ -205,223 +254,77 @@ func TestMessageText(t *testing.T) {
 	}
 }
 
-// --- Tier 1: isUserTurnStart ---
-
-func TestIsUserTurnStart(t *testing.T) {
+func TestPartsText(t *testing.T) {
 	tests := []struct {
-		name string
-		msg  llm.Message
-		want bool
+		name  string
+		parts []llm.ContentPart
+		want  []string
 	}{
-		{"text user message", textMsg(), true},
-		{"tool result message", toolResultMsg("id1"), false},
-		{"assistant message", assistantMsg(), false},
-		{"assistant with tool call", assistantWithToolUse("id1"), false},
+		{"empty parts", []llm.ContentPart{}, []string{}},
+		{"single text", []llm.ContentPart{llm.TextPart("hello")}, []string{"hello"}},
+		{"multiple text", []llm.ContentPart{llm.TextPart("a"), llm.TextPart("b")}, []string{"a", "b"}},
+		{"mixed parts", []llm.ContentPart{llm.ImagePart("http://x"), llm.TextPart("caption")}, []string{"caption"}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isUserTurnStart(tc.msg)
-			if got != tc.want {
-				t.Errorf("isUserTurnStart() = %v, want %v", got, tc.want)
+			got := partsText(tc.parts)
+			if len(got) != len(tc.want) {
+				t.Errorf("got %d parts, want %d", len(got), len(tc.want))
+				return
 			}
-		})
-	}
-}
-
-// --- Tier 1: putSession trimming ---
-
-func TestPutSession(t *testing.T) {
-	a := &Agent{}
-	id := snowflake.ID(1)
-
-	tests := []struct {
-		name     string
-		messages []llm.Message
-		wantLen  int
-		wantOK   bool // first message must pass isUserTurnStart
-	}{
-		{
-			name:     "empty",
-			messages: nil,
-			wantLen:  0,
-		},
-		{
-			name:     "single valid user message",
-			messages: []llm.Message{textMsg()},
-			wantLen:  1,
-			wantOK:   true,
-		},
-		{
-			name:     "leading tool result is dropped",
-			messages: []llm.Message{toolResultMsg("id1")},
-			wantLen:  0,
-		},
-		{
-			name:     "leading tool result followed by valid message",
-			messages: []llm.Message{toolResultMsg("id1"), textMsg()},
-			wantLen:  1,
-			wantOK:   true,
-		},
-		{
-			name:     "valid sequence preserved",
-			messages: []llm.Message{textMsg(), assistantMsg(), textMsg()},
-			wantLen:  3,
-			wantOK:   true,
-		},
-		{
-			name: "trimmed to maxSessionMsgs, orphan dropped",
-			messages: func() []llm.Message {
-				// maxSessionMsgs+1 messages; trim takes last maxSessionMsgs.
-				// Put orphan at index 1 so it becomes index 0 after trim.
-				msgs := make([]llm.Message, maxSessionMsgs+1)
-				for i := range msgs {
-					msgs[i] = textMsg()
+			for i, w := range tc.want {
+				if got[i] != w {
+					t.Errorf("part %d: got %q, want %q", i, got[i], w)
 				}
-				msgs[1] = toolResultMsg("orphan")
-				return msgs
-			}(),
-			// trim leaves orphan at front; putSession drops it
-			wantLen: maxSessionMsgs - 1,
-			wantOK:  true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a.putSession(id, tc.messages)
-			got := a.getSession(id)
-			if len(got) != tc.wantLen {
-				t.Errorf("session len = %d, want %d", len(got), tc.wantLen)
-			}
-			if tc.wantOK && len(got) > 0 && !isUserTurnStart(got[0]) {
-				t.Error("first message fails isUserTurnStart after putSession")
 			}
 		})
 	}
 }
 
-// --- Tier 2: validateConversation ---
+func TestBuildCachedPrefix(t *testing.T) {
+	roster := "<users>...\n</users>"
+	got := buildCachedPrefix(roster, "general", "chat")
+	if !strings.Contains(got, "<users>") {
+		t.Error("expected roster in cached prefix")
+	}
+	if !strings.Contains(got, "# channel: general") {
+		t.Error("expected channel in cached prefix")
+	}
+	if !strings.Contains(got, "# topic: chat") {
+		t.Error("expected topic in cached prefix")
+	}
+	if strings.Contains(got, "<now>") {
+		t.Error("should not contain timestamp (volatile)")
+	}
+}
 
-func TestValidateConversation(t *testing.T) {
+func TestBuildUncachedTail(t *testing.T) {
+	got := buildUncachedTail("", "", "")
+	if !strings.Contains(got, "<now>") {
+		t.Error("expected timestamp in uncached tail")
+	}
+}
+
+func TestMemberName(t *testing.T) {
+	a := newTestAgent(map[string]string{
+		"123": "alice",
+	})
+
 	tests := []struct {
-		name        string
-		messages    []llm.Message
-		wantLen     int
-		wantRepair  bool
-		wantValidFn func([]llm.Message) bool
+		user discord.User
+		want string
 	}{
-		{
-			name:       "nil slice",
-			messages:   nil,
-			wantLen:    0,
-			wantRepair: false,
-		},
-		{
-			name:       "empty slice",
-			messages:   []llm.Message{},
-			wantLen:    0,
-			wantRepair: false,
-		},
-		{
-			name:       "valid single user message",
-			messages:   []llm.Message{textMsg()},
-			wantLen:    1,
-			wantRepair: false,
-		},
-		{
-			name:       "valid conversation",
-			messages:   []llm.Message{textMsg(), assistantMsg(), textMsg()},
-			wantLen:    3,
-			wantRepair: false,
-		},
-		{
-			name:       "single orphan tool result",
-			messages:   []llm.Message{toolResultMsg("id1")},
-			wantLen:    0,
-			wantRepair: true,
-		},
-		{
-			name: "orphan tool result followed by valid message",
-			messages: []llm.Message{
-				toolResultMsg("id1"),
-				textMsg(),
-			},
-			wantLen:    1,
-			wantRepair: true,
-			wantValidFn: func(msgs []llm.Message) bool {
-				return isUserTurnStart(msgs[0])
-			},
-		},
-		{
-			name: "multiple leading orphans dropped",
-			messages: []llm.Message{
-				toolResultMsg("id1"),
-				toolResultMsg("id2"),
-				textMsg(),
-			},
-			wantLen:    1,
-			wantRepair: true,
-		},
-		{
-			name: "assistant message at front is orphan",
-			messages: []llm.Message{
-				assistantMsg(),
-				textMsg(),
-			},
-			wantLen:    1,
-			wantRepair: true,
-			wantValidFn: func(msgs []llm.Message) bool {
-				return isUserTurnStart(msgs[0])
-			},
-		},
+		{discord.User{ID: snowflake.ID(123), Username: "alice"}, "alice"},
+		{discord.User{ID: snowflake.ID(456), Username: "bob"}, "bob"},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, repaired := validateConversation(tc.messages)
-			if repaired != tc.wantRepair {
-				t.Errorf("repaired = %v, want %v", repaired, tc.wantRepair)
-			}
-			if len(got) != tc.wantLen {
-				t.Errorf("len = %d, want %d", len(got), tc.wantLen)
-			}
-			if tc.wantValidFn != nil && !tc.wantValidFn(got) {
-				t.Error("result failed custom validity check")
-			}
-			if len(got) > 0 && !isUserTurnStart(got[0]) {
-				t.Error("result starts with non-user-turn message")
+		t.Run(tc.user.Username, func(t *testing.T) {
+			got := a.memberName(tc.user)
+			if got != tc.want {
+				t.Errorf("memberName() = %q, want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-// TestPutSessionNeverOrphan is a property-style test verifying that for every
-// cut point into a conversation slice, putSession never produces a session
-// whose first message is a tool result.
-func TestPutSessionNeverOrphan(t *testing.T) {
-	// Build a realistic alternating conversation with tool call/result pairs.
-	conv := []llm.Message{
-		textMsg(),                  // 0 user
-		assistantWithToolUse("t1"), // 1 assistant tool call
-		toolResultMsg("t1"),        // 2 tool result (orphan if first)
-		assistantMsg(),             // 3 assistant text
-		textMsg(),                  // 4 user text
-		assistantWithToolUse("t2"), // 5 assistant tool call
-		toolResultMsg("t2"),        // 6 tool result
-		assistantMsg(),             // 7 assistant text
-		textMsg(),                  // 8 user text
-	}
-
-	a := &Agent{}
-	id := snowflake.ID(999)
-
-	for cut := 0; cut <= len(conv); cut++ {
-		slice := conv[cut:]
-		a.putSession(id, slice)
-		got := a.getSession(id)
-		if len(got) > 0 && !isUserTurnStart(got[0]) {
-			t.Errorf("cut=%d: session starts with non-user-turn message", cut)
-		}
 	}
 }

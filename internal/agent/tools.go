@@ -24,7 +24,6 @@ func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
 		a.reactTool(event),
 		a.saveQuoteTool(event),
 		a.getUserQuotesTool(),
-		a.searchQuotesTool(),
 	}
 	return append(tools, a.discordTools()...)
 }
@@ -173,25 +172,6 @@ func (a *Agent) getUserQuotesTool() llm.Tool {
 			quotes := a.store.GetQuotesByParticipant(ctx, in.UserID)
 			if len(quotes) == 0 {
 				return llm.Result{Content: "no quotes found for this user"}, nil
-			}
-			var sb strings.Builder
-			for _, q := range quotes {
-				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
-			}
-			return llm.Result{Content: sb.String()}, nil
-		})
-}
-
-type searchQuotesIn struct {
-	Query string `json:"query" jsonschema:"required,description=Text to search for within quote content."`
-}
-
-func (a *Agent) searchQuotesTool() llm.Tool {
-	return llm.NewTool("search_quotes", "Search the quote book by content. Use when looking for a specific quote or when a user has no participant quotes on record.",
-		func(ctx context.Context, in searchQuotesIn) (llm.Result, error) {
-			quotes := a.store.SearchQuotes(ctx, in.Query)
-			if len(quotes) == 0 {
-				return llm.Result{Content: "no quotes found"}, nil
 			}
 			var sb strings.Builder
 			for _, q := range quotes {

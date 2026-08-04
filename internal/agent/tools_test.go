@@ -13,15 +13,15 @@ func TestBuildToolsCountAndNames(t *testing.T) {
 	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
 	tools := a.buildTools(event)
 
-	const want = 14
+	const want = 13
 	if len(tools) != want {
 		t.Fatalf("buildTools() returned %d tools, want %d", len(tools), want)
 	}
 
 	wantNames := []string{
 		"decline", "react", "media_search", "web_search", "fetch_page",
-		"shell_exec", "send_message", "send_file", "create_poll", "save_quote",
-		"get_user_quotes", "search_quotes", "schedule_reminder", "check_logs",
+		"shell_exec", "send_message", "create_poll", "send_file", "save_quote",
+		"get_user_quotes", "schedule_reminder", "check_logs",
 	}
 	seen := make(map[string]bool, len(tools))
 	for _, tool := range tools {

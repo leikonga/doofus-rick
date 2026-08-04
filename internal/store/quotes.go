@@ -1,6 +1,8 @@
 package store
 
-import "context"
+import (
+	"context"
+)
 
 func (s *Store) GetQuotes(ctx context.Context) []Quote {
 	var quotes []Quote
@@ -37,5 +39,11 @@ func (s *Store) SearchQuotes(ctx context.Context, query string) []Quote {
 		q = q.Where("LOWER(content) LIKE LOWER(?)", "%"+query+"%")
 	}
 	q.Find(&quotes)
+	return quotes
+}
+
+func (s *Store) GetTopQuotes(ctx context.Context, limit int) []Quote {
+	var quotes []Quote
+	s.db.WithContext(ctx).Order("votes desc").Limit(limit).Find(&quotes)
 	return quotes
 }

@@ -59,13 +59,13 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 	slices.Reverse(msgs)
 
-	lines := a.buildHistoryLines(botID, event.MessageID, msgs)
+	messages := buildTranscript(botID, event.MessageID, msgs, a.memberName)
 
 	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
 		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
 		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
 			ts := refMsg.CreatedAt.Format("15:04")
-			lines = append([]string{fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content))}, lines...)
+			messages = append(messages, llm.NewUserMessage(llm.TextPart(fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content)))))
 		}
 	}
 
@@ -108,13 +108,10 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		}
 	}
 
-	fullSystem := string(systemPrompt)
-	fullSystem += "\n\n<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>"
-	if roster := a.buildUserRoster(channelOverwrites); roster != "" {
-		fullSystem += "\n\n" + roster
-	}
+	roster := a.buildUserRoster(channelOverwrites)
 
-	prompt := buildPrompt(channelName, channelTopic, lines, trigger)
+	prompt := buildPrompt(channelName, channelTopic, messages, trigger)
+
 	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
 		go func() {
 			defer a.typingChannels.Delete(event.ChannelID)
@@ -123,7 +120,9 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 
 	resp, err := a.callModel(ctx, modelRequest{
-		systemPrompt: fullSystem,
+		systemPrompt: string(systemPrompt),
+		cachedPrefix: buildCachedPrefix(roster, channelName, channelTopic),
+		uncachedTail: buildUncachedTail(roster, channelName, channelTopic),
 		prompt:       prompt,
 		imageURLs:    attachments.imageURLs,
 		fileParts:    attachments.fileParts,
@@ -153,50 +152,58 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 }
 
-// buildHistoryLines renders recent channel messages, excluding the
-// triggering message and the bot's own, into chat-log lines for context.
-func (a *Agent) buildHistoryLines(botID, skipID snowflake.ID, msgs []discord.Message) []string {
-	var lines []string
+func buildTranscript(botID, skipID snowflake.ID, msgs []discord.Message, memberNameFunc func(discord.User) string) []llm.Message {
+	var messages []llm.Message
 	for _, msg := range msgs {
 		if msg.ID == skipID || msg.Author.ID == botID || strings.HasPrefix(msg.Content, "/") {
 			continue
 		}
 
-		var parts []string
-		content := a.resolveMentions(msg.Content)
+		var parts []llm.ContentPart
+		content := msg.Content
 		if len(content) > maxContextLen {
 			content = content[:maxContextLen] + "..."
 		}
 		if content != "" {
-			parts = append(parts, content)
+			parts = append(parts, llm.TextPart(content))
 		}
 		for _, s := range msg.StickerItems {
-			parts = append(parts, "(sticker: "+s.Name+")")
+			parts = append(parts, llm.TextPart("(sticker: "+s.Name+")"))
 		}
 		for _, att := range msg.Attachments {
 			if isImageAttachment(att) {
-				parts = append(parts, "(sent an image)")
+				parts = append(parts, llm.TextPart("(sent an image)"))
 			} else {
-				parts = append(parts, unsupportedLabel(att))
+				parts = append(parts, llm.TextPart(unsupportedLabel(att)))
 			}
 		}
 		if len(parts) == 0 {
 			continue
 		}
 
-		var name string
+		name := memberNameFunc(msg.Author)
 		if msg.Author.Bot {
 			name = msg.Author.Username + " (bot)"
-		} else {
-			name = a.memberName(msg.Author)
 		}
 		ts := msg.CreatedAt.Format("15:04")
-		lines = append(lines, fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(parts, " ")))
+		contentText := fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(partsText(parts), " "))
+
+		messages = append(messages, llm.NewUserMessage(llm.TextPart(contentText)))
 	}
-	return lines
+	return messages
 }
 
-func buildPrompt(channelName, channelTopic string, lines []string, trigger string) string {
+func partsText(parts []llm.ContentPart) []string {
+	var texts []string
+	for _, p := range parts {
+		if p.Type == "text" {
+			texts = append(texts, p.Text)
+		}
+	}
+	return texts
+}
+
+func buildPrompt(channelName, channelTopic string, messages []llm.Message, trigger string) string {
 	var sb strings.Builder
 
 	if channelName != "" {
@@ -206,29 +213,29 @@ func buildPrompt(channelName, channelTopic string, lines []string, trigger strin
 		}
 	}
 
-	if len(lines) > 0 {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
+	for _, msg := range messages {
+		for _, part := range msg.Parts {
+			if part.Type == "text" {
+				sb.WriteString("\n\n")
+				sb.WriteString(part.Text)
+			}
 		}
-		sb.WriteString("[context - recent chat, do not respond to these]\n")
-		sb.WriteString(strings.Join(lines, "\n"))
 	}
 
 	if trigger != "" {
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		sb.WriteString("[reply to this mention]\n")
 		sb.WriteString(trigger)
 	}
 
 	return sb.String()
 }
 
-// modelRequest bundles the inputs to callModel: the rendered prompt plus
-// whatever images and files the triggering message attached.
 type modelRequest struct {
 	systemPrompt string
+	cachedPrefix string
+	uncachedTail string
 	prompt       string
 	imageURLs    []string
 	fileParts    []llm.ContentPart
@@ -236,7 +243,7 @@ type modelRequest struct {
 }
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
-	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt, req.prompt)
+	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.prompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
@@ -257,17 +264,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	}
 	parts = append(parts, req.fileParts...)
 
-	prior := a.getSession(req.event.ChannelID)
-	messages := append(prior, llm.NewUserMessage(parts...))
-
-	validated, repaired := validateConversation(messages)
-	if repaired {
-		if len(validated) == 0 {
-			slog.Warn("conversation empty after repair, declining")
-			return llm.RickResponse{Decline: true}, nil
-		}
-		messages = validated
-	}
+	messages := []llm.Message{llm.NewUserMessage(parts...)}
 
 	var pendingText string
 	for range maxToolIter {
@@ -275,10 +272,15 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			rec.SetMessages(msgsJSON)
 		}
 
+		systemFull := req.systemPrompt + req.cachedPrefix
+		if req.uncachedTail != "" {
+			systemFull += "\n\n" + req.uncachedTail
+		}
+
 		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
 			Model:     a.config.RickModel,
 			MaxTokens: a.config.RickMaxTokens,
-			System:    req.systemPrompt,
+			System:    systemFull,
 			Messages:  messages,
 			Tools:     tools,
 		})
@@ -291,8 +293,6 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		if resp.StopReason != llm.StopToolCalls {
 			text := messageText(resp.Message)
 			if text != "" {
-				saved := append(messages, resp.Message)
-				a.putSession(req.event.ChannelID, saved)
 				return llm.RickResponse{Text: text}, nil
 			}
 			if pendingText != "" {
@@ -375,7 +375,7 @@ func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 
 func (a *Agent) memberName(user discord.User) string {
 	name, err := a.discord.GetUsernameForID(user.ID.String())
-	if err != nil {
+	if err != nil || name == "" {
 		return user.Username
 	}
 	return name
@@ -385,9 +385,32 @@ func (a *Agent) resolveMentions(content string) string {
 	return userMentionRe.ReplaceAllStringFunc(content, func(match string) string {
 		id := userMentionRe.FindStringSubmatch(match)[1]
 		name, err := a.discord.GetUsernameForID(id)
-		if err != nil {
+		if err != nil || name == "" {
 			return "@unknown-user"
 		}
 		return "@" + name
 	})
+}
+
+func buildCachedPrefix(roster, channelName, channelTopic string) string {
+	var sb strings.Builder
+	if roster != "" {
+		sb.WriteString(roster)
+	}
+	if channelName != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		fmt.Fprintf(&sb, "# channel: %s", channelName)
+		if channelTopic != "" {
+			fmt.Fprintf(&sb, "\n# topic: %s", channelTopic)
+		}
+	}
+	return sb.String()
+}
+
+func buildUncachedTail(roster, channelName, channelTopic string) string {
+	var sb strings.Builder
+	sb.WriteString("<now>" + time.Now().Format("2006-01-02 15:04 MST") + "</now>")
+	return sb.String()
 }
