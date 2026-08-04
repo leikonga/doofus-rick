@@ -4,6 +4,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // StringSlice is a JSON-serialized string slice compatible with any SQL driver.
@@ -49,3 +51,51 @@ func (s *StringSlice) Scan(value any) error {
 }
 
 func (*StringSlice) GormDataType() string { return "text" }
+
+// HalfVector binds a []float32 against a pgvector halfvec column using its
+// text input format, e.g. "[0.1,0.2,0.3]". Passing a raw []float32 through
+// gorm without this encodes it as a Postgres composite record, which halfvec
+// cannot accept.
+type HalfVector []float32
+
+func (v *HalfVector) Value() (driver.Value, error) {
+	parts := make([]string, len(*v))
+	for i, f := range *v {
+		parts[i] = strconv.FormatFloat(float64(f), 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]", nil
+}
+
+func (v *HalfVector) Scan(value any) error {
+	if value == nil {
+		*v = nil
+		return nil
+	}
+	var raw string
+	switch val := value.(type) {
+	case string:
+		raw = val
+	case []byte:
+		raw = string(val)
+	default:
+		return fmt.Errorf("cannot scan %T into HalfVector", value)
+	}
+	raw = strings.Trim(raw, "[]")
+	if raw == "" {
+		*v = HalfVector{}
+		return nil
+	}
+	fields := strings.Split(raw, ",")
+	out := make(HalfVector, len(fields))
+	for i, f := range fields {
+		parsed, err := strconv.ParseFloat(f, 32)
+		if err != nil {
+			return fmt.Errorf("cannot parse HalfVector element %q: %w", f, err)
+		}
+		out[i] = float32(parsed)
+	}
+	*v = out
+	return nil
+}
+
+func (*HalfVector) GormDataType() string { return "halfvec(1024)" }

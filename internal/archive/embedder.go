@@ -45,7 +45,7 @@ func (e *Embedder) EmbedChunk(ctx context.Context, chunk store.Chunk) error {
 	storeEmbedding := store.ChunkEmbedding{
 		ChunkID:   chunk.ID,
 		Model:     e.config.Model,
-		Embedding: truncated,
+		Embedding: store.HalfVector(truncated),
 	}
 
 	return e.store.SaveChunkEmbedding(ctx, storeEmbedding)
