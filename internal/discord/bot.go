@@ -89,7 +89,7 @@ func (b *Bot) Run() error {
 		ChunkGap:      b.chunkGapDuration,
 		ChunkMaxMsgs:  b.config.ChunkMaxMsgs,
 		ChunkMaxChars: b.config.ChunkMaxChars,
-	}, b.store)
+	}, b.store, b)
 	llmClient := llm.NewClient(b.config.OpenRouterAPIKey)
 	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, llmClient)
 

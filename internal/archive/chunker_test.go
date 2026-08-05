@@ -19,14 +19,14 @@ func msgAt(id uint64, t time.Time, content string) store.Message {
 }
 
 func TestChunkMessages_Empty(t *testing.T) {
-	c := NewChunker(ChunkConfig{}, nil)
+	c := NewChunker(ChunkConfig{}, nil, nil)
 	if got := c.ChunkMessages(nil); got != nil {
 		t.Fatalf("expected nil chunks for empty input, got %v", got)
 	}
 }
 
 func TestChunkMessages_SingleChunkWhenWithinLimits(t *testing.T) {
-	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 10, ChunkMaxChars: 1000}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 10, ChunkMaxChars: 1000}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "hey"),
@@ -47,7 +47,7 @@ func TestChunkMessages_SingleChunkWhenWithinLimits(t *testing.T) {
 }
 
 func TestChunkMessages_SplitsOnGap(t *testing.T) {
-	c := NewChunker(ChunkConfig{ChunkGap: 10 * time.Minute, ChunkMaxMsgs: 100, ChunkMaxChars: 10000}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: 10 * time.Minute, ChunkMaxMsgs: 100, ChunkMaxChars: 10000}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "a"),
@@ -66,7 +66,7 @@ func TestChunkMessages_SplitsOnGap(t *testing.T) {
 }
 
 func TestChunkMessages_SplitsOnMaxMsgs(t *testing.T) {
-	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 2, ChunkMaxChars: 10000}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 2, ChunkMaxChars: 10000}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "a"),
@@ -87,7 +87,7 @@ func TestChunkMessages_SplitsOnMaxMsgs(t *testing.T) {
 }
 
 func TestChunkMessages_SplitsOnMaxChars(t *testing.T) {
-	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 10}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 10}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "12345"),
@@ -110,7 +110,7 @@ func TestChunkMessages_SplitsOnMaxChars(t *testing.T) {
 func TestChunkMessages_AccumulatesCharsAcrossMessages(t *testing.T) {
 	// Regression test: char accounting must track the running total of the
 	// current chunk, not just the length of the incoming message.
-	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 12}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 12}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "1234567"),
@@ -126,7 +126,7 @@ func TestChunkMessages_AccumulatesCharsAcrossMessages(t *testing.T) {
 func TestChunkMessages_MessageCountMatchesMessages(t *testing.T) {
 	// Regression test: an internal counter previously never incremented,
 	// leaving ChunkMessages unable to close or emit any chunk at all.
-	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 10000}, nil)
+	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 10000}, nil, nil)
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "a"),
@@ -143,7 +143,7 @@ func TestChunkMessages_MessageCountMatchesMessages(t *testing.T) {
 }
 
 func TestBuildChunkContent(t *testing.T) {
-	c := NewChunker(ChunkConfig{}, nil)
+	c := NewChunker(ChunkConfig{}, nil, nil)
 	base := time.Date(2026, 1, 1, 12, 30, 0, 0, time.UTC)
 	chunk := Chunk{
 		Messages: []store.Message{
@@ -154,6 +154,39 @@ func TestBuildChunkContent(t *testing.T) {
 
 	got := c.BuildChunkContent(chunk)
 	want := "[12:30 user]: hi\n[12:31 user]: there\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+type mockResolver map[string]string
+
+func (m mockResolver) GetUsernameForID(id string) (string, error) {
+	if name, ok := m[id]; ok {
+		return name, nil
+	}
+	return "", nil
+}
+
+func TestBuildChunkContent_PrefersCurrentDisplayName(t *testing.T) {
+	c := NewChunker(ChunkConfig{}, nil, mockResolver{"1": "nickname"})
+	base := time.Date(2026, 1, 1, 12, 30, 0, 0, time.UTC)
+	chunk := Chunk{Messages: []store.Message{msgAt(1, base, "hi")}}
+
+	got := c.BuildChunkContent(chunk)
+	want := "[12:30 nickname]: hi\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildChunkContent_FallsBackToStoredNameWhenUnresolved(t *testing.T) {
+	c := NewChunker(ChunkConfig{}, nil, mockResolver{})
+	base := time.Date(2026, 1, 1, 12, 30, 0, 0, time.UTC)
+	chunk := Chunk{Messages: []store.Message{msgAt(1, base, "hi")}}
+
+	got := c.BuildChunkContent(chunk)
+	want := "[12:30 user]: hi\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

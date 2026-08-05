@@ -46,7 +46,7 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 	recall := a.buildRecallBlock(ctx, hook, []uint64{uint64(channelID)})
-	prompt := buildPrompt(channelName, channelTopic, messages, fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook))
+	prompt := buildPrompt(messages, fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook))
 
 	systemFull := string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic)
 	if tail := buildUncachedTail(gradDo, recall); tail != "" {

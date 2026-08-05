@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,12 +21,20 @@ type ChunkConfig struct {
 	ChunkMaxChars int
 }
 
-type Chunker struct {
-	config ChunkConfig
-	store  *store.Store
+// UsernameResolver resolves a Discord user ID to its current display name
+// (nickname/global name), so archived chunks read naturally instead of
+// showing the stale raw username captured at message ingestion time.
+type UsernameResolver interface {
+	GetUsernameForID(id string) (string, error)
 }
 
-func NewChunker(config ChunkConfig, s *store.Store) *Chunker {
+type Chunker struct {
+	config   ChunkConfig
+	store    *store.Store
+	resolver UsernameResolver
+}
+
+func NewChunker(config ChunkConfig, s *store.Store, resolver UsernameResolver) *Chunker {
 	if config.ChunkGap == 0 {
 		config.ChunkGap = DefaultChunkGap
 	}
@@ -35,7 +44,7 @@ func NewChunker(config ChunkConfig, s *store.Store) *Chunker {
 	if config.ChunkMaxChars == 0 {
 		config.ChunkMaxChars = DefaultChunkMaxChars
 	}
-	return &Chunker{config: config, store: s}
+	return &Chunker{config: config, store: s, resolver: resolver}
 }
 
 type Chunk struct {
@@ -99,9 +108,23 @@ func (c *Chunker) BuildChunkContent(chunk Chunk) string {
 	var content strings.Builder
 	for _, msg := range chunk.Messages {
 		ts := msg.CreatedAt.Format("15:04")
-		content.WriteString("[" + ts + " " + msg.AuthorName + "]: " + msg.Content + "\n")
+		content.WriteString("[" + ts + " " + c.displayName(msg) + "]: " + msg.Content + "\n")
 	}
 	return content.String()
+}
+
+// displayName prefers the author's current nickname/global name over the
+// raw username baked into msg.AuthorName at ingestion time, since chats
+// referring to someone by their old handle read as wrong once they rename.
+func (c *Chunker) displayName(msg store.Message) string {
+	if c.resolver == nil {
+		return msg.AuthorName
+	}
+	name, err := c.resolver.GetUsernameForID(strconv.FormatUint(msg.AuthorID, 10))
+	if err != nil || name == "" {
+		return msg.AuthorName
+	}
+	return name
 }
 
 func (c *Chunker) ChunkAndSave(ctx context.Context, messages []store.Message) error {

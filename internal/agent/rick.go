@@ -134,7 +134,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 
-	prompt := buildPrompt(channelName, channelTopic, messages, trigger)
+	prompt := buildPrompt(messages, trigger)
 
 	recall := <-recallCh
 
@@ -229,20 +229,15 @@ func partsText(parts []llm.ContentPart) []string {
 	return texts
 }
 
-func buildPrompt(channelName, channelTopic string, messages []llm.Message, trigger string) string {
+func buildPrompt(messages []llm.Message, trigger string) string {
 	var sb strings.Builder
-
-	if channelName != "" {
-		fmt.Fprintf(&sb, "# channel: %s", channelName)
-		if channelTopic != "" {
-			fmt.Fprintf(&sb, "\n# topic: %s", channelTopic)
-		}
-	}
 
 	for _, msg := range messages {
 		for _, part := range msg.Parts {
 			if part.Type == "text" {
-				sb.WriteString("\n\n")
+				if sb.Len() > 0 {
+					sb.WriteString("\n\n")
+				}
 				sb.WriteString(part.Text)
 			}
 		}

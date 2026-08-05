@@ -105,8 +105,6 @@ func TestBuildPrompt(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		channelName string
-		topic       string
 		messages    []llm.Message
 		trigger     string
 		wantContain []string
@@ -115,18 +113,6 @@ func TestBuildPrompt(t *testing.T) {
 		{
 			name:       "empty inputs",
 			wantAbsent: []string{"channel:", "topic:", "context", "mention"},
-		},
-		{
-			name:        "channel only",
-			channelName: "general",
-			wantContain: []string{"# channel: general"},
-			wantAbsent:  []string{"topic"},
-		},
-		{
-			name:        "channel and topic",
-			channelName: "general",
-			topic:       "off-topic stuff",
-			wantContain: []string{"# channel: general", "# topic: off-topic stuff"},
 		},
 		{
 			name:        "messages only",
@@ -140,17 +126,15 @@ func TestBuildPrompt(t *testing.T) {
 		},
 		{
 			name:        "all fields",
-			channelName: "general",
-			topic:       "chat",
 			messages:    messages,
 			trigger:     "[bob]: what up",
-			wantContain: []string{"# channel: general", "# topic: chat", "[12:00 alice]: hi", "[bob]: what up"},
+			wantContain: []string{"[12:00 alice]: hi", "[bob]: what up"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := buildPrompt(tc.channelName, tc.topic, tc.messages, tc.trigger)
+			got := buildPrompt(tc.messages, tc.trigger)
 			for _, want := range tc.wantContain {
 				if !strings.Contains(got, want) {
 					t.Errorf("missing %q in output:\n%s", want, got)
