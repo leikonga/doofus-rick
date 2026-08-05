@@ -26,15 +26,24 @@ type Client struct {
 	apiKey string
 }
 
+// appTitle and appReferer identify this app in the OpenRouter dashboard
+// (activity/rankings pages), set via the X-Title and HTTP-Referer headers.
+const (
+	appTitle   = "doofus-rick"
+	appReferer = "https://github.com/leikonga/doofus-rick"
+)
+
 func NewClient(apiKey string) *Client {
-	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey)), apiKey: apiKey}
+	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithXTitle(appTitle),
+		openrouter.WithHTTPReferer(appReferer)), apiKey: apiKey}
 }
 
 // NewClientWithServerURL points the SDK at an arbitrary base URL, for tests
 // (in this package or others) that stand up a local fake of the OpenRouter
 // API instead of calling the real service.
 func NewClientWithServerURL(apiKey, serverURL string) *Client {
-	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL)), apiKey: apiKey}
+	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL),
+		openrouter.WithXTitle(appTitle), openrouter.WithHTTPReferer(appReferer)), apiKey: apiKey}
 }
 
 type CompletionRequest struct {
