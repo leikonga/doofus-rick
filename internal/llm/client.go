@@ -22,30 +22,37 @@ const (
 )
 
 type Client struct {
-	sdk *openrouter.OpenRouter
+	sdk    *openrouter.OpenRouter
+	apiKey string
 }
 
 func NewClient(apiKey string) *Client {
-	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey))}
+	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey)), apiKey: apiKey}
 }
 
 // NewClientWithServerURL points the SDK at an arbitrary base URL, for tests
 // (in this package or others) that stand up a local fake of the OpenRouter
 // API instead of calling the real service.
 func NewClientWithServerURL(apiKey, serverURL string) *Client {
-	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL))}
+	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL)), apiKey: apiKey}
 }
 
 type CompletionRequest struct {
-	Model     string
-	MaxTokens int64
-	System    string
-	Messages  []Message
-	Tools     []Tool
+	Model string
+	// FallbackModels are tried in order if Model errors (rate limit, provider
+	// downtime, moderation, etc).
+	FallbackModels []string
+	MaxTokens      int64
+	System         string
+	Messages       []Message
+	Tools          []Tool
 }
 
 type CompletionResponse struct {
-	Message      Message
+	Message Message
+	// Model is the model that actually served the response, which can
+	// differ from CompletionRequest.Model when a fallback fired.
+	Model        string
 	StopReason   StopReason
 	InputTokens  int64
 	OutputTokens int64
@@ -61,7 +68,7 @@ type EmbeddingResponse struct {
 	InputTokens int64
 }
 
-func (c *Client) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+func buildChatRequest(req CompletionRequest) components.ChatRequest {
 	chatMessages := make([]components.ChatMessages, 0, len(req.Messages)+1)
 	chatMessages = append(chatMessages, components.CreateChatMessagesSystem(components.ChatSystemMessage{
 		Content: components.CreateChatSystemMessageContentStr(req.System),
@@ -71,17 +78,29 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 	}
 
 	maxTokens := req.MaxTokens
-	chatReq := components.ChatRequest{
+	requireParameters := true
+	return components.ChatRequest{
 		Model:     &req.Model,
+		Models:    req.FallbackModels,
 		Messages:  chatMessages,
 		MaxTokens: optionalnullable.From(&maxTokens),
 		Tools:     toSDKTools(req.Tools),
+		// Only route to providers that support every parameter in this
+		// request (notably tools) instead of one that silently drops it.
+		Provider: optionalnullable.From(&components.ProviderPreferences{
+			RequireParameters: optionalnullable.From(&requireParameters),
+		}),
 	}
+}
+
+func (c *Client) Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error) {
+	chatReq := buildChatRequest(req)
 
 	start := time.Now()
 	res, err := c.sdk.Chat.Send(ctx, chatReq, nil)
 	if err != nil {
-		slog.Warn("openrouter chat request failed", "model", req.Model, "latency_ms", time.Since(start).Milliseconds(), "error", err)
+		slog.Warn("openrouter chat request failed", "model", req.Model, "fallback_models", req.FallbackModels,
+			"latency_ms", time.Since(start).Milliseconds(), "error", err)
 		return CompletionResponse{}, err
 	}
 	if res.ChatResult == nil || len(res.ChatResult.Choices) == 0 {
@@ -91,14 +110,19 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 	choice := res.ChatResult.Choices[0]
 	resp := CompletionResponse{
 		Message:    fromSDKAssistantMessage(choice.Message),
+		Model:      res.ChatResult.Model,
 		StopReason: stopReasonFrom(choice.FinishReason),
 	}
 	if res.ChatResult.Usage != nil {
 		resp.InputTokens = res.ChatResult.Usage.PromptTokens
 		resp.OutputTokens = res.ChatResult.Usage.CompletionTokens
 	}
-	slog.Info("openrouter chat completed", "model", req.Model, "input_tokens", resp.InputTokens,
-		"output_tokens", resp.OutputTokens, "latency_ms", time.Since(start).Milliseconds())
+	logArgs := []any{"model", resp.Model, "input_tokens", resp.InputTokens,
+		"output_tokens", resp.OutputTokens, "latency_ms", time.Since(start).Milliseconds()}
+	if resp.Model != req.Model {
+		logArgs = append(logArgs, "requested_model", req.Model)
+	}
+	slog.Info("openrouter chat completed", logArgs...)
 	return resp, nil
 }
 

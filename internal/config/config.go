@@ -28,10 +28,11 @@ type Config struct {
 	Port          string
 	SessionSecret string
 
-	OpenRouterAPIKey string
-	SystemPromptFile string
-	RickModel        string
-	RickMaxTokens    int64
+	OpenRouterAPIKey   string
+	SystemPromptFile   string
+	RickModel          string
+	RickFallbackModels []string
+	RickMaxTokens      int64
 
 	GiphyAPIKey string
 	BraveAPIKey string
@@ -103,10 +104,11 @@ func LoadConfig() *Config {
 		Port:          normalizeAddress(getEnv("PORT", ":8080")),
 		SessionSecret: getEnv("SESSION_SECRET", ""),
 
-		OpenRouterAPIKey: getEnv("OPENROUTER_API_KEY", ""),
-		SystemPromptFile: getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
-		RickModel:        getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
-		RickMaxTokens:    getEnvInt64("RICK_MAX_TOKENS", 512),
+		OpenRouterAPIKey:   getEnv("OPENROUTER_API_KEY", ""),
+		SystemPromptFile:   getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
+		RickModel:          getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
+		RickFallbackModels: getEnvList("RICK_FALLBACK_MODELS", nil),
+		RickMaxTokens:      getEnvInt64("RICK_MAX_TOKENS", 512),
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
@@ -157,6 +159,24 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getEnvList(key string, fallback []string) []string {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return fallback
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
 }
 
 func getEnvInt64(key string, fallback int64) int64 {

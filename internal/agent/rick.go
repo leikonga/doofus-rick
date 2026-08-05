@@ -270,6 +270,8 @@ type modelRequest struct {
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
 	model := a.config.RickModel
+	// Differs from model when a fallback fires; usage bills against the model that ran.
+	servedModel := model
 
 	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.prompt)
 	defer func() {
@@ -279,7 +281,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			if e.InputTokens > 0 || e.OutputTokens > 0 {
 				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, model, e.InputTokens, e.OutputTokens)
+				a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, servedModel, e.InputTokens, e.OutputTokens)
 			}
 		}()
 	}()
@@ -306,19 +308,26 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		}
 
 		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
-			Model:     model,
-			MaxTokens: a.config.RickMaxTokens,
-			System:    systemFull,
-			Messages:  messages,
-			Tools:     tools,
+			Model:          model,
+			FallbackModels: a.config.RickFallbackModels,
+			MaxTokens:      a.config.RickMaxTokens,
+			System:         systemFull,
+			Messages:       messages,
+			Tools:          tools,
 		})
 		if err != nil {
 			slog.Warn("model api error", "error", err)
 			return llm.RickResponse{}, err
 		}
+		if resp.Model != "" {
+			servedModel = resp.Model
+		}
 		rec.AddTokens(resp.InputTokens, resp.OutputTokens)
 
-		if resp.StopReason != llm.StopToolCalls {
+		// Some providers OpenRouter proxies report finish_reason "stop" even
+		// though tool_calls is populated, so check the array directly rather
+		// than trusting StopReason.
+		if len(resp.Message.ToolCalls) == 0 {
 			text := messageText(resp.Message)
 			if text != "" {
 				return llm.RickResponse{Text: text}, nil
