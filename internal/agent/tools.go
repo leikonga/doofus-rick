@@ -72,7 +72,7 @@ func (a *Agent) mediaSearchTool() llm.Tool {
 
 type webSearchIn struct {
 	Query     string `json:"query" jsonschema:"required,description=Search query."`
-	Freshness string `json:"freshness" jsonschema:"description=Restrict results by age: pd=24h, pw=7 days, pm=31 days, py=1 year."`
+	Freshness string `json:"freshness" jsonschema:"description=Restrict results by age. Use one of: pd (past 24 hours), pw (past 7 days), pm (past 31 days), py (past year)."`
 }
 
 func (a *Agent) webSearchTool() llm.Tool {
