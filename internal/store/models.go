@@ -88,13 +88,13 @@ type BackfillChannel struct {
 
 type Chunk struct {
 	ID             uint64    `gorm:"primaryKey"`
-	ChannelID      uint64    `gorm:"not null;index:idx_chunks_channel_ended"`
+	ChannelID      uint64    `gorm:"not null;index:idx_chunks_channel_ended;index:idx_chunks_channel_last_msg,priority:1"`
 	Content        string    `gorm:"not null"`
 	StartedAt      time.Time `gorm:"not null"`
 	EndedAt        time.Time `gorm:"not null"`
 	MessageCount   int       `gorm:"not null"`
 	FirstMessageID uint64    `gorm:"not null"`
-	LastMessageID  uint64    `gorm:"not null"`
+	LastMessageID  uint64    `gorm:"not null;index:idx_chunks_channel_last_msg,priority:2"`
 }
 
 type ChunkEmbedding struct {

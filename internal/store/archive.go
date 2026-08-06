@@ -154,11 +154,14 @@ func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
 // GetChannelsWithUnchunkedMessages returns channel IDs with messages past their last chunked point.
 func (s *Store) GetChannelsWithUnchunkedMessages(ctx context.Context, limit int) ([]uint64, error) {
 	var ids []uint64
-	err := s.db.WithContext(ctx).Model(&Message{}).
-		Distinct("channel_id").
-		Where("id > COALESCE((SELECT MAX(last_message_id) FROM chunks WHERE chunks.channel_id = messages.channel_id), 0)").
-		Limit(limit).
-		Pluck("channel_id", &ids).Error
+	err := s.db.WithContext(ctx).Raw(`
+		select m.channel_id
+		from (select channel_id, max(id) as max_id from messages group by channel_id) m
+		left join (select channel_id, max(last_message_id) as max_chunked from chunks group by channel_id) c
+			on c.channel_id = m.channel_id
+		where m.max_id > coalesce(c.max_chunked, 0)
+		limit ?
+	`, limit).Scan(&ids).Error
 	return ids, err
 }
 
