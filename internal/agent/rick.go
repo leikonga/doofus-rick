@@ -108,12 +108,19 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	triggerParts = append(triggerParts, attachments.unsupported...)
 
 	triggerName := a.memberName(event.Message.Author)
-	var trigger string
+	var triggerLabel string
 	if len(triggerParts) > 0 {
-		trigger = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
+		triggerLabel = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
 	} else {
-		trigger = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
+		triggerLabel = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
 	}
+
+	triggerContentParts := []llm.ContentPart{llm.TextPart(triggerLabel)}
+	for _, url := range attachments.imageURLs {
+		triggerContentParts = append(triggerContentParts, llm.ImagePart(url))
+	}
+	triggerContentParts = append(triggerContentParts, attachments.fileParts...)
+	messages = append(messages, llm.NewUserMessage(triggerContentParts...))
 
 	var channelName, channelTopic string
 	var channelOverwrites discord.PermissionOverwrites
@@ -134,17 +141,14 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 
-	prompt := buildPrompt(messages, trigger)
-
 	recall := <-recallCh
 
 	resp, err := a.callModel(ctx, modelRequest{
 		systemPrompt: string(systemPrompt),
 		cachedPrefix: buildCachedPrefix(leit, channelName, channelTopic),
 		uncachedTail: buildUncachedTail(gradDo, recall),
-		prompt:       prompt,
-		imageURLs:    attachments.imageURLs,
-		fileParts:    attachments.fileParts,
+		messages:     messages,
+		tracePrompt:  triggerLabel,
 		event:        event,
 	})
 	if err != nil {
@@ -229,37 +233,12 @@ func partsText(parts []llm.ContentPart) []string {
 	return texts
 }
 
-func buildPrompt(messages []llm.Message, trigger string) string {
-	var sb strings.Builder
-
-	for _, msg := range messages {
-		for _, part := range msg.Parts {
-			if part.Type == "text" {
-				if sb.Len() > 0 {
-					sb.WriteString("\n\n")
-				}
-				sb.WriteString(part.Text)
-			}
-		}
-	}
-
-	if trigger != "" {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString(trigger)
-	}
-
-	return sb.String()
-}
-
 type modelRequest struct {
 	systemPrompt string
 	cachedPrefix string
 	uncachedTail string
-	prompt       string
-	imageURLs    []string
-	fileParts    []llm.ContentPart
+	messages     []llm.Message
+	tracePrompt  string
 	event        *events.MessageCreate
 }
 
@@ -268,7 +247,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	// Differs from model when a fallback fires; usage bills against the model that ran.
 	servedModel := model
 
-	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.prompt)
+	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.tracePrompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
@@ -283,13 +262,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 
 	tools := a.buildTools(req.event)
 
-	parts := []llm.ContentPart{llm.TextPart(req.prompt)}
-	for _, url := range req.imageURLs {
-		parts = append(parts, llm.ImagePart(url))
-	}
-	parts = append(parts, req.fileParts...)
-
-	messages := []llm.Message{llm.NewUserMessage(parts...)}
+	messages := req.messages
 
 	var pendingText string
 	for range maxToolIter {

@@ -46,19 +46,20 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 	recall := a.buildRecallBlock(ctx, hook, []uint64{uint64(channelID)})
-	prompt := buildPrompt(messages, fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook))
+	hookLabel := fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook)
+	messages = append(messages, llm.NewUserMessage(llm.TextPart(hookLabel)))
 
 	systemFull := string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic)
 	if tail := buildUncachedTail(gradDo, recall); tail != "" {
 		systemFull += "\n\n" + tail
 	}
 
-	rec := a.tracer.Start(channelID.String(), "ambient", systemFull, prompt)
+	rec := a.tracer.Start(channelID.String(), "ambient", systemFull, hookLabel)
 	resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
 		Model:     a.config.RickModel,
 		MaxTokens: a.config.AmbientMaxTokens,
 		System:    systemFull,
-		Messages:  []llm.Message{llm.NewUserMessage(llm.TextPart(prompt))},
+		Messages:  messages,
 	})
 	if err == nil {
 		rec.AddTokens(resp.InputTokens, resp.OutputTokens)

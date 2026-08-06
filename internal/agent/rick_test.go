@@ -97,58 +97,6 @@ func TestBuildTranscript(t *testing.T) {
 	}
 }
 
-func TestBuildPrompt(t *testing.T) {
-	messages := []llm.Message{
-		llm.NewUserMessage(llm.TextPart("[12:00 alice]: hi")),
-		llm.NewUserMessage(llm.TextPart("[12:01 bob]: hey")),
-	}
-
-	tests := []struct {
-		name        string
-		messages    []llm.Message
-		trigger     string
-		wantContain []string
-		wantAbsent  []string
-	}{
-		{
-			name:       "empty inputs",
-			wantAbsent: []string{"channel:", "topic:", "context", "mention"},
-		},
-		{
-			name:        "messages only",
-			messages:    messages,
-			wantContain: []string{"[12:00 alice]: hi", "[12:01 bob]: hey"},
-		},
-		{
-			name:        "trigger only",
-			trigger:     "[alice]: ping",
-			wantContain: []string{"[alice]: ping"},
-		},
-		{
-			name:        "all fields",
-			messages:    messages,
-			trigger:     "[bob]: what up",
-			wantContain: []string{"[12:00 alice]: hi", "[bob]: what up"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := buildPrompt(tc.messages, tc.trigger)
-			for _, want := range tc.wantContain {
-				if !strings.Contains(got, want) {
-					t.Errorf("missing %q in output:\n%s", want, got)
-				}
-			}
-			for _, absent := range tc.wantAbsent {
-				if strings.Contains(got, absent) {
-					t.Errorf("unexpected %q in output:\n%s", absent, got)
-				}
-			}
-		})
-	}
-}
-
 func TestResolveMentions(t *testing.T) {
 	a := newTestAgent(map[string]string{
 		"123": "alice",
