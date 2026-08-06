@@ -127,7 +127,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	if len(chunks) > 0 {
 		topScore = chunks[0].Score
 	}
-	slog.Debug("archive retrieval", "query", query, "candidates", len(chunks), "passed_min_score", len(results),
+	slog.Info("archive retrieval", "query", query, "candidates", len(chunks), "passed_min_score", len(results),
 		"min_score", r.config.MinScore, "top_score", topScore)
 
 	return results, nil
