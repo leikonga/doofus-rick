@@ -14,9 +14,10 @@ import (
 )
 
 type RetrievalConfig struct {
-	TopK       int
-	MinScore   float64
-	EmbedModel string
+	TopK           int
+	MinScore       float64
+	EmbedModel     string
+	NeighborChunks int
 }
 
 type Retriever struct {
@@ -31,6 +32,9 @@ func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retrie
 	}
 	if config.MinScore == 0 {
 		config.MinScore = 0.005
+	}
+	if config.NeighborChunks == 0 {
+		config.NeighborChunks = 1
 	}
 	return &Retriever{config: config, store: s, llm: c}
 }
@@ -112,10 +116,16 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 
 	for _, c := range chunks {
 		if c.Score >= r.config.MinScore {
+			content := c.Content
+			if expanded, err := r.expandWithNeighbors(ctx, c.ChannelID, c.ID, content); err != nil {
+				slog.Warn("failed to expand chunk with neighbors", "chunk_id", c.ID, "error", err)
+			} else {
+				content = expanded
+			}
 			results = append(results, RetrievedChunk{
 				ID:             c.ID,
 				ChannelID:      c.ChannelID,
-				Content:        c.Content,
+				Content:        content,
 				Score:          c.Score,
 				LastActive:     c.LastActive,
 				ChannelVisible: true,
@@ -131,6 +141,32 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 		"min_score", r.config.MinScore, "top_score", topScore)
 
 	return results, nil
+}
+
+// expandWithNeighbors splices in neighboring chunks, since the chunk
+// boundary often cuts off the setup or payoff of the hit's conversation.
+func (r *Retriever) expandWithNeighbors(ctx context.Context, channelID, chunkID uint64, content string) (string, error) {
+	if r.config.NeighborChunks <= 0 {
+		return content, nil
+	}
+	neighbors, err := r.store.GetNeighborChunks(ctx, channelID, chunkID, r.config.NeighborChunks, r.config.NeighborChunks)
+	if err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	inserted := false
+	for _, n := range neighbors {
+		if !inserted && n.ID > chunkID {
+			sb.WriteString(content)
+			inserted = true
+		}
+		sb.WriteString(n.Content)
+	}
+	if !inserted {
+		sb.WriteString(content)
+	}
+	return sb.String(), nil
 }
 
 // vectorLiteral renders a vector in pgvector's text input format, e.g.

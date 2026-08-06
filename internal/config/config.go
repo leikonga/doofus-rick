@@ -52,9 +52,10 @@ type Config struct {
 
 	RickEmbedModel string
 
-	RecallEnabled  bool
-	RecallTopK     int
-	RecallMinScore float64
+	RecallEnabled        bool
+	RecallTopK           int
+	RecallMinScore       float64
+	RecallNeighborChunks int
 
 	AmbientEnabled      bool
 	AmbientWindow       string
@@ -128,9 +129,10 @@ func LoadConfig() *Config {
 
 		RickEmbedModel: getEnv("RICK_EMBED_MODEL", "qwen/qwen3-embedding-8b"),
 
-		RecallEnabled:  getEnvBool("RECALL_ENABLED", true),
-		RecallTopK:     getEnvInt("RECALL_TOP_K", 3),
-		RecallMinScore: getEnvFloat64("RECALL_MIN_SCORE", 0.005),
+		RecallEnabled:        getEnvBool("RECALL_ENABLED", true),
+		RecallTopK:           getEnvInt("RECALL_TOP_K", 3),
+		RecallMinScore:       getEnvFloat64("RECALL_MIN_SCORE", 0.005),
+		RecallNeighborChunks: getEnvInt("RECALL_NEIGHBOR_CHUNKS", 1),
 
 		AmbientEnabled:      getEnvBool("AMBIENT_ENABLED", false),
 		AmbientWindow:       getEnv("AMBIENT_WINDOW", "90s"),

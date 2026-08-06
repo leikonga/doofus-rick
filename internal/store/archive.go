@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -149,6 +150,25 @@ func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
 	var chunk Chunk
 	err := s.db.WithContext(ctx).Where("id = ?", id).First(&chunk).Error
 	return &chunk, err
+}
+
+// GetNeighborChunks returns the chunks adjacent to chunkID in the same channel, in chronological order.
+func (s *Store) GetNeighborChunks(ctx context.Context, channelID, chunkID uint64, before, after int) ([]Chunk, error) {
+	var prev, next []Chunk
+	if before > 0 {
+		if err := s.db.WithContext(ctx).Where("channel_id = ? AND id < ?", channelID, chunkID).
+			Order("id desc").Limit(before).Find(&prev).Error; err != nil {
+			return nil, err
+		}
+		slices.Reverse(prev)
+	}
+	if after > 0 {
+		if err := s.db.WithContext(ctx).Where("channel_id = ? AND id > ?", channelID, chunkID).
+			Order("id asc").Limit(after).Find(&next).Error; err != nil {
+			return nil, err
+		}
+	}
+	return append(prev, next...), nil
 }
 
 // GetChannelsWithUnchunkedMessages returns channel IDs with messages past their last chunked point.

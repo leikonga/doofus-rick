@@ -65,9 +65,10 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		logBuf:        lb,
 		tracer:        tr,
 		retriever: archive.NewRetriever(archive.RetrievalConfig{
-			TopK:       c.RecallTopK,
-			MinScore:   c.RecallMinScore,
-			EmbedModel: c.RickEmbedModel,
+			TopK:           c.RecallTopK,
+			MinScore:       c.RecallMinScore,
+			EmbedModel:     c.RickEmbedModel,
+			NeighborChunks: c.RecallNeighborChunks,
 		}, s, llmClient),
 		affinity: archive.NewAffinity(archive.AffinityConfig{
 			Baseline:    c.AffinityBaseline,
