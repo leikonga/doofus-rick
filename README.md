@@ -11,4 +11,4 @@ Because it can't be worse than this.
 
 ## License
 
-[MIT](/LICENSE)
+This project is licensed under the terms of the [MIT License](/LICENSE).
