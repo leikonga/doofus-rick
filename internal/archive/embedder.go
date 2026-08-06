@@ -24,31 +24,41 @@ func NewEmbedder(config EmbeddingConfig, s *store.Store, c *llm.Client) *Embedde
 	return &Embedder{config: config, store: s, llm: c}
 }
 
-func (e *Embedder) EmbedChunk(ctx context.Context, chunk store.Chunk) error {
+// maxEmbedBatchSize caps how many chunk contents go into a single OpenRouter
+// embeddings request, avoiding provider-side batch limits.
+const maxEmbedBatchSize = 20
+
+func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
+	inputs := make([]string, len(batch))
+	for i, chunk := range batch {
+		inputs[i] = chunk.Content
+	}
+
 	resp, err := e.llm.Embed(ctx, llm.EmbeddingRequest{
 		Model: e.config.Model,
-		Input: []string{chunk.Content},
+		Input: inputs,
 	})
 	if err != nil {
 		return err
 	}
-	e.store.SaveTokenUsage(ctx, strconv.FormatUint(chunk.ChannelID, 10), "embedder", e.config.Model, resp.InputTokens, 0)
+	e.store.SaveTokenUsage(ctx, strconv.FormatUint(batch[0].ChannelID, 10), "embedder", e.config.Model, resp.InputTokens, 0)
 
-	if len(resp.Embeddings) == 0 {
-		return nil
+	for i, embedding := range resp.Embeddings {
+		if i >= len(batch) {
+			break
+		}
+		truncated := truncateTo1024(embedding)
+		storeEmbedding := store.ChunkEmbedding{
+			ChunkID:   batch[i].ID,
+			Model:     e.config.Model,
+			Embedding: store.HalfVector(truncated),
+		}
+		if err := e.store.SaveChunkEmbedding(ctx, storeEmbedding); err != nil {
+			return err
+		}
 	}
 
-	embedding := resp.Embeddings[0]
-
-	truncated := truncateTo1024(embedding)
-
-	storeEmbedding := store.ChunkEmbedding{
-		ChunkID:   chunk.ID,
-		Model:     e.config.Model,
-		Embedding: store.HalfVector(truncated),
-	}
-
-	return e.store.SaveChunkEmbedding(ctx, storeEmbedding)
+	return nil
 }
 
 func truncateTo1024(vec []float32) []float32 {
@@ -74,8 +84,9 @@ func truncateTo1024(vec []float32) []float32 {
 }
 
 func (e *Embedder) EmbedChunks(ctx context.Context, chunks []store.Chunk) error {
-	for _, chunk := range chunks {
-		if err := e.EmbedChunk(ctx, chunk); err != nil {
+	for start := 0; start < len(chunks); start += maxEmbedBatchSize {
+		end := min(start+maxEmbedBatchSize, len(chunks))
+		if err := e.embedBatch(ctx, chunks[start:end]); err != nil {
 			return err
 		}
 	}
