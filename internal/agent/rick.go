@@ -120,6 +120,9 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		triggerContentParts = append(triggerContentParts, llm.ImagePart(url))
 	}
 	triggerContentParts = append(triggerContentParts, attachments.fileParts...)
+	if len(messages) > 0 {
+		messages = append(messages, checkpointMessage())
+	}
 	messages = append(messages, llm.NewUserMessage(triggerContentParts...))
 
 	var channelName, channelTopic string
@@ -180,6 +183,12 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
 		slog.Warn("failed to send rick response", "error", err)
 	}
+}
+
+// checkpointMessage breaks the run of consecutive user turns, since
+// Anthropic silently merges those and would fold the trigger into history.
+func checkpointMessage() llm.Message {
+	return llm.Message{Role: llm.RoleAssistant, Parts: []llm.ContentPart{llm.TextPart("kontext gelesen")}}
 }
 
 func buildTranscript(botID, skipID snowflake.ID, msgs []discord.Message, memberNameFunc func(discord.User) string) []llm.Message {
