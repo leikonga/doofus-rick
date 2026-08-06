@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,7 @@ func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retrie
 		config.TopK = 3
 	}
 	if config.MinScore == 0 {
-		config.MinScore = 0.02
+		config.MinScore = 0.005
 	}
 	return &Retriever{config: config, store: s, llm: c}
 }
@@ -121,6 +122,13 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 			})
 		}
 	}
+
+	var topScore float64
+	if len(chunks) > 0 {
+		topScore = chunks[0].Score
+	}
+	slog.Debug("archive retrieval", "query", query, "candidates", len(chunks), "passed_min_score", len(results),
+		"min_score", r.config.MinScore, "top_score", topScore)
 
 	return results, nil
 }

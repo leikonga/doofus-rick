@@ -130,7 +130,7 @@ func LoadConfig() *Config {
 
 		RecallEnabled:  getEnvBool("RECALL_ENABLED", true),
 		RecallTopK:     getEnvInt("RECALL_TOP_K", 3),
-		RecallMinScore: getEnvFloat64("RECALL_MIN_SCORE", 0.02),
+		RecallMinScore: getEnvFloat64("RECALL_MIN_SCORE", 0.005),
 
 		AmbientEnabled:      getEnvBool("AMBIENT_ENABLED", false),
 		AmbientWindow:       getEnv("AMBIENT_WINDOW", "90s"),

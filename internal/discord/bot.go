@@ -42,7 +42,6 @@ type Bot struct {
 	chunker           *archive.Chunker
 	embedder          *archive.Embedder
 	chunkGapDuration  time.Duration
-	activeChannels    sync.Map // uint64 channel ID -> struct{}, channels seen since startup
 	ambientGate       *ambient.Gate
 	ambientClassifier *ambient.Classifier
 	ambientWindow     time.Duration
@@ -219,8 +218,6 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		return
 	}
 
-	b.activeChannels.Store(uint64(e.ChannelID), struct{}{})
-
 	isForgotten, err := b.store.IsAuthorForgotten(context.Background(), uint64(e.Message.Author.ID))
 	if err != nil {
 		slog.Warn("failed to check if author is forgotten", "error", err)
@@ -331,10 +328,14 @@ func (b *Bot) runChunkingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			b.activeChannels.Range(func(key, _ any) bool {
-				b.chunkChannel(ctx, key.(uint64))
-				return true
-			})
+			channelIDs, err := b.store.GetChannelsWithUnchunkedMessages(ctx, 100)
+			if err != nil {
+				slog.Warn("failed to list channels with unchunked messages", "error", err)
+				continue
+			}
+			for _, channelID := range channelIDs {
+				b.chunkChannel(ctx, channelID)
+			}
 		}
 	}
 }
