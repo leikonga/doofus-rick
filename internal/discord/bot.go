@@ -66,6 +66,7 @@ func (b *Bot) Run() error {
 	r.SlashCommand("/ping", b.handlePingCommand)
 	r.SlashCommand("/quote", b.handleQuote)
 	r.SlashCommand("/randomquote", b.handleRandomQuote)
+	r.SlashCommand("/mama", b.handleMama)
 	r.Modal("/quote", b.handleQuoteSubmission)
 
 	client, err := disgo.New(b.config.DiscordToken,

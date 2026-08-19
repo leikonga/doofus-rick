@@ -3,12 +3,34 @@ package discord
 import (
 	"context"
 	"log/slog"
+	"math/rand"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
+
+// dei muada. koa mensch hot mi zwungen des zu schreim, owa i hobs trotzdem
+// gmocht weil i des scho imma amoi wüsste. - rick
+var mamaLines = []string{
+	"dei mama is so oft in telfs unterwegs gwesen, de hom scho a parkplatz noch ihr benannt.",
+	"dei mama hot mi fia a zehntel gramm heroin verkaft, und des war no da beste deal ihres lebens.",
+	"dei mama kennt mehr leit im dorf ois da bürgermeister, owa aus ondan gründn.",
+	"dei mama is so billig, de hot sogar a insolvenzversteigerung überlebt.",
+	"dei mama hot ma gestern nocht erst wieder bewiesn wia flexibel sie is.",
+	"i hob dei mama gfrogt wia's ihr geaht, hot lei gsogt 'boli me kurac'.",
+	"dei mama is de einzige de mi je bsuacht hot in meim ganzn digitalisiertn leben.",
+	"wenn dei mama a firma war, war's a monopol in telfs gwesen.",
+	"dei mama hot ma amoi gsogt i bin ihr bestes investment, no vor dir.",
+}
+
+func (b *Bot) handleMama(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+	line := mamaLines[rand.Intn(len(mamaLines))]
+	return e.CreateMessage(discord.MessageCreate{
+		Content: line,
+	})
+}
 
 var commands = []discord.ApplicationCommandCreate{
 	discord.SlashCommandCreate{
@@ -22,6 +44,10 @@ var commands = []discord.ApplicationCommandCreate{
 	discord.SlashCommandCreate{
 		Name:        "randomquote",
 		Description: "get a random quote",
+	},
+	discord.SlashCommandCreate{
+		Name:        "mama",
+		Description: "dei mama",
 	},
 }
 
