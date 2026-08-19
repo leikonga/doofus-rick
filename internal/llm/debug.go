@@ -42,7 +42,7 @@ func (c *Client) DebugUpstreamBody(ctx context.Context, req CompletionRequest) (
 	if err != nil {
 		return "", fmt.Errorf("llm: debug request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// The debug chunk is the first SSE "data:" line in the stream.
 	scanner := bufio.NewScanner(resp.Body)

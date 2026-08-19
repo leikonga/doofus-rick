@@ -69,14 +69,8 @@ func multiMatchError(path string, lines []string, matches []lineMatch) error {
 	fmt.Fprintf(&sb, "%d matches for the given string in %s; add more surrounding context to disambiguate:\n", len(matches), path)
 	for _, m := range matches {
 		fmt.Fprintf(&sb, "\n  lines %d-%d:\n", m.start+1, m.end)
-		ctxStart := m.start - 1
-		if ctxStart < 0 {
-			ctxStart = 0
-		}
-		ctxEnd := m.end + 1
-		if ctxEnd > len(lines) {
-			ctxEnd = len(lines)
-		}
+		ctxStart := max(m.start-1, 0)
+		ctxEnd := min(m.end+1, len(lines))
 		for i := ctxStart; i < ctxEnd; i++ {
 			fmt.Fprintf(&sb, "    %d: %s\n", i+1, lines[i])
 		}

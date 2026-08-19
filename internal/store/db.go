@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"embed"
 	"fmt"
 	"log/slog"
@@ -79,28 +80,38 @@ func runMigrations(db *gorm.DB, driver string) error {
 	if driver != "postgres" {
 		return nil
 	}
-
-	gooseLogger := &slogLogger{slog.Default()}
-
-	if err := goose.SetDialect("postgres"); err != nil {
-		return err
-	}
-
-	goose.SetLogger(gooseLogger)
-	goose.SetBaseFS(migrationsFS)
-
-	migrationsPath := "migrations"
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	if err := goose.Up(sqlDB, migrationsPath); err != nil {
+	return RunMigrations(sqlDB)
+}
+
+// RunMigrations applies the embedded goose migrations to db. Exported for
+// internal/selfcode to verify a pending migration against a scratch database.
+func RunMigrations(db *sql.DB) error {
+	if err := goose.SetDialect("postgres"); err != nil {
 		return err
 	}
+	goose.SetLogger(&slogLogger{slog.Default()})
+	goose.SetBaseFS(migrationsFS)
+	defer goose.SetBaseFS(nil)
+	return goose.Up(db, "migrations")
+}
 
-	goose.SetBaseFS(nil)
-
-	return nil
+// RunMigrationsDSN opens a postgres connection to dsn and applies the
+// embedded migrations to it, closing the connection afterward.
+func RunMigrationsDSN(dsn string) error {
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
+	return RunMigrations(sqlDB)
 }
 
 type slogLogger struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
+	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
@@ -48,6 +49,8 @@ type Agent struct {
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	codeedit       *codeedit.Editor
 	repoMu         sync.RWMutex
+	selfcode       *selfcode.Selfcode
+	cmdRunner      selfcode.Runner
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
@@ -65,6 +68,14 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	if err != nil {
 		slog.Warn("code repo dir not available, code_read and code_edit will error until cloned", "dir", c.RickRepoDir, "error", err)
 	}
+	cmdRunner := selfcode.ExecRunner{}
+	sc := selfcode.New(cmdRunner, c.RickRepoDir, c.BackupsDir, selfcode.DBConfig{
+		Host: c.DBHost,
+		Port: c.DBPort,
+		User: c.DBUser,
+		Pass: c.DBPass,
+		Name: c.DBName,
+	})
 	return &Agent{
 		store:         s,
 		config:        c,
@@ -92,6 +103,8 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			MaxDelay: typingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
-		codeedit: editor,
+		codeedit:  editor,
+		selfcode:  sc,
+		cmdRunner: cmdRunner,
 	}
 }

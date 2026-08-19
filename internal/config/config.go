@@ -3,6 +3,7 @@ package config
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,11 @@ type Config struct {
 
 	WorkDir     string
 	RickRepoDir string
+	BackupsDir  string
+
+	GitHubToken    string
+	GitAuthorName  string
+	GitAuthorEmail string
 
 	ArchiveEnabled      bool
 	ArchiveDenyChannels string
@@ -90,6 +96,8 @@ func LoadConfig() *Config {
 		}
 	}
 
+	workDir := getEnv("RICK_WORK_DIR", "/rick/work")
+
 	return &Config{
 		DiscordToken: getEnv("DISCORD_TOKEN", ""),
 		DiscordGuild: getEnv("DISCORD_GUILD", ""),
@@ -121,8 +129,13 @@ func LoadConfig() *Config {
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 
-		WorkDir:     getEnv("RICK_WORK_DIR", "/rick/work"),
+		WorkDir:     workDir,
 		RickRepoDir: getEnv("RICK_REPO_DIR", "/rick/work/src"),
+		BackupsDir:  getEnv("RICK_BACKUPS_DIR", filepath.Join(workDir, "backups")),
+
+		GitHubToken:    getEnv("GITHUB_TOKEN", ""),
+		GitAuthorName:  getEnv("RICK_GIT_AUTHOR_NAME", "doofus-rick"),
+		GitAuthorEmail: getEnv("RICK_GIT_AUTHOR_EMAIL", "rick@localhost"),
 
 		ArchiveEnabled:      getEnvBool("ARCHIVE_ENABLED", true),
 		ArchiveDenyChannels: getEnv("ARCHIVE_DENY_CHANNELS", ""),

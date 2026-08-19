@@ -25,6 +25,7 @@ func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
 		a.searchHistoryTool(event),
 		a.codeReadTool(),
 		a.codeEditTool(),
+		a.codeShipTool(),
 	}
 	return append(tools, a.discordTools(event)...)
 }
