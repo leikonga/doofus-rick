@@ -34,6 +34,7 @@ type Config struct {
 	RickModel          string
 	RickFallbackModels []string
 	RickMaxTokens      int64
+	RickTurnTimeout    string
 	CodeMaxTokens      int64
 	CodeMaxToolIter    int
 	ShellTimeout       string
@@ -122,6 +123,7 @@ func LoadConfig() *Config {
 		RickModel:          getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
 		RickFallbackModels: getEnvList("RICK_FALLBACK_MODELS", nil),
 		RickMaxTokens:      getEnvInt64("RICK_MAX_TOKENS", 512),
+		RickTurnTimeout:    getEnv("RICK_TURN_TIMEOUT", "10m"),
 		CodeMaxTokens:      getEnvInt64("CODE_MAX_TOKENS", 4000),
 		CodeMaxToolIter:    getEnvInt("CODE_MAX_TOOL_ITER", 24),
 		ShellTimeout:       getEnv("SHELL_TIMEOUT", "120s"),

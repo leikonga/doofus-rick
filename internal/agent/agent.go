@@ -48,6 +48,7 @@ type Agent struct {
 	typingTheatre  *archive.TypingTheatre
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	codeedit       *codeedit.Editor
+	turnTimeout    time.Duration
 	repoMu         sync.RWMutex
 	selfcode       *selfcode.Selfcode
 	cmdRunner      selfcode.Runner
@@ -59,6 +60,10 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	typingMaxDelay, err := time.ParseDuration(c.TypingMaxDelay)
 	if err != nil {
 		typingMaxDelay = 20 * time.Second
+	}
+	turnTimeout, err := time.ParseDuration(c.RickTurnTimeout)
+	if err != nil {
+		turnTimeout = 10 * time.Minute
 	}
 	shellTimeout, err := time.ParseDuration(c.ShellTimeout)
 	if err != nil {
@@ -103,8 +108,9 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			MaxDelay: typingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
-		codeedit:  editor,
-		selfcode:  sc,
-		cmdRunner: cmdRunner,
+		codeedit:    editor,
+		turnTimeout: turnTimeout,
+		selfcode:    sc,
+		cmdRunner:   cmdRunner,
 	}
 }

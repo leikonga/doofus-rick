@@ -42,7 +42,7 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 }
 
 func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, a.turnTimeout)
 	defer cancel()
 
 	// Typing starts immediately, in parallel with history/roster/recall
@@ -53,8 +53,9 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
 			theatreDone = a.runTypingTheatre(ctx, event, seq)
 			go func() {
+				defer a.typingChannels.Delete(event.ChannelID)
 				<-theatreDone
-				a.typingChannels.Delete(event.ChannelID)
+				a.keepTyping(ctx, event)
 			}()
 		} else {
 			go func() {
