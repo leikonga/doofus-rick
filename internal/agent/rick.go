@@ -297,6 +297,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			Model:          model,
 			FallbackModels: a.config.RickFallbackModels,
 			MaxTokens:      maxTokens,
+			SessionID:      req.event.ChannelID.String(),
 			System:         systemFull,
 			Messages:       messages,
 			Tools:          tools,

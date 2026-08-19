@@ -61,6 +61,7 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 	resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
 		Model:     a.config.RickModel,
 		MaxTokens: a.config.AmbientMaxTokens,
+		SessionID: channelID.String(),
 		System:    systemFull,
 		Messages:  messages,
 	})

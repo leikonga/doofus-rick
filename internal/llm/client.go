@@ -55,6 +55,9 @@ type CompletionRequest struct {
 	System         string
 	Messages       []Message
 	Tools          []Tool
+	// SessionID groups related requests so OpenRouter pins them to one
+	// provider, maximising prompt cache hits across a conversation.
+	SessionID string
 }
 
 type CompletionResponse struct {
@@ -88,7 +91,12 @@ func buildChatRequest(req CompletionRequest) components.ChatRequest {
 
 	maxTokens := req.MaxTokens
 	requireParameters := true
+	var sessionID *string
+	if req.SessionID != "" {
+		sessionID = &req.SessionID
+	}
 	return components.ChatRequest{
+		SessionID: sessionID,
 		Model:     &req.Model,
 		Models:    req.FallbackModels,
 		Messages:  chatMessages,
