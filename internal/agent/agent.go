@@ -57,6 +57,10 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	if err != nil {
 		typingMaxDelay = 20 * time.Second
 	}
+	shellTimeout, err := time.ParseDuration(c.ShellTimeout)
+	if err != nil {
+		shellTimeout = 120 * time.Second
+	}
 	editor, err := codeedit.New(c.RickRepoDir)
 	if err != nil {
 		slog.Warn("code repo dir not available, code_read and code_edit will error until cloned", "dir", c.RickRepoDir, "error", err)
@@ -69,7 +73,7 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		discordClient: dc,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
-		shell:         client.NewShell(c.WorkDir),
+		shell:         client.NewShell(c.WorkDir, shellTimeout),
 		logBuf:        lb,
 		tracer:        tr,
 		retriever: archive.NewRetriever(archive.RetrievalConfig{

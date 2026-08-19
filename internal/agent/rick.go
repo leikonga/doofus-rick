@@ -25,7 +25,7 @@ var (
 const (
 	maxContextLen = 500
 	historyLimit  = 7
-	maxToolIter   = 8
+	normalMaxIter = 8
 )
 
 func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {
@@ -274,7 +274,10 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	messages := req.messages
 
 	var pendingText string
-	for range maxToolIter {
+	var escalated bool
+	maxIter := normalMaxIter
+	// maxIter is re-read each iteration, so escalation mid-turn extends the loop; do not convert to `for range`.
+	for iter := 0; iter < maxIter; iter++ {
 		if msgsJSON, err := json.Marshal(messages); err == nil {
 			rec.SetMessages(msgsJSON)
 		}
@@ -284,10 +287,15 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			systemFull += "\n\n" + req.uncachedTail
 		}
 
+		maxTokens := a.config.RickMaxTokens
+		if escalated {
+			maxTokens = a.config.CodeMaxTokens
+		}
+
 		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
 			Model:          model,
 			FallbackModels: a.config.RickFallbackModels,
-			MaxTokens:      a.config.RickMaxTokens,
+			MaxTokens:      maxTokens,
 			System:         systemFull,
 			Messages:       messages,
 			Tools:          tools,
@@ -320,6 +328,11 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 
 		if text := messageText(resp.Message); text != "" {
 			pendingText = text
+		}
+
+		if escalateForCode(escalated, resp.Message.ToolCalls) {
+			escalated = true
+			maxIter = a.config.CodeMaxToolIter
 		}
 
 		var toolMessages []llm.Message
@@ -358,8 +371,20 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		}
 		messages = append(messages, toolMessages...)
 	}
-	slog.Warn("tool iteration limit reached, declining", "max_iter", maxToolIter)
+	slog.Warn("tool iteration limit reached, declining", "max_iter", maxIter)
 	return llm.RickResponse{Decline: true}, nil
+}
+
+func escalateForCode(alreadyEscalated bool, calls []llm.ToolCall) bool {
+	if alreadyEscalated {
+		return true
+	}
+	for _, call := range calls {
+		if strings.HasPrefix(call.Name, "code_") {
+			return true
+		}
+	}
+	return false
 }
 
 func messageText(m llm.Message) string {

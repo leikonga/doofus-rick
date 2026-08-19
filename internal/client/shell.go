@@ -8,21 +8,19 @@ import (
 	"os/exec"
 )
 
-const (
-	shellExecTimeout = 45 * time.Second
-	shellOutputLimit = 4000
-)
+const DefaultOutputLimit = 4000
 
 type Shell struct {
 	workDir string
+	timeout time.Duration
 }
 
-func NewShell(workDir string) *Shell {
-	return &Shell{workDir: workDir}
+func NewShell(workDir string, timeout time.Duration) *Shell {
+	return &Shell{workDir: workDir, timeout: timeout}
 }
 
-func (s *Shell) Exec(ctx context.Context, command string) string {
-	ctx, cancel := context.WithTimeout(ctx, shellExecTimeout)
+func (s *Shell) Exec(ctx context.Context, command string, outputLimit int) string {
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	c := exec.CommandContext(ctx, "bash", "-c", command)
@@ -35,8 +33,8 @@ func (s *Shell) Exec(ctx context.Context, command string) string {
 	err := c.Run()
 
 	result := out.String()
-	if len(result) > shellOutputLimit {
-		result = result[:shellOutputLimit] + "... (truncated)"
+	if outputLimit > 0 && len(result) > outputLimit {
+		result = result[:outputLimit] + "... (truncated)"
 	}
 	if err != nil {
 		if result != "" {

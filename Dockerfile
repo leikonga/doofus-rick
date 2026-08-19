@@ -27,7 +27,8 @@ RUN apk add --no-cache \
     tzdata \
     file bc \
     bind-tools \
-    openssl
+    openssl \
+    go postgresql-client ripgrep
 
 RUN adduser -D -g '' appuser && \
     mkdir -p /rick/work && \

@@ -5,14 +5,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/disgoorg/disgo/events"
+	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
@@ -32,6 +36,14 @@ func main() {
 		switch os.Args[1] {
 		case "forget":
 			handleForget()
+			return
+		case "check":
+			c := config.LoadConfig()
+			if err := check(c); err != nil {
+				slog.Error("check failed", "error", err)
+				os.Exit(1)
+			}
+			fmt.Println("check ok")
 			return
 		}
 	}
@@ -75,6 +87,35 @@ func main() {
 	if err := httpSrv.Shutdown(context.Background()); err != nil {
 		slog.Error("failed to shut down web server", "error", err)
 	}
+}
+
+// check never calls Bot.Run, so no discord gateway session opens.
+func check(c *config.Config) error {
+	prompt, err := os.ReadFile(c.SystemPromptFile)
+	if err != nil {
+		return fmt.Errorf("system prompt file: %w", err)
+	}
+	if strings.TrimSpace(string(prompt)) == "" {
+		return fmt.Errorf("system prompt file %q is empty", c.SystemPromptFile)
+	}
+
+	db, err := store.Init(c)
+	if err != nil {
+		return fmt.Errorf("store init: %w", err)
+	}
+
+	tr := tracer.New(func(*tracer.Entry) {})
+	_, logBuf := logbuf.New(slog.NewTextHandler(io.Discard, nil))
+
+	bot := discordpkg.New(context.Background(), db, c, logBuf, tr)
+	a := agent.New(db, c, bot, nil, logBuf, tr)
+
+	tools := a.Tools(&events.MessageCreate{GenericMessage: &events.GenericMessage{}})
+	if len(tools) == 0 {
+		return fmt.Errorf("tool roster is empty")
+	}
+
+	return nil
 }
 
 func handleForget() {

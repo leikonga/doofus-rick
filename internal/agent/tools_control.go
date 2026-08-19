@@ -7,6 +7,11 @@ import (
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
+// Tools exposes buildTools for the check subcommand's boot smoke test.
+func (a *Agent) Tools(event *events.MessageCreate) llm.Tools {
+	return a.buildTools(event)
+}
+
 func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
 	tools := llm.Tools{
 		a.declineTool(),

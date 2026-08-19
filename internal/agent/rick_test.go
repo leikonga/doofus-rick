@@ -263,3 +263,28 @@ func TestMemberName(t *testing.T) {
 		})
 	}
 }
+
+func TestEscalateForCode(t *testing.T) {
+	tests := []struct {
+		name       string
+		escalated  bool
+		calls      []llm.ToolCall
+		wantResult bool
+	}{
+		{"no calls, not escalated", false, nil, false},
+		{"non-code call, not escalated", false, []llm.ToolCall{{Name: "web_search"}}, false},
+		{"code call escalates", false, []llm.ToolCall{{Name: "code_read"}}, true},
+		{"mixed calls escalate", false, []llm.ToolCall{{Name: "web_search"}, {Name: "code_edit"}}, true},
+		{"already escalated persists with no calls", true, nil, true},
+		{"already escalated persists with non-code calls", true, []llm.ToolCall{{Name: "web_search"}}, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := escalateForCode(tc.escalated, tc.calls)
+			if got != tc.wantResult {
+				t.Errorf("escalateForCode(%v, %v) = %v, want %v", tc.escalated, tc.calls, got, tc.wantResult)
+			}
+		})
+	}
+}

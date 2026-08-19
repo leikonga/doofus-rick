@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
@@ -19,7 +20,7 @@ func (a *Agent) shellExecTool() llm.Tool {
 			"HOME is also /rick/work. "+
 			"Python packages can be installed inline with: uv run --with <pkg> python3 -c '...'.",
 		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
-			return llm.Result{Content: a.shell.Exec(ctx, in.Command)}, nil
+			return llm.Result{Content: a.shell.Exec(ctx, in.Command, client.DefaultOutputLimit)}, nil
 		})
 }
 
