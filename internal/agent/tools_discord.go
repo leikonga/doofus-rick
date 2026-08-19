@@ -10,17 +10,19 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-func (a *Agent) discordTools() llm.Tools {
+func (a *Agent) discordTools(event *events.MessageCreate) llm.Tools {
 	return llm.Tools{
 		a.sendMessageTool(),
 		a.createPollTool(),
 		a.sendFileTool(),
 		a.scheduleReminderTool(),
+		a.reactTool(event),
 	}
 }
 
@@ -30,7 +32,7 @@ type sendMessageIn struct {
 }
 
 func (a *Agent) sendMessageTool() llm.Tool {
-	return llm.NewTool("send_message", "Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in.",
+	return llm.NewTool("discord_send_message", "Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in.",
 		func(_ context.Context, in sendMessageIn) (llm.Result, error) {
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
@@ -52,7 +54,7 @@ type createPollIn struct {
 }
 
 func (a *Agent) createPollTool() llm.Tool {
-	return llm.NewTool("create_poll", "Create a Discord poll in a channel.",
+	return llm.NewTool("discord_create_poll", "Create a Discord poll in a channel.",
 		func(_ context.Context, in createPollIn) (llm.Result, error) {
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
@@ -77,9 +79,9 @@ type sendFileIn struct {
 }
 
 func (a *Agent) sendFileTool() llm.Tool {
-	return llm.NewTool("send_file",
+	return llm.NewTool("discord_send_file",
 		"Attach and send a file from the work directory (/rick/work) to any channel. "+
-			"Use after shell_exec writes output to a file when the content is too long for a message.",
+			"Use after sys_shell writes output to a file when the content is too long for a message.",
 		func(_ context.Context, in sendFileIn) (llm.Result, error) {
 			clean := filepath.Clean(in.Path)
 			if !strings.HasPrefix(clean, a.config.WorkDir) {
@@ -121,7 +123,7 @@ type scheduleReminderIn struct {
 }
 
 func (a *Agent) scheduleReminderTool() llm.Tool {
-	return llm.NewTool("schedule_reminder",
+	return llm.NewTool("discord_schedule_reminder",
 		"Schedule a one-shot reminder that will be posted in a channel at a specific time. "+
 			"Use when a user asks to be reminded about something later. "+
 			"The reminder will mention the target user.",
@@ -143,5 +145,21 @@ func (a *Agent) scheduleReminderTool() llm.Tool {
 				return llm.Result{}, err
 			}
 			return llm.Result{Content: fmt.Sprintf("reminder scheduled for %s", fireAt.Format(time.RFC3339))}, nil
+		})
+}
+
+type reactIn struct {
+	Emojis []string `json:"emojis" jsonschema:"required,description=Unicode emojis to react with."`
+}
+
+func (a *Agent) reactTool(event *events.MessageCreate) llm.Tool {
+	return llm.NewTool("discord_react", "Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response.",
+		func(_ context.Context, in reactIn) (llm.Result, error) {
+			for _, emoji := range in.Emojis {
+				if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, emoji); err != nil {
+					slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
+				}
+			}
+			return llm.Result{Content: "reactions added"}, nil
 		})
 }

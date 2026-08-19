@@ -37,7 +37,8 @@ type Config struct {
 	GiphyAPIKey string
 	BraveAPIKey string
 
-	WorkDir string
+	WorkDir     string
+	RickRepoDir string
 
 	ArchiveEnabled      bool
 	ArchiveDenyChannels string
@@ -114,7 +115,8 @@ func LoadConfig() *Config {
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
 
-		WorkDir: getEnv("RICK_WORK_DIR", "/rick/work"),
+		WorkDir:     getEnv("RICK_WORK_DIR", "/rick/work"),
+		RickRepoDir: getEnv("RICK_REPO_DIR", "/rick/work/src"),
 
 		ArchiveEnabled:      getEnvBool("ARCHIVE_ENABLED", true),
 		ArchiveDenyChannels: getEnv("ARCHIVE_DENY_CHANNELS", ""),

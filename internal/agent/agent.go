@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/client"
+	"github.com/leikonga/doofus-rick/internal/codeedit"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
@@ -44,6 +46,8 @@ type Agent struct {
 	affinity       *archive.Affinity
 	typingTheatre  *archive.TypingTheatre
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
+	codeedit       *codeedit.Editor
+	repoMu         sync.Mutex
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
@@ -52,6 +56,10 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	typingMaxDelay, err := time.ParseDuration(c.TypingMaxDelay)
 	if err != nil {
 		typingMaxDelay = 20 * time.Second
+	}
+	editor, err := codeedit.New(c.RickRepoDir)
+	if err != nil {
+		slog.Warn("code repo dir not available, code_read and code_edit will error until cloned", "dir", c.RickRepoDir, "error", err)
 	}
 	return &Agent{
 		store:         s,
@@ -80,5 +88,6 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			MaxDelay: typingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
+		codeedit: editor,
 	}
 }
