@@ -32,6 +32,26 @@ func MustInit(c *config.Config) *Store {
 }
 
 func Init(c *config.Config) (*Store, error) {
+	s, err := Connect(c)
+	if err != nil {
+		return nil, err
+	}
+	if err := runMigrations(s.db, c.DBDriver); err != nil {
+		return nil, err
+	}
+	if err := s.db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
+		return nil, err
+	}
+
+	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
+	s.db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
+
+	return s, nil
+}
+
+// Connect opens the database without applying migrations, so callers that
+// only need to prove connectivity cannot mutate a live schema.
+func Connect(c *config.Config) (*Store, error) {
 	var db *gorm.DB
 	var err error
 
@@ -55,17 +75,6 @@ func Init(c *config.Config) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if err = runMigrations(db, c.DBDriver); err != nil {
-		return nil, err
-	}
-
-	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
-		return nil, err
-	}
-
-	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
-	db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
 
 	return &Store{db: db}, nil
 }

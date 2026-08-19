@@ -110,6 +110,11 @@ func (a *Agent) codeShipTool() llm.Tool {
 				return llm.Result{}, fmt.Errorf("go test failed: %v\n%s", err, out)
 			}
 
+			snapshot, err := a.selfcode.Snapshot(ctx)
+			if err != nil {
+				return llm.Result{}, fmt.Errorf("snapshot failed: %w", err)
+			}
+
 			bin, cleanup, err := a.buildCheckBinary(ctx)
 			if err != nil {
 				return llm.Result{}, err
@@ -117,11 +122,6 @@ func (a *Agent) codeShipTool() llm.Tool {
 			defer cleanup()
 			if out, err := a.cmdRunner.Run(ctx, bin, []string{"check"}, nil); err != nil {
 				return llm.Result{}, fmt.Errorf("check subcommand failed: %v\n%s", err, out)
-			}
-
-			snapshot, err := a.selfcode.Snapshot(ctx)
-			if err != nil {
-				return llm.Result{}, fmt.Errorf("snapshot failed: %w", err)
 			}
 			changed, err := a.selfcode.MigrationsChanged(ctx)
 			if err != nil {

@@ -45,6 +45,9 @@ func main() {
 			}
 			fmt.Println("check ok")
 			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown subcommand %q; valid: forget, check\n", os.Args[1])
+			os.Exit(1)
 		}
 	}
 
@@ -99,9 +102,9 @@ func check(c *config.Config) error {
 		return fmt.Errorf("system prompt file %q is empty", c.SystemPromptFile)
 	}
 
-	db, err := store.Init(c)
+	db, err := store.Connect(c)
 	if err != nil {
-		return fmt.Errorf("store init: %w", err)
+		return fmt.Errorf("store connect: %w", err)
 	}
 
 	tr := tracer.New(func(*tracer.Entry) {})
