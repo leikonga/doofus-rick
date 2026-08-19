@@ -103,7 +103,7 @@ Conversation:
 
 	var result affinityScoreResult
 	if err := json.Unmarshal([]byte(text.String()), &result); err != nil {
-		return err
+		return fmt.Errorf("unmarshal affinity result (stop_reason=%s, text=%q): %w", resp.StopReason, text.String(), err)
 	}
 
 	for _, d := range result.Users {
