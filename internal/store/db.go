@@ -23,6 +23,14 @@ type Store struct {
 }
 
 func MustInit(c *config.Config) *Store {
+	s, err := Init(c)
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
+func Init(c *config.Config) (*Store, error) {
 	var db *gorm.DB
 	var err error
 
@@ -44,39 +52,37 @@ func MustInit(c *config.Config) *Store {
 	}
 
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if err = runMigrations(db, c.DBDriver); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	if err = db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
 	db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
 
-	return &Store{db: db}
+	return &Store{db: db}, nil
 }
 
 func (s *Store) DB() *gorm.DB {
 	return s.db
 }
 
+// The goose migrations are postgres-only (pgvector, tsvector); AutoMigrate
+// below covers the equivalent schema for the sqlite fallback driver.
 func runMigrations(db *gorm.DB, driver string) error {
-	gooseLogger := &slogLogger{slog.Default()}
-
-	var dialect string
-	switch driver {
-	case "postgres":
-		dialect = "postgres"
-	default:
-		dialect = "sqlite"
+	if driver != "postgres" {
+		return nil
 	}
 
-	if err := goose.SetDialect(dialect); err != nil {
+	gooseLogger := &slogLogger{slog.Default()}
+
+	if err := goose.SetDialect("postgres"); err != nil {
 		return err
 	}
 
