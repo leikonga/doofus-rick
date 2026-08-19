@@ -15,6 +15,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s" -o doofus-rick ./cmd/doofus-rick
 RUN adduser -D -g '' appuser
 
+FROM golang:1.26.5-alpine AS toolchain
+
 FROM alpine:3
 
 RUN apk add --no-cache \
@@ -28,11 +30,14 @@ RUN apk add --no-cache \
     file bc \
     bind-tools \
     openssl \
-    go postgresql-client ripgrep
+    postgresql-client ripgrep
 
 RUN adduser -D -g '' appuser && \
     mkdir -p /rick/work && \
     chown appuser:appuser /rick/work
+
+COPY --from=toolchain /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:$PATH"
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/doofus-rick /doofus-rick

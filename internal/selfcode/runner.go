@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
 // ExecRunner runs commands via os/exec. If env is nil the child process
@@ -16,12 +15,12 @@ func (ExecRunner) Run(ctx context.Context, name string, args []string, env []str
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 
 	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(stderr.String()))
+		return out.String(), fmt.Errorf("%s: %w", name, err)
 	}
-	return stdout.String(), nil
+	return out.String(), nil
 }

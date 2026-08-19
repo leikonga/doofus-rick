@@ -101,13 +101,13 @@ func (a *Agent) codeShipTool() llm.Tool {
 			defer a.repoMu.Unlock()
 
 			if out, err := a.runGo(ctx, "build", "./..."); err != nil {
-				return llm.Result{}, fmt.Errorf("go build failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("go build failed: %v\n%s", err, out)
 			}
 			if out, err := a.runGo(ctx, "vet", "./..."); err != nil {
-				return llm.Result{}, fmt.Errorf("go vet failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("go vet failed: %v\n%s", err, out)
 			}
 			if out, err := a.runGo(ctx, "test", "./..."); err != nil {
-				return llm.Result{}, fmt.Errorf("go test failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("go test failed: %v\n%s", err, out)
 			}
 
 			bin, cleanup, err := a.buildCheckBinary(ctx)
@@ -116,7 +116,7 @@ func (a *Agent) codeShipTool() llm.Tool {
 			}
 			defer cleanup()
 			if out, err := a.cmdRunner.Run(ctx, bin, []string{"check"}, nil); err != nil {
-				return llm.Result{}, fmt.Errorf("check subcommand failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("check subcommand failed: %v\n%s", err, out)
 			}
 
 			snapshot, err := a.selfcode.Snapshot(ctx)
@@ -134,7 +134,7 @@ func (a *Agent) codeShipTool() llm.Tool {
 			}
 
 			if out, err := a.runGit(ctx, "add", "-A"); err != nil {
-				return llm.Result{}, fmt.Errorf("git add failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("git add failed: %v\n%s", err, out)
 			}
 			commitArgs := []string{
 				"-C", a.config.RickRepoDir,
@@ -143,11 +143,11 @@ func (a *Agent) codeShipTool() llm.Tool {
 				"commit", "-m", in.Message,
 			}
 			if out, err := a.cmdRunner.Run(ctx, "git", commitArgs, a.gitEnv()); err != nil {
-				return llm.Result{}, fmt.Errorf("git commit failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("git commit failed: %v\n%s", err, out)
 			}
 
 			if out, err := a.gitPush(ctx); err != nil {
-				return llm.Result{}, fmt.Errorf("git push failed:\n%s", out)
+				return llm.Result{}, fmt.Errorf("git push failed: %v\n%s", err, out)
 			}
 
 			return llm.Result{Content: "built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."}, nil
@@ -178,6 +178,8 @@ func (a *Agent) goEnv() []string {
 		"PATH=" + os.Getenv("PATH"),
 		"GOCACHE=" + filepath.Join(home, ".cache", "go-build"),
 		"GOMODCACHE=" + filepath.Join(home, "go", "pkg", "mod"),
+		"GOTOOLCHAIN=local",
+		"CGO_ENABLED=0",
 	}
 }
 
@@ -203,7 +205,7 @@ func (a *Agent) buildCheckBinary(ctx context.Context) (string, func(), error) {
 	args := []string{"-C", a.config.RickRepoDir, "build", "-o", bin, "./cmd/doofus-rick"}
 	if out, err := a.cmdRunner.Run(ctx, "go", args, a.goEnv()); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("build check binary failed:\n%s", out)
+		return "", nil, fmt.Errorf("build check binary failed: %v\n%s", err, out)
 	}
 	return bin, cleanup, nil
 }
