@@ -23,10 +23,10 @@ func (a *Agent) codeReadTool() llm.Tool {
 			if a.codeedit == nil {
 				return llm.Result{}, errRepoNotCloned
 			}
-			if !a.repoMu.TryLock() {
+			if !a.repoMu.TryRLock() {
 				return llm.Result{}, errRepoBusy
 			}
-			defer a.repoMu.Unlock()
+			defer a.repoMu.RUnlock()
 
 			content, err := a.codeedit.Read(in.Path, in.Offset, in.Limit)
 			if err != nil {
@@ -41,7 +41,7 @@ type codeEditIn struct {
 	Path       string `json:"path" jsonschema:"required,description=Path to the file, relative to the repo root."`
 	FileText   string `json:"file_text" jsonschema:"description=Full file content. Required for command=write."`
 	OldStr     string `json:"old_str" jsonschema:"description=Exact text to replace. Required for command=str_replace."`
-	NewStr     string `json:"new_str" jsonschema:"description=Replacement text. Required for command=str_replace."`
+	NewStr     string `json:"new_str" jsonschema:"description=Replacement text for command=str_replace, or the line to insert for command=insert."`
 	InsertLine int    `json:"insert_line" jsonschema:"description=Line number after which to insert, 0 for the beginning of the file. Required for command=insert."`
 }
 

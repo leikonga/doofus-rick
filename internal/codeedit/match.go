@@ -146,7 +146,8 @@ func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
 		n = 1
 	}
 
-	if err := os.WriteFile(resolved, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+	newContent := joinLines(out, strings.HasSuffix(content, "\n"))
+	if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
 		return 0, fmt.Errorf("replace %q: %w", path, err)
 	}
 	return n, nil

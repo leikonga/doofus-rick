@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const noOutput = "(no output)"
+
 // Editor reads and edits files inside a jailed directory tree.
 type Editor struct {
 	root string
@@ -58,7 +60,7 @@ func (e *Editor) Read(path string, offset, limit int) (string, error) {
 		offset = 0
 	}
 	if offset >= len(lines) {
-		return "", nil
+		return noOutput, nil
 	}
 	end := len(lines)
 	if limit > 0 && offset+limit < end {
@@ -118,8 +120,17 @@ func (e *Editor) Insert(path string, line int, text string) error {
 	out = append(out, text)
 	out = append(out, lines[line:]...)
 
-	if err := os.WriteFile(resolved, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+	newContent := joinLines(out, strings.HasSuffix(string(data), "\n"))
+	if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
 		return fmt.Errorf("insert %q: %w", path, err)
 	}
 	return nil
+}
+
+func joinLines(lines []string, trailingNewline bool) string {
+	content := strings.Join(lines, "\n")
+	if trailingNewline {
+		content += "\n"
+	}
+	return content
 }

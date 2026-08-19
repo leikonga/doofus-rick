@@ -119,13 +119,24 @@ func TestRead(t *testing.T) {
 		}
 	})
 
-	t.Run("offset past EOF returns empty", func(t *testing.T) {
+	t.Run("offset past EOF returns placeholder", func(t *testing.T) {
 		got, err := ed.Read("f.txt", 100, 0)
 		if err != nil {
 			t.Fatalf("Read: %v", err)
 		}
-		if got != "" {
-			t.Errorf("Read() past EOF = %q, want empty", got)
+		if got != "(no output)" {
+			t.Errorf("Read() past EOF = %q, want %q", got, "(no output)")
+		}
+	})
+
+	t.Run("empty file returns placeholder", func(t *testing.T) {
+		writeFile(t, root, "empty.txt", "")
+		got, err := ed.Read("empty.txt", 0, 0)
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		if got != "(no output)" {
+			t.Errorf("Read() on empty file = %q, want %q", got, "(no output)")
 		}
 	})
 
@@ -203,6 +214,24 @@ func TestReplaceWhitespaceDrift(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(root, "f.txt"))
 	if !strings.Contains(string(got), "return 2") {
 		t.Errorf("file content = %q, want to contain %q", got, "return 2")
+	}
+}
+
+func TestReplaceWhitespaceDriftPreservesMissingTrailingNewline(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "f.txt", "func x() {\n    return 1\n}")
+	ed, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, err := ed.Replace("f.txt", "  return 1", "  return 2", false); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(root, "f.txt"))
+	want := "func x() {\n    return 2\n}"
+	if string(got) != want {
+		t.Errorf("file content = %q, want %q", got, want)
 	}
 }
 
@@ -327,6 +356,17 @@ func TestInsert(t *testing.T) {
 		got, _ := os.ReadFile(filepath.Join(root, "c.txt"))
 		if string(got) != "one\ntwo\nend\n" {
 			t.Errorf("file content = %q, want %q", got, "one\ntwo\nend\n")
+		}
+	})
+
+	t.Run("preserves missing trailing newline", func(t *testing.T) {
+		writeFile(t, root, "e.txt", "one\ntwo")
+		if err := ed.Insert("e.txt", 1, "mid"); err != nil {
+			t.Fatalf("Insert: %v", err)
+		}
+		got, _ := os.ReadFile(filepath.Join(root, "e.txt"))
+		if string(got) != "one\nmid\ntwo" {
+			t.Errorf("file content = %q, want %q", got, "one\nmid\ntwo")
 		}
 	})
 

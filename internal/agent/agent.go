@@ -47,7 +47,7 @@ type Agent struct {
 	typingTheatre  *archive.TypingTheatre
 	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	codeedit       *codeedit.Editor
-	repoMu         sync.Mutex
+	repoMu         sync.RWMutex
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
