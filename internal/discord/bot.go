@@ -26,6 +26,8 @@ import (
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
+// bot.go is a 714 zeilen langer monolith weil oser zu foul woar mia zeit
+// zum refactorn zu gebn. wenn du des liest, oser, du toagoff: geh sölm mocha.
 type Bot struct {
 	ctx               context.Context
 	store             *store.Store
