@@ -11,7 +11,6 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -32,11 +31,21 @@ func MustInit(c *config.Config) *Store {
 }
 
 func Init(c *config.Config) (*Store, error) {
-	s, err := Connect(c)
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		c.DBHost, c.DBUser, c.DBPass, c.DBName, c.DBPort)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.New(&slogLogger{slog.Default()}, logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := runMigrations(s.db, c.DBDriver); err != nil {
+	s := &Store{db: db}
+
+	if err := runMigrations(s.db); err != nil {
 		return nil, err
 	}
 	if err := s.db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
@@ -49,46 +58,11 @@ func Init(c *config.Config) (*Store, error) {
 	return s, nil
 }
 
-// Connect opens the database without applying migrations, so callers that
-// only need to prove connectivity cannot mutate a live schema.
-func Connect(c *config.Config) (*Store, error) {
-	var db *gorm.DB
-	var err error
-
-	gormConfig := &gorm.Config{
-		Logger: logger.New(&slogLogger{slog.Default()}, logger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  logger.Warn,
-			IgnoreRecordNotFoundError: true,
-		}),
-	}
-
-	switch c.DBDriver {
-	case "postgres":
-		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-			c.DBHost, c.DBUser, c.DBPass, c.DBName, c.DBPort)
-		db, err = gorm.Open(postgres.Open(dsn), gormConfig)
-	default:
-		db, err = gorm.Open(sqlite.Open(c.DBPath), gormConfig)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &Store{db: db}, nil
-}
-
 func (s *Store) DB() *gorm.DB {
 	return s.db
 }
 
-// The goose migrations are postgres-only (pgvector, tsvector); AutoMigrate
-// below covers the equivalent schema for the sqlite fallback driver.
-func runMigrations(db *gorm.DB, driver string) error {
-	if driver != "postgres" {
-		return nil
-	}
+func runMigrations(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err

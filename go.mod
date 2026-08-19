@@ -12,7 +12,6 @@ require (
 	github.com/pressly/goose/v3 v3.27.3
 	golang.org/x/oauth2 v0.36.0
 	gorm.io/driver/postgres v1.6.2
-	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
 	maragu.dev/gomponents v1.3.0
 )

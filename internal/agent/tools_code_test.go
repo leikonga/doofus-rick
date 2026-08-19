@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -67,8 +69,6 @@ func stageOf(name string, args []string) string {
 	switch name {
 	case "go":
 		switch {
-		case slices.Contains(args, "-o"):
-			return "go_build_check"
 		case slices.Contains(args, "build"):
 			return "go_build"
 		case slices.Contains(args, "vet"):
@@ -96,9 +96,6 @@ func stageOf(name string, args []string) string {
 	case "dropdb":
 		return "dropdb"
 	}
-	if slices.Contains(args, "check") {
-		return "check_run"
-	}
 	return "unknown:" + name
 }
 
@@ -110,16 +107,21 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
 		t.Fatalf("codeedit.New: %v", err)
 	}
 	sc := selfcode.New(fr, root, t.TempDir(), selfcode.DBConfig{Host: "h", Port: "5432", User: "u", Pass: "p", Name: "d"})
+	prompt := filepath.Join(t.TempDir(), "prompt.txt")
+	if err := os.WriteFile(prompt, []byte("du bist rick"), 0o644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
 	return &Agent{
 		codeedit:  ed,
 		selfcode:  sc,
 		cmdRunner: fr,
 		config: &config.Config{
-			RickRepoDir:    root,
-			WorkDir:        root,
-			GitAuthorName:  "doofus-rick",
-			GitAuthorEmail: "rick@localhost",
-			GitHubToken:    shipTestToken,
+			RickRepoDir:      root,
+			SystemPromptFile: prompt,
+			WorkDir:          root,
+			GitAuthorName:    "doofus-rick",
+			GitAuthorEmail:   "rick@localhost",
+			GitHubToken:      shipTestToken,
 		},
 	}
 }
@@ -137,7 +139,7 @@ func codeShipTestTool(a *Agent) (func(context.Context, json.RawMessage) (string,
 }
 
 func TestCodeShipGateFailureAbortsAndDoesNotCommit(t *testing.T) {
-	stages := []string{"go_build", "go_vet", "go_test", "go_build_check", "check_run", "pg_dump", "git_status"}
+	stages := []string{"go_build", "go_vet", "go_test", "pg_dump", "git_status"}
 	for _, stage := range stages {
 		t.Run(stage, func(t *testing.T) {
 			fr := newFakeCmdRunner()
@@ -200,7 +202,7 @@ func TestCodeShipSuccessPathBuildsVetsTestsCommitsAndPushesInline(t *testing.T) 
 	if content == "" {
 		t.Error("expected a non-empty confirmation message")
 	}
-	for _, stage := range []string{"go_build", "go_vet", "go_test", "go_build_check", "check_run", "git_commit", "git_push"} {
+	for _, stage := range []string{"go_build", "go_vet", "go_test", "git_commit", "git_push"} {
 		if !fr.called(stage) {
 			t.Errorf("expected stage %s to run on the success path", stage)
 		}

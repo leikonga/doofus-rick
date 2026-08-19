@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
@@ -87,7 +88,7 @@ type codeShipIn struct {
 }
 
 func (a *Agent) codeShipTool() llm.Tool {
-	return llm.NewTool("code_ship", "Verify Rick's own source changes (build, vet, test, boot check, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
+	return llm.NewTool("code_ship", "Verify Rick's own source changes (build, vet, test, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
 		func(ctx context.Context, in codeShipIn) (llm.Result, error) {
 			if a.codeedit == nil || a.selfcode == nil {
 				return llm.Result{}, errRepoNotCloned
@@ -110,19 +111,19 @@ func (a *Agent) codeShipTool() llm.Tool {
 				return llm.Result{}, fmt.Errorf("go test failed: %v\n%s", err, out)
 			}
 
+			prompt, err := os.ReadFile(a.config.SystemPromptFile)
+			if err != nil {
+				return llm.Result{}, fmt.Errorf("system prompt file: %w", err)
+			}
+			if strings.TrimSpace(string(prompt)) == "" {
+				return llm.Result{}, fmt.Errorf("system prompt file %q is empty", a.config.SystemPromptFile)
+			}
+
 			snapshot, err := a.selfcode.Snapshot(ctx)
 			if err != nil {
 				return llm.Result{}, fmt.Errorf("snapshot failed: %w", err)
 			}
 
-			bin, cleanup, err := a.buildCheckBinary(ctx)
-			if err != nil {
-				return llm.Result{}, err
-			}
-			defer cleanup()
-			if out, err := a.cmdRunner.Run(ctx, bin, []string{"check"}, nil); err != nil {
-				return llm.Result{}, fmt.Errorf("check subcommand failed: %v\n%s", err, out)
-			}
 			changed, err := a.selfcode.MigrationsChanged(ctx)
 			if err != nil {
 				return llm.Result{}, fmt.Errorf("checking for migration changes failed: %w", err)
@@ -188,26 +189,6 @@ func (a *Agent) gitEnv() []string {
 		"HOME=" + a.homeDir(),
 		"PATH=" + os.Getenv("PATH"),
 	}
-}
-
-func (a *Agent) buildCheckBinary(ctx context.Context) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "rick-check-")
-	if err != nil {
-		return "", nil, fmt.Errorf("create temp dir for check binary: %w", err)
-	}
-	cleanup := func() {
-		if err := os.RemoveAll(dir); err != nil {
-			slog.Warn("failed to remove check binary temp dir", "dir", dir, "error", err)
-		}
-	}
-
-	bin := filepath.Join(dir, "doofus-rick-check")
-	args := []string{"-C", a.config.RickRepoDir, "build", "-o", bin, "./cmd/doofus-rick"}
-	if out, err := a.cmdRunner.Run(ctx, "go", args, a.goEnv()); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("build check binary failed: %v\n%s", err, out)
-	}
-	return bin, cleanup, nil
 }
 
 // gitPush is the only place GITHUB_TOKEN is read; it reaches git only via GIT_ASKPASS, never argv.
