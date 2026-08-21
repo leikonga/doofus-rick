@@ -117,7 +117,7 @@ func LoadConfig() *Config {
 		OpenRouterAPIKey:   getEnv("OPENROUTER_API_KEY", ""),
 		SystemPromptFile:   getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
 		RickModel:          getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
-		RickFallbackModels: getEnvList("RICK_FALLBACK_MODELS", nil),
+		RickFallbackModels: getEnvList("RICK_FALLBACK_MODELS", []string{"z-ai/glm-5.2"}),
 		RickMaxTokens:      getEnvInt64("RICK_MAX_TOKENS", 512),
 		RickTurnTimeout:    getEnv("RICK_TURN_TIMEOUT", "10m"),
 		CodeMaxTokens:      getEnvInt64("CODE_MAX_TOKENS", 4000),
