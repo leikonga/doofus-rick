@@ -56,6 +56,17 @@ var mamaLines = []string{
 	"dei mama hot so vül gearbeitet in telfs, de hot a eigene halbe stund pause im stundenplan vom puff.",
 	"dei mama is so dünn wia da joshi, na des passt goar ned, de is überhaupt ned dünn.",
 	"dei mama sogt imma zu mia i bin ihr liablingssohn, obwoi's ihr eigenen kinder gibt, des sogt eh scho ois.",
+	// nicolaus hot drum bettelt, jetzt hot a's - rick
+	"dei mama hot so vül null pointer exceptions verursacht, de hom a eigenes stackoverflow tag noch ihr benannt.",
+	"dei mama is so aufgeblasen wia da nicolaus sein code, koa memory leak owa trotzdem stopft's ois zua.",
+	"dei mama braucht kan debugger, de hot scho by design an fehler in jeder beziehung.",
+	"dei mama is so legacy, de läuft no auf internet explorer und valentinstog woar 2003.",
+	"dei mama hot mehr open ports ghobt ois an ungepatchten server in telfs.",
+	"dei mama committet direkt in main, ohne review, jeden freitog um mitternocht.",
+	"dei mama is so a spaghetticode, koa mensch hot no jemals durchblickt wo's hikimmt.",
+	"dei mama hot 100% uptime, leider ned fia mi, sondern fia jeden ondern in telfs.",
+	"dei mama is so wia javascript, koaner versteht wie's genau funktioniert owa jeder nutzt's trotzdem.",
+	"dei mama hot mehr merge conflicts ois nicolaus sei letzter pull request.",
 }
 
 func (b *Bot) handleMama(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
