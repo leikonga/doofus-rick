@@ -23,7 +23,9 @@ const (
 )
 
 type Home struct {
-	logs *dailyLog
+	logs     *dailyLog
+	logsDir  string
+	crashDir string
 }
 
 func Open(workDir string, now time.Time) (*Home, error) {
@@ -45,7 +47,7 @@ func Open(workDir string, now time.Time) (*Home, error) {
 		slog.Warn("failed to prune old log files", "dir", logsDir, "error", err)
 	}
 
-	return &Home{logs: logs}, nil
+	return &Home{logs: logs, logsDir: logsDir, crashDir: crashDir}, nil
 }
 
 func (h *Home) Handler() slog.Handler {

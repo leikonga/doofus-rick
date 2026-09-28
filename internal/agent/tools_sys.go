@@ -2,9 +2,15 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 )
 
 type shellExecIn struct {
@@ -24,11 +30,101 @@ func (a *Agent) shellExecTool() llm.Tool {
 		})
 }
 
-type checkLogsIn struct{}
+type runtimeLogs interface {
+	Problems(since time.Time) ([]runtimehome.LogEntry, error)
+	CrashReports() ([]runtimehome.CrashReport, error)
+}
+
+const (
+	defaultLogHours = 24
+	maxLogHours     = 14 * 24
+	logTimeLayout   = "2006-01-02 15:04:05"
+)
+
+type checkLogsIn struct {
+	Hours int `json:"hours" jsonschema:"description=How many hours back to look. Defaults to 24; clamped to 1..336."`
+}
 
 func (a *Agent) checkLogsTool() llm.Tool {
-	return llm.NewTool("sys_logs", "Check recent warnings and errors from Rick's own process logs. Use when asked why Rick didn't respond or what went wrong.",
-		func(_ context.Context, _ checkLogsIn) (llm.Result, error) {
-			return llm.Result{Content: a.logBuf.Recent()}, nil
+	return llm.NewTool("sys_logs",
+		"Read warnings and errors from Rick's persistent process logs (they survive restarts) plus any crash reports from earlier boots. "+
+			"Use when asked why Rick didn't respond or what went wrong.",
+		func(_ context.Context, in checkLogsIn) (llm.Result, error) {
+			return llm.Result{Content: a.logReport(in.Hours, time.Now())}, nil
 		})
+}
+
+func clampLogHours(hours int) int {
+	switch {
+	case hours == 0:
+		return defaultLogHours
+	case hours < 1:
+		return 1
+	case hours > maxLogHours:
+		return maxLogHours
+	default:
+		return hours
+	}
+}
+
+func (a *Agent) logReport(hours int, now time.Time) string {
+	if a.runtimeLogs == nil {
+		return "log directory unavailable: runtime home failed to open, so no persistent logs or crash reports exist"
+	}
+	hours = clampLogHours(hours)
+	entries, logErr := a.runtimeLogs.Problems(now.Add(-time.Duration(hours) * time.Hour))
+	crashes, crashErr := a.runtimeLogs.CrashReports()
+
+	var tail strings.Builder
+	if len(crashes) > 0 {
+		tail.WriteString("\ncrash reports from earlier boots:\n")
+		for _, c := range crashes {
+			fmt.Fprintf(&tail, "%s (%d bytes, %s)\n", c.Path, c.Size, c.ModTime.UTC().Format(logTimeLayout))
+		}
+	}
+	for _, err := range []error{logErr, crashErr} {
+		if err != nil {
+			fmt.Fprintf(&tail, "\nread error: %v\n", err)
+		}
+	}
+
+	header := fmt.Sprintf("warnings and errors in the last %dh (UTC):\n", hours)
+	if len(entries) == 0 {
+		header = fmt.Sprintf("no warnings or errors in the last %dh\n", hours)
+	}
+	const omittedNote = "(older entries omitted)\n"
+	budget := client.DefaultOutputLimit - len(header) - len(omittedNote) - tail.Len()
+	lines := make([]string, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		line := formatLogEntry(entries[i])
+		if budget-len(line)-1 < 0 {
+			header += omittedNote
+			break
+		}
+		budget -= len(line) + 1
+		lines = append(lines, line)
+	}
+	slices.Reverse(lines)
+
+	var out strings.Builder
+	out.WriteString(header)
+	for _, line := range lines {
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	out.WriteString(tail.String())
+	return strings.TrimRight(out.String(), "\n")
+}
+
+func formatLogEntry(e runtimehome.LogEntry) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s %s %s", e.Time.UTC().Format(logTimeLayout), e.Level, e.Msg)
+	for _, attr := range e.Attrs {
+		value := attr.Value
+		if value == "" || strings.ContainsAny(value, " \t\n\"=") {
+			value = strconv.Quote(value)
+		}
+		fmt.Fprintf(&sb, " %s=%s", attr.Key, value)
+	}
+	return sb.String()
 }

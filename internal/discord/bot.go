@@ -21,7 +21,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/logbuf"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
@@ -34,7 +34,7 @@ type Bot struct {
 	config            *config.Config
 	client            *disgobot.Client
 	agent             *agent.Agent
-	logBuf            *logbuf.Buffer
+	runtimeHome       *runtimehome.Home
 	tracer            *tracer.Tracer
 	cache             UserCache
 	presences         sync.Map // snowflake.ID -> UserPresence
@@ -50,14 +50,14 @@ type Bot struct {
 	affinityScorer    *archive.AffinityScorer
 }
 
-func New(ctx context.Context, s *store.Store, c *config.Config, lb *logbuf.Buffer, tr *tracer.Tracer) *Bot {
+func New(ctx context.Context, s *store.Store, c *config.Config, home *runtimehome.Home, tr *tracer.Tracer) *Bot {
 	return &Bot{
-		ctx:        ctx,
-		store:      s,
-		config:     c,
-		logBuf:     lb,
-		tracer:     tr,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		ctx:         ctx,
+		store:       s,
+		config:      c,
+		runtimeHome: home,
+		tracer:      tr,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -84,7 +84,7 @@ func (b *Bot) Run() error {
 		return err
 	}
 	b.client = client
-	b.agent = agent.New(b.store, b.config, b, b.client, b.logBuf, b.tracer)
+	b.agent = agent.New(b.store, b.config, b, b.client, b.runtimeHome, b.tracer)
 
 	b.chunkGapDuration = parseDurationOr(b.config.ChunkGap, archive.DefaultChunkGap)
 	b.chunker = archive.NewChunker(archive.ChunkConfig{

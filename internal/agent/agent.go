@@ -14,7 +14,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/codeedit"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/logbuf"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -41,7 +41,7 @@ type Agent struct {
 	brave          *client.BraveClient
 	giphy          *client.GiphyClient
 	shell          *client.Shell
-	logBuf         *logbuf.Buffer
+	runtimeLogs    runtimeLogs
 	tracer         *tracer.Tracer
 	retriever      *archive.Retriever
 	affinity       *archive.Affinity
@@ -54,7 +54,7 @@ type Agent struct {
 	cmdRunner      selfcode.Runner
 }
 
-func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, lb *logbuf.Buffer, tr *tracer.Tracer) *Agent {
+func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, home *runtimehome.Home, tr *tracer.Tracer) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	llmClient := llm.NewClient(c.OpenRouterAPIKey)
 	typingMaxDelay, err := time.ParseDuration(c.TypingMaxDelay)
@@ -81,7 +81,12 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		Pass: c.DBPass,
 		Name: c.DBName,
 	})
+	var logs runtimeLogs
+	if home != nil { // a typed-nil *Home in the interface would defeat logReport's nil check
+		logs = home
+	}
 	return &Agent{
+		runtimeLogs:   logs,
 		store:         s,
 		config:        c,
 		llm:           llmClient,
@@ -90,7 +95,6 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
 		shell:         client.NewShell(c.WorkDir, shellTimeout),
-		logBuf:        lb,
 		tracer:        tr,
 		retriever: archive.NewRetriever(archive.RetrievalConfig{
 			TopK:           c.RecallTopK,

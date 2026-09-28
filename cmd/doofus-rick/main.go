@@ -15,7 +15,6 @@ import (
 
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
-	"github.com/leikonga/doofus-rick/internal/logbuf"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -50,8 +49,7 @@ func main() {
 		defer home.Close()
 		sink = slog.NewMultiHandler(stdoutHandler, home.Handler())
 	}
-	logHandler, logBuf := logbuf.New(sink)
-	slog.SetDefault(slog.New(logHandler))
+	slog.SetDefault(slog.New(sink))
 	if homeErr != nil {
 		slog.Warn("runtime home unavailable, logging to stdout only", "work_dir", c.WorkDir, "error", homeErr)
 	}
@@ -67,7 +65,7 @@ func main() {
 		db.SaveFailureTrace(tctx, e)
 	})
 
-	rick := discordpkg.New(ctx, db, c, logBuf, tr)
+	rick := discordpkg.New(ctx, db, c, home, tr)
 	go func() {
 		if err := rick.Run(); err != nil {
 			slog.Error("failed to connect to discord", "error", err)
