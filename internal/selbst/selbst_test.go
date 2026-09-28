@@ -23,10 +23,11 @@ func sampleFacts() Facts {
 		ShellUser:  "rick",
 		PprofAddr:  "127.0.0.1:6060",
 		Paths: Paths{
-			Work:   "/rick/work",
-			Source: "/rick/work/src",
-			Logs:   "/rick/work/runtime/logs",
-			Crash:  "/rick/work/runtime/crash",
+			Work:    "/rick/work",
+			Source:  "/rick/work/src",
+			Logs:    "/rick/work/runtime/logs",
+			Crash:   "/rick/work/runtime/crash",
+			Deploys: "/rick/work/runtime/deploys.jsonl",
 		},
 		Deps: map[string]string{
 			"github.com/disgoorg/disgo":        "v0.19.6",
@@ -58,6 +59,7 @@ func TestBlockContent(t *testing.T) {
 		"boot=2026-09-29T10:05:00Z\n",
 		"pprof=http://127.0.0.1:6060/debug/pprof/\n",
 		"source=/rick/work/src\n",
+		"deploys=/rick/work/runtime/deploys.jsonl\n",
 		"github.com/disgoorg/disgo=v0.19.6\n",
 		"gorm.io/gorm=unknown\n",
 		"internal/agent: ",
@@ -90,8 +92,8 @@ func TestLoopbackAddr(t *testing.T) {
 		{"0.0.0.0:6060", "0.0.0.0:6060"},
 	}
 	for _, tc := range tests {
-		if got := loopbackAddr(tc.in); got != tc.want {
-			t.Errorf("loopbackAddr(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := LoopbackAddr(tc.in); got != tc.want {
+			t.Errorf("LoopbackAddr(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -145,9 +147,9 @@ func TestFormatUptime(t *testing.T) {
 }
 
 func TestVitals(t *testing.T) {
-	got := Vitals(bootTime.Add(3*time.Hour + 12*time.Minute))
+	got := Vitals(bootTime.Add(3*time.Hour+12*time.Minute), "ok")
 	t.Log(got)
-	re := regexp.MustCompile(`^<vitals>uptime=3h12m goroutines=[1-9]\d* heap_mb=\d+ gc_cycles=\d+</vitals>$`)
+	re := regexp.MustCompile(`^<vitals>uptime=3h12m goroutines=[1-9]\d* heap_mb=\d+ gc_cycles=\d+ deploy=ok</vitals>$`)
 	if !re.MatchString(got) {
 		t.Errorf("vitals line %q does not match %s", got, re)
 	}

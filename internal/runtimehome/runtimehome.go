@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	runtimeDir   = "runtime"
 	logRetention = 14 * 24 * time.Hour
 	logPrefix    = "rick-"
 	logSuffix    = ".jsonl"
@@ -23,9 +24,11 @@ const (
 )
 
 type Home struct {
-	logs     *dailyLog
-	logsDir  string
-	crashDir string
+	logs      *dailyLog
+	logsDir   string
+	crashDir  string
+	crashFile string
+	deploys   *Journal
 }
 
 func Open(workDir string, now time.Time) (*Home, error) {
@@ -34,7 +37,8 @@ func Open(workDir string, now time.Time) (*Home, error) {
 		return nil, err
 	}
 
-	if err := setCrashOutput(crashDir, now); err != nil {
+	crashFile, err := setCrashOutput(crashDir, now)
+	if err != nil {
 		return nil, err
 	}
 
@@ -47,7 +51,37 @@ func Open(workDir string, now time.Time) (*Home, error) {
 		slog.Warn("failed to prune old log files", "dir", logsDir, "error", err)
 	}
 
-	return &Home{logs: logs, logsDir: logsDir, crashDir: crashDir}, nil
+	return &Home{
+		logs:      logs,
+		logsDir:   logsDir,
+		crashDir:  crashDir,
+		crashFile: crashFile,
+		deploys:   NewJournal(filepath.Join(workDir, runtimeDir, deploysFile)),
+	}, nil
+}
+
+func (h *Home) LogsDir() string {
+	return h.logsDir
+}
+
+func (h *Home) CrashDir() string {
+	return h.crashDir
+}
+
+func (h *Home) CrashFile() string {
+	return h.crashFile
+}
+
+func (h *Home) DeploysPath() string {
+	return h.deploys.Path()
+}
+
+func (h *Home) Deploys() *Journal {
+	return h.deploys
+}
+
+func (h *Home) RecordBoot(commit string, at time.Time) error {
+	return h.deploys.Append(DeployRecord{Kind: DeployBoot, Commit: commit, CrashFile: h.crashFile, At: at})
 }
 
 func (h *Home) Handler() slog.Handler {
@@ -59,7 +93,7 @@ func (h *Home) Close() error {
 }
 
 func ensureLayout(workDir string) (logsDir, crashDir string, err error) {
-	root := filepath.Join(workDir, "runtime")
+	root := filepath.Join(workDir, runtimeDir)
 	logsDir = filepath.Join(root, "logs")
 	crashDir = filepath.Join(root, "crash")
 	for _, dir := range []string{logsDir, crashDir} {
@@ -70,21 +104,22 @@ func ensureLayout(workDir string) (logsDir, crashDir string, err error) {
 	return logsDir, crashDir, nil
 }
 
-func setCrashOutput(crashDir string, now time.Time) error {
+func setCrashOutput(crashDir string, now time.Time) (string, error) {
 	name := fmt.Sprintf("%s%d%s", crashPrefix, now.Unix(), crashSuffix)
 	if err := removeEmptyCrashFiles(crashDir, name); err != nil {
 		slog.Warn("failed to remove empty crash files", "dir", crashDir, "error", err)
 	}
 
-	f, err := os.OpenFile(filepath.Join(crashDir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	path := filepath.Join(crashDir, name)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return fmt.Errorf("open crash file: %w", err)
+		return "", fmt.Errorf("open crash file: %w", err)
 	}
 	defer f.Close()
 	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
-		return fmt.Errorf("set crash output: %w", err)
+		return "", fmt.Errorf("set crash output: %w", err)
 	}
-	return nil
+	return path, nil
 }
 
 func removeEmptyCrashFiles(crashDir, current string) error {

@@ -20,6 +20,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
+	"github.com/leikonga/doofus-rick/internal/selbst"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 	"github.com/leikonga/doofus-rick/internal/web"
@@ -64,6 +65,9 @@ func main() {
 		slog.Warn("runtime home unavailable, logging to stdout only", "work_dir", c.WorkDir, "error", homeErr)
 	} else {
 		shareWorkDir(c.WorkDir)
+		if err := home.RecordBoot(selbst.Commit(), time.Now()); err != nil {
+			slog.Warn("failed to record boot in deploy journal", "error", err)
+		}
 	}
 
 	if os.Getenv("APP_ENV") == envProduction {

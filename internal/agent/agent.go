@@ -3,7 +3,6 @@ package agent
 import (
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -47,6 +46,8 @@ type Agent struct {
 	shellDesc      string
 	selbstBlock    string
 	runtimeLogs    runtimeLogs
+	deploys        *runtimehome.Journal
+	crashFile      string
 	tracer         *tracer.Tracer
 	retriever      *archive.Retriever
 	affinity       *archive.Affinity
@@ -90,18 +91,21 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	if err != nil {
 		slog.Error("failed to parse sandbox tool manifest, sys_shell lists no tools", "error", err)
 	}
-	self := selbst.Gather(c.RickModel, c.ShellUser, c.PprofAddr, selbst.Paths{
-		Work:   c.WorkDir,
-		Source: c.RickRepoDir,
-		Logs:   filepath.Join(c.WorkDir, "runtime", "logs"),
-		Crash:  filepath.Join(c.WorkDir, "runtime", "crash"),
-	})
+	paths := selbst.Paths{Work: c.WorkDir, Source: c.RickRepoDir}
 	var logs runtimeLogs
+	var deploys *runtimehome.Journal
+	var crashFile string
 	if home != nil { // a typed-nil *Home in the interface would defeat logReport's nil check
 		logs = home
+		deploys = home.Deploys()
+		crashFile = home.CrashFile()
+		paths.Logs, paths.Crash, paths.Deploys = home.LogsDir(), home.CrashDir(), home.DeploysPath()
 	}
+	self := selbst.Gather(c.RickModel, c.ShellUser, c.PprofAddr, paths)
 	return &Agent{
 		runtimeLogs:   logs,
+		deploys:       deploys,
+		crashFile:     crashFile,
 		store:         s,
 		config:        c,
 		llm:           llmClient,
@@ -134,4 +138,20 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		selfcode:    sc,
 		cmdRunner:   cmdRunner,
 	}
+}
+
+func (a *Agent) vitals(now time.Time) string {
+	return selbst.Vitals(now, a.deployStatus(now))
+}
+
+func (a *Agent) deployStatus(now time.Time) string {
+	if a.deploys == nil {
+		return "unknown"
+	}
+	records, err := a.deploys.Records()
+	if err != nil {
+		slog.Warn("failed to read deploy journal", "error", err)
+		return "unknown"
+	}
+	return selbst.DeployStatus(records, selbst.Commit(), now)
 }

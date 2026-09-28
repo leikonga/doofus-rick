@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/disgoorg/disgo/events"
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 )
 
 var errRepoNotCloned = fmt.Errorf("repo not found, clone it into RICK_REPO_DIR via sys_shell first")
@@ -87,7 +90,7 @@ type codeShipIn struct {
 	Message string `json:"message" jsonschema:"required,description=Commit message describing the change."`
 }
 
-func (a *Agent) codeShipTool() llm.Tool {
+func (a *Agent) codeShipTool(event *events.MessageCreate) llm.Tool {
 	return llm.NewTool("code_ship", "Verify Rick's own source changes (build, vet, test, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
 		func(ctx context.Context, in codeShipIn) (llm.Result, error) {
 			if a.codeedit == nil || a.selfcode == nil {
@@ -150,9 +153,34 @@ func (a *Agent) codeShipTool() llm.Tool {
 			if out, err := a.gitPush(ctx); err != nil {
 				return llm.Result{}, fmt.Errorf("git push failed: %v\n%s", err, out)
 			}
+			a.recordShip(ctx, event, in.Message)
 
 			return llm.Result{Content: "built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."}, nil
 		})
+}
+
+func (a *Agent) recordShip(ctx context.Context, event *events.MessageCreate, message string) {
+	if a.deploys == nil {
+		slog.Debug("deploy journal unavailable, not recording ship")
+		return
+	}
+	out, err := a.runGit(ctx, "rev-parse", "HEAD")
+	commit := strings.TrimSpace(out)
+	if err != nil || commit == "" {
+		slog.Warn("failed to read pushed commit, not recording ship", "output", out, "error", err)
+		return
+	}
+	err = a.deploys.Append(runtimehome.DeployRecord{
+		Kind:      runtimehome.DeployShip,
+		Commit:    commit,
+		ChannelID: event.ChannelID.String(),
+		Requester: event.Message.Author.ID.String(),
+		Summary:   message,
+		At:        time.Now(),
+	})
+	if err != nil {
+		slog.Warn("failed to record ship in deploy journal", "commit", commit, "error", err)
+	}
 }
 
 func (a *Agent) runGo(ctx context.Context, args ...string) (string, error) {

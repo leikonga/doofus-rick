@@ -12,6 +12,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/sandbox"
+	"github.com/leikonga/doofus-rick/internal/selbst"
 )
 
 type shellExecIn struct {
@@ -33,10 +34,7 @@ func shellDescription(shellUser, workDir, pprofAddr string, tools []sandbox.Tool
 	sb.WriteString("Python packages: uv run --with <pkg> python3 -c '...', or uvx <tool>. ")
 	sb.WriteString("The Go toolchain is installed; go install puts Go tools on PATH. ")
 	if pprofAddr != "" {
-		if strings.HasPrefix(pprofAddr, ":") {
-			pprofAddr = "127.0.0.1" + pprofAddr
-		}
-		fmt.Fprintf(&sb, "Profile the running bot via pprof, e.g. go tool pprof -top http://%s/debug/pprof/heap. ", pprofAddr)
+		fmt.Fprintf(&sb, "Profile the running bot via pprof, e.g. go tool pprof -top http://%s/debug/pprof/heap. ", selbst.LoopbackAddr(pprofAddr))
 	}
 	sb.WriteString("\nInstalled tools:\n")
 	for _, t := range tools {
@@ -115,8 +113,8 @@ func (a *Agent) logReport(hours int, now time.Time) string {
 	const omittedNote = "(older entries omitted)\n"
 	budget := client.DefaultOutputLimit - len(header) - len(omittedNote) - tail.Len()
 	lines := make([]string, 0, len(entries))
-	for i := len(entries) - 1; i >= 0; i-- {
-		line := formatLogEntry(entries[i])
+	for _, entrie := range slices.Backward(entries) {
+		line := formatLogEntry(entrie)
 		if budget-len(line)-1 < 0 {
 			header += omittedNote
 			break

@@ -48,6 +48,7 @@ type Bot struct {
 	ambientClassifier *ambient.Classifier
 	ambientWindow     time.Duration
 	affinityScorer    *archive.AffinityScorer
+	deployReportOnce  sync.Once
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config, home *runtimehome.Home, tr *tracer.Tracer) *Bot {
@@ -76,6 +77,7 @@ func (b *Bot) Run() error {
 		disgobot.WithEventListeners(r),
 		disgobot.WithEventListenerFunc(func(e *events.MessageCreate) { b.agent.HandleMention(b.ctx, e) }),
 		disgobot.WithEventListenerFunc(b.onGuildReady),
+		disgobot.WithEventListenerFunc(b.reportDeployOnce),
 		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
 		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
 		disgobot.WithEventListenerFunc(b.onMessageCreate),
@@ -159,6 +161,16 @@ func (b *Bot) Run() error {
 
 	slog.Info("connected to discord", "appid", client.ApplicationID)
 	return nil
+}
+
+func (b *Bot) reportDeployOnce(*events.GuildReady) {
+	b.deployReportOnce.Do(func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+			defer cancel()
+			b.agent.ReportDeploy(ctx)
+		}()
+	})
 }
 
 func parseDurationOr(s string, fallback time.Duration) time.Duration {

@@ -11,9 +11,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/codeedit"
 	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 )
 
@@ -78,6 +81,8 @@ func stageOf(name string, args []string) string {
 		}
 	case "git":
 		switch {
+		case slices.Contains(args, "rev-parse"):
+			return "git_rev_parse"
 		case slices.Contains(args, "status"):
 			return "git_status"
 		case slices.Contains(args, "add"):
@@ -127,7 +132,10 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
 }
 
 func codeShipTestTool(a *Agent) (func(context.Context, json.RawMessage) (string, error), bool) {
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
+	return codeShipTestToolFor(a, &events.MessageCreate{GenericMessage: &events.GenericMessage{}})
+}
+
+func codeShipTestToolFor(a *Agent, event *events.MessageCreate) (func(context.Context, json.RawMessage) (string, error), bool) {
 	tool, ok := a.buildTools(event).Find("code_ship")
 	if !ok {
 		return nil, false
@@ -282,5 +290,58 @@ func TestCodeShipPushEnvCarriesTokenArgsDoNot(t *testing.T) {
 		if strings.Contains(arg, shipTestToken) {
 			t.Errorf("push argument list leaks the token: %q", arg)
 		}
+	}
+}
+
+func TestCodeShipJournalsShipOnlyAfterSuccessfulPush(t *testing.T) {
+	const pushed = "0123456789abcdef0123456789abcdef01234567"
+	tests := []struct {
+		name     string
+		pushErr  error
+		wantShip bool
+	}{
+		{name: "push succeeds", wantShip: true},
+		{name: "push fails", pushErr: errors.New("remote rejected")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fr := newFakeCmdRunner()
+			fr.results["git_rev_parse"] = pushed + "\n"
+			if tc.pushErr != nil {
+				fr.errs["git_push"] = tc.pushErr
+			}
+			a := newShipTestAgent(t, fr)
+			a.deploys = runtimehome.NewJournal(filepath.Join(t.TempDir(), "deploys.jsonl"))
+			event := &events.MessageCreate{GenericMessage: &events.GenericMessage{
+				ChannelID: snowflake.ID(42),
+				Message:   discord.Message{Author: discord.User{ID: snowflake.ID(7)}},
+			}}
+			exec, ok := codeShipTestToolFor(a, event)
+			if !ok {
+				t.Fatal("code_ship tool not found")
+			}
+			_, err := exec(context.Background(), json.RawMessage(`{"message":"fix the thing"}`))
+			if (err == nil) != tc.wantShip {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			records, err := runtimehome.ReadDeploys(a.deploys.Path())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.wantShip {
+				if len(records) != 0 || fr.called("git_rev_parse") {
+					t.Fatalf("failed push journaled %+v (rev-parse called: %v)", records, fr.called("git_rev_parse"))
+				}
+				return
+			}
+			if len(records) != 1 {
+				t.Fatalf("records = %+v, want one ship", records)
+			}
+			got := records[0]
+			if got.Kind != runtimehome.DeployShip || got.Commit != pushed || got.ChannelID != "42" || got.Requester != "7" || got.Summary != "fix the thing" || got.At.IsZero() {
+				t.Errorf("ship record = %+v", got)
+			}
+		})
 	}
 }

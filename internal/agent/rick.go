@@ -17,7 +17,6 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/selbst"
 )
 
 var (
@@ -160,7 +159,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	recall := <-recallCh
 
 	now := time.Now()
-	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(now, selbst.Vitals(now), gradDo, recall, history, triggerLabel))}
+	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, triggerLabel))}
 	for _, url := range attachments.imageURLs {
 		turnParts = append(turnParts, llm.ImagePart(url))
 	}

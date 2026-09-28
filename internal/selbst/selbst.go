@@ -31,10 +31,11 @@ var keyDeps = []string{
 }
 
 type Paths struct {
-	Work   string
-	Source string
-	Logs   string
-	Crash  string
+	Work    string
+	Source  string
+	Logs    string
+	Crash   string
+	Deploys string
 }
 
 type Facts struct {
@@ -102,14 +103,15 @@ func (f Facts) Block() string {
 	fmt.Fprintf(&sb, "model=%s\n", f.Model)
 	fmt.Fprintf(&sb, "shell_user=%s\n", f.ShellUser)
 	if f.PprofAddr != "" {
-		fmt.Fprintf(&sb, "pprof=http://%s/debug/pprof/\n", loopbackAddr(f.PprofAddr))
+		fmt.Fprintf(&sb, "pprof=http://%s/debug/pprof/\n", LoopbackAddr(f.PprofAddr))
 	}
 	sb.WriteByte('\n')
 
 	fmt.Fprintf(&sb, "work_dir=%s\n", f.Paths.Work)
 	fmt.Fprintf(&sb, "source=%s\n", f.Paths.Source)
-	fmt.Fprintf(&sb, "logs=%s\n", f.Paths.Logs)
-	fmt.Fprintf(&sb, "crash=%s\n", f.Paths.Crash)
+	fmt.Fprintf(&sb, "logs=%s\n", orUnknown(f.Paths.Logs))
+	fmt.Fprintf(&sb, "crash=%s\n", orUnknown(f.Paths.Crash))
+	fmt.Fprintf(&sb, "deploys=%s\n", orUnknown(f.Paths.Deploys))
 	sb.WriteByte('\n')
 
 	for _, path := range keyDeps {
@@ -132,7 +134,7 @@ func shortCommit(c string) string {
 	return c
 }
 
-func loopbackAddr(addr string) string {
+func LoopbackAddr(addr string) string {
 	if strings.HasPrefix(addr, ":") {
 		return "127.0.0.1" + addr
 	}

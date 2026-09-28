@@ -17,9 +17,10 @@ type vitals struct {
 	goroutines uint64
 	heapBytes  uint64
 	gcCycles   uint64
+	deploy     string
 }
 
-func Vitals(now time.Time) string {
+func Vitals(now time.Time, deploy string) string {
 	samples := []metrics.Sample{{Name: goroutinesMetric}, {Name: heapMetric}, {Name: gcCyclesMetric}}
 	metrics.Read(samples)
 	return vitals{
@@ -27,6 +28,7 @@ func Vitals(now time.Time) string {
 		goroutines: uint64Value(samples[0]),
 		heapBytes:  uint64Value(samples[1]),
 		gcCycles:   uint64Value(samples[2]),
+		deploy:     deploy,
 	}.String()
 }
 
@@ -38,8 +40,8 @@ func uint64Value(s metrics.Sample) uint64 {
 }
 
 func (v vitals) String() string {
-	return fmt.Sprintf("<vitals>uptime=%s goroutines=%d heap_mb=%d gc_cycles=%d</vitals>",
-		formatUptime(v.uptime), v.goroutines, v.heapBytes>>20, v.gcCycles)
+	return fmt.Sprintf("<vitals>uptime=%s goroutines=%d heap_mb=%d gc_cycles=%d deploy=%s</vitals>",
+		formatUptime(v.uptime), v.goroutines, v.heapBytes>>20, v.gcCycles, v.deploy)
 }
 
 func formatUptime(d time.Duration) string {
