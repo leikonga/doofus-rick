@@ -63,7 +63,7 @@ func ensureLayout(workDir string) (logsDir, crashDir string, err error) {
 	logsDir = filepath.Join(root, "logs")
 	crashDir = filepath.Join(root, "crash")
 	for _, dir := range []string{logsDir, crashDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o775); err != nil {
 			return "", "", fmt.Errorf("create %s: %w", dir, err)
 		}
 	}

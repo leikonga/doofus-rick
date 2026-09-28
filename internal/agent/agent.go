@@ -15,6 +15,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
+	"github.com/leikonga/doofus-rick/internal/sandbox"
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -41,6 +42,7 @@ type Agent struct {
 	brave          *client.BraveClient
 	giphy          *client.GiphyClient
 	shell          *client.Shell
+	shellDesc      string
 	runtimeLogs    runtimeLogs
 	tracer         *tracer.Tracer
 	retriever      *archive.Retriever
@@ -81,6 +83,10 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		Pass: c.DBPass,
 		Name: c.DBName,
 	})
+	tools, err := sandbox.Manifest()
+	if err != nil {
+		slog.Error("failed to parse sandbox tool manifest, sys_shell lists no tools", "error", err)
+	}
 	var logs runtimeLogs
 	if home != nil { // a typed-nil *Home in the interface would defeat logReport's nil check
 		logs = home
@@ -94,7 +100,8 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		discordClient: dc,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
-		shell:         client.NewShell(c.WorkDir, shellTimeout),
+		shell:         client.NewShell(c.WorkDir, shellTimeout, c.ShellUser),
+		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
 		tracer:        tr,
 		retriever: archive.NewRetriever(archive.RetrievalConfig{
 			TopK:           c.RecallTopK,

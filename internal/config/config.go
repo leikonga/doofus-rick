@@ -38,6 +38,8 @@ type Config struct {
 	CodeMaxTokens       int64
 	CodeMaxToolIter     int
 	ShellTimeout        string
+	ShellUser           string
+	PprofAddr           string
 
 	GiphyAPIKey string
 	BraveAPIKey string
@@ -127,6 +129,8 @@ func LoadConfig() *Config {
 		CodeMaxTokens:       getEnvInt64("CODE_MAX_TOKENS", 64000),
 		CodeMaxToolIter:     getEnvInt("CODE_MAX_TOOL_ITER", 24),
 		ShellTimeout:        getEnv("SHELL_TIMEOUT", "120s"),
+		ShellUser:           getEnv("RICK_SHELL_USER", "rick"),
+		PprofAddr:           getEnvAllowEmpty("RICK_PPROF_ADDR", "127.0.0.1:6060"),
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
@@ -181,6 +185,13 @@ func LoadConfig() *Config {
 
 func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists && value != "" {
+		return value
+	}
+	return fallback
+}
+
+func getEnvAllowEmpty(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
 	return fallback

@@ -1,0 +1,40 @@
+# Native packages installed in Rick's image, one per line:
+# apk package; commands (comma separated, may be empty); purpose
+# The Dockerfile installs every package listed here.
+
+bash; bash; shell that runs every sys_shell command
+curl; curl; HTTP requests and downloads
+jq; jq; query and reshape JSON
+git; git; version control, clone repos
+openssh-client; ssh,scp; ssh and scp to remote hosts
+python3; python3; Python interpreter
+uv; uv,uvx; run Python with throwaway deps: uv run --with <pkg>, uvx <tool>
+make; make; run Makefiles
+coreutils; ; GNU versions of ls, sort, date, stat and friends
+sqlite; sqlite3; SQLite databases
+diffutils; diff,cmp; compare files
+patch; patch; apply diffs
+tzdata; ; time zone data for TZ and date
+file; file; detect file types
+bc; bc; arbitrary precision calculator
+bind-tools; dig,host,nslookup; DNS lookups
+openssl; openssl; TLS inspection, hashing, key and cert handling
+postgresql-client; psql,pg_dump; PostgreSQL shell and dumps
+ripgrep; rg; fast recursive grep
+imagemagick; magick; convert, resize, crop and compose images
+ffmpeg; ffmpeg,ffprobe; convert, cut and inspect audio and video
+graphviz; dot; render graphs and diagrams from DOT files
+poppler-utils; pdftotext,pdftoppm; extract text from PDFs, render PDF pages to images
+espeak-ng; espeak-ng; text to speech into WAV files
+figlet; figlet; ASCII art banners
+fortune; fortune; random quotes and epigrams
+zip; zip; create zip archives
+unzip; unzip; extract zip archives
+7zip; 7z; create and extract 7z, rar, tar and other archives
+exiftool; exiftool; read and edit image and media metadata
+chromium; chromium; headless rendering of HTML to PNG/PDF and screenshots of JS-heavy pages; run with --headless --no-sandbox
+font-noto; ; Noto fonts so rendered text is not tofu
+font-noto-emoji; ; emoji font for rendered pages and images
+nodejs; node; JavaScript runtime
+npm; npm,npx; install and run Node packages
+libcap; setcap,getcap; file capabilities for the bot binary

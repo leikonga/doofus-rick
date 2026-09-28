@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"os/user"
+	"runtime/debug"
 	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
@@ -21,9 +25,15 @@ import (
 	"github.com/leikonga/doofus-rick/internal/web"
 )
 
-const envProduction = "production"
+const (
+	envProduction = "production"
+	workGroup     = "rickwork"
+)
 
 func main() {
+	// File capabilities put the Go runtime in secure mode, which forces GOTRACEBACK=none.
+	debug.SetTraceback("single")
+	syscall.Umask(0o002)
 	stdoutHandler := slog.NewTextHandler(os.Stdout, nil)
 	slog.SetDefault(slog.New(stdoutHandler))
 
@@ -52,6 +62,15 @@ func main() {
 	slog.SetDefault(slog.New(sink))
 	if homeErr != nil {
 		slog.Warn("runtime home unavailable, logging to stdout only", "work_dir", c.WorkDir, "error", homeErr)
+	} else {
+		shareWorkDir(c.WorkDir)
+	}
+
+	if os.Getenv("APP_ENV") == envProduction {
+		if _, err := client.ShellCredential(c.ShellUser); err != nil {
+			slog.Error("sys_shell cannot run as its own user", "user", c.ShellUser, "error", err)
+			os.Exit(1)
+		}
 	}
 
 	db := store.MustInit(c)
@@ -85,9 +104,51 @@ func main() {
 		}
 	}()
 
+	var pprofSrv *http.Server
+	if c.PprofAddr != "" {
+		pprofSrv = newPprofServer(c.PprofAddr)
+		go func() {
+			slog.Info("starting pprof server", "addr", c.PprofAddr)
+			if err := pprofSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("pprof server failed", "addr", c.PprofAddr, "error", err)
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	if err := httpSrv.Shutdown(context.Background()); err != nil {
 		slog.Error("failed to shut down web server", "error", err)
+	}
+	if pprofSrv != nil {
+		if err := pprofSrv.Shutdown(context.Background()); err != nil {
+			slog.Error("failed to shut down pprof server", "error", err)
+		}
+	}
+}
+
+func newPprofServer(addr string) *http.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return &http.Server{Addr: addr, Handler: mux}
+}
+
+func shareWorkDir(workDir string) {
+	group, err := user.LookupGroup(workGroup)
+	if err != nil {
+		slog.Warn("work group missing, skipping work dir perms migration", "group", workGroup, "error", err)
+		return
+	}
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		slog.Warn("invalid work group id, skipping work dir perms migration", "group", workGroup, "gid", group.Gid, "error", err)
+		return
+	}
+	if err := runtimehome.ShareWithGroup(workDir, gid); err != nil {
+		slog.Error("work dir perms migration failed", "work_dir", workDir, "error", err)
 	}
 }
 

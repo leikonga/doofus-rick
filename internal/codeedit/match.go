@@ -104,7 +104,7 @@ func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
 			n = len(offsets)
 			newContent = strings.ReplaceAll(content, old, new)
 		}
-		if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
+		if err := os.WriteFile(resolved, []byte(newContent), 0o664); err != nil {
 			return 0, fmt.Errorf("replace %q: %w", path, err)
 		}
 		return n, nil
@@ -141,7 +141,7 @@ func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
 	}
 
 	newContent := joinLines(out, strings.HasSuffix(content, "\n"))
-	if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
+	if err := os.WriteFile(resolved, []byte(newContent), 0o664); err != nil {
 		return 0, fmt.Errorf("replace %q: %w", path, err)
 	}
 	return n, nil

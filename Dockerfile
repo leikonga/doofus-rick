@@ -19,30 +19,29 @@ FROM golang:1.27.1-alpine AS toolchain
 
 FROM alpine:3
 
-RUN apk add --no-cache \
-    bash curl jq \
-    git openssh-client \
-    python3 uv \
-    make coreutils \
-    sqlite \
-    diffutils patch \
-    tzdata \
-    file bc \
-    bind-tools \
-    openssl \
-    postgresql-client ripgrep
+RUN apk add --no-cache tini
 
-RUN adduser -D -g '' appuser && \
+RUN --mount=type=bind,source=internal/sandbox/tools.txt,target=/tmp/tools.txt \
+    apk add --no-cache $(sed -e '/^[[:space:]]*#/d' -e 's/;.*//' /tmp/tools.txt)
+
+RUN addgroup -S rickwork && \
+    adduser -D -g '' appuser && \
+    adduser -D -g '' -h /rick/work -H rick && \
+    addgroup appuser rickwork && \
+    addgroup rick rickwork && \
     mkdir -p /rick/work && \
-    chown appuser:appuser /rick/work
+    chown appuser:rickwork /rick/work && \
+    chmod 2775 /rick/work && \
+    git config --system --add safe.directory '*'
 
 COPY --from=toolchain /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:$PATH"
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/doofus-rick /doofus-rick
+RUN setcap cap_setuid,cap_setgid,cap_kill+ep /doofus-rick
 
 USER appuser
 EXPOSE 8080
 
-ENTRYPOINT ["/doofus-rick"]
+ENTRYPOINT ["/sbin/tini", "--", "/doofus-rick"]

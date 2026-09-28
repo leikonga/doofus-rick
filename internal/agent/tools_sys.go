@@ -11,6 +11,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
+	"github.com/leikonga/doofus-rick/internal/sandbox"
 )
 
 type shellExecIn struct {
@@ -18,16 +19,35 @@ type shellExecIn struct {
 }
 
 func (a *Agent) shellExecTool() llm.Tool {
-	return llm.NewTool("sys_shell",
-		"Run a shell command and return stdout+stderr. "+
-			"Runs as an unprivileged user in an Alpine Linux environment. "+
-			"Available: bash, curl, jq, git, openssh-client, python3, uv, make, coreutils, sqlite3, diffutils, patch, bc, file, dig, openssl, imagemagick. "+
-			"Working directory is /rick/work; persistent across calls, use it freely to store files, scripts, databases, cloned repos, etc. "+
-			"HOME is also /rick/work. "+
-			"Python packages can be installed inline with: uv run --with <pkg> python3 -c '...'.",
+	return llm.NewTool("sys_shell", a.shellDesc,
 		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
 			return llm.Result{Content: a.shell.Exec(ctx, in.Command, client.DefaultOutputLimit)}, nil
 		})
+}
+
+func shellDescription(shellUser, workDir, pprofAddr string, tools []sandbox.Tool) string {
+	var sb strings.Builder
+	sb.WriteString("Run a shell command with bash and return stdout+stderr. ")
+	fmt.Fprintf(&sb, "Alpine Linux; runs as the unprivileged user %s, not as the bot process. ", shellUser)
+	fmt.Fprintf(&sb, "Working directory and HOME are %s, persistent across calls and redeploys; store files, scripts, databases and cloned repos there. ", workDir)
+	sb.WriteString("Python packages: uv run --with <pkg> python3 -c '...', or uvx <tool>. ")
+	sb.WriteString("The Go toolchain is installed; go install puts Go tools on PATH. ")
+	if pprofAddr != "" {
+		if strings.HasPrefix(pprofAddr, ":") {
+			pprofAddr = "127.0.0.1" + pprofAddr
+		}
+		fmt.Fprintf(&sb, "Profile the running bot via pprof, e.g. go tool pprof -top http://%s/debug/pprof/heap. ", pprofAddr)
+	}
+	sb.WriteString("\nInstalled tools:\n")
+	for _, t := range tools {
+		name := t.Package
+		if len(t.Commands) > 0 {
+			name = strings.Join(t.Commands, ", ")
+		}
+		fmt.Fprintf(&sb, "- %s: %s\n", name, t.Purpose)
+	}
+	sb.WriteString("To add a native Alpine package, add a line to internal/sandbox/tools.txt in your source and ship it.")
+	return sb.String()
 }
 
 type runtimeLogs interface {

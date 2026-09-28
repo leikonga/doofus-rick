@@ -10,6 +10,7 @@ import (
 
 	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
+	"github.com/leikonga/doofus-rick/internal/sandbox"
 )
 
 type fakeRuntimeLogs struct {
@@ -115,5 +116,38 @@ func TestLogReportStaysWithinOutputLimit(t *testing.T) {
 	}
 	if !strings.Contains(got, "(older entries omitted)") || !strings.Contains(got, "m49 ") || strings.Contains(got, "m00 ") {
 		t.Fatalf("expected newest entries kept and omission noted:\n%s", got)
+	}
+}
+
+func TestShellDescriptionListsOnlyAvailableTools(t *testing.T) {
+	tools := []sandbox.Tool{
+		{Package: "busybox-sh", Commands: []string{"sh"}, Purpose: "posix shell here"},
+		{Package: "ghost", Commands: []string{"rick-test-no-such-command"}, Purpose: "never installed"},
+		{Package: "font-noto", Purpose: "fonts for rendering"},
+	}
+	desc := shellDescription("rick", "/rick/work", "127.0.0.1:6060", sandbox.Available(tools))
+
+	for _, want := range []string{
+		"- sh: posix shell here",
+		"- font-noto: fonts for rendering",
+		"user rick",
+		"/rick/work",
+		"go tool pprof -top http://127.0.0.1:6060/debug/pprof/heap",
+		"internal/sandbox/tools.txt",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("description missing %q:\n%s", want, desc)
+		}
+	}
+	for _, unwanted := range []string{"ghost", "never installed", "rick-test-no-such-command"} {
+		if strings.Contains(desc, unwanted) {
+			t.Errorf("description contains unavailable %q:\n%s", unwanted, desc)
+		}
+	}
+}
+
+func TestShellDescriptionOmitsPprofWhenDisabled(t *testing.T) {
+	if desc := shellDescription("rick", "/rick/work", "", nil); strings.Contains(desc, "pprof") {
+		t.Fatalf("description mentions pprof with empty addr:\n%s", desc)
 	}
 }

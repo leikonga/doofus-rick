@@ -89,7 +89,7 @@ func (e *Editor) Write(path, content string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("write %q: %q is not a directory", path, dir)
 	}
-	if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(resolved, []byte(content), 0o664); err != nil {
 		return fmt.Errorf("write %q: %w", path, err)
 	}
 	return nil
@@ -121,7 +121,7 @@ func (e *Editor) Insert(path string, line int, text string) error {
 	out = append(out, lines[line:]...)
 
 	newContent := joinLines(out, strings.HasSuffix(string(data), "\n"))
-	if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
+	if err := os.WriteFile(resolved, []byte(newContent), 0o664); err != nil {
 		return fmt.Errorf("insert %q: %w", path, err)
 	}
 	return nil

@@ -60,7 +60,7 @@ func New(runner Runner, repoDir, backupsDir string, db DBConfig) *Selfcode {
 // Snapshot pg_dumps the configured database into the backups directory
 // with a timestamped filename, then prunes to the newest 5 snapshots.
 func (s *Selfcode) Snapshot(ctx context.Context) (string, error) {
-	if err := os.MkdirAll(s.backupsDir, 0o755); err != nil {
+	if err := os.MkdirAll(s.backupsDir, 0o775); err != nil {
 		return "", fmt.Errorf("create backups dir %q: %w", s.backupsDir, err)
 	}
 
