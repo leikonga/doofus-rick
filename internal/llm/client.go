@@ -308,7 +308,7 @@ func toSDKContentItem(p ContentPart) (components.ChatContentItems, bool) {
 		filename := p.File.Filename
 		data := p.File.Data
 		return components.CreateChatContentItemsFile(components.ChatContentFile{
-			File: components.File{Filename: &filename, FileData: &data},
+			File: components.ChatContentFileFile{Filename: &filename, FileData: &data},
 		}), true
 	default:
 		return components.ChatContentItems{}, false

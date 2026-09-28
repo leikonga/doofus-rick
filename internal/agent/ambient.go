@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/pprof"
 	"slices"
 	"strings"
 	"time"
@@ -18,7 +19,15 @@ import (
 // Per the plan, an ambient interjection is a one-liner, not the start of an
 // agentic tool loop, so unlike handleMention this makes a single completion
 // call with no tools. Returns the sent message's ID (0 if nothing was sent).
-func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (snowflake.ID, error) {
+func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (sentID snowflake.ID, err error) {
+	labels := pprof.Labels("handler", "ambient", "channel", channelID.String())
+	pprof.Do(ctx, labels, func(ctx context.Context) {
+		sentID, err = a.handleAmbient(ctx, channelID, hook)
+	})
+	return sentID, err
+}
+
+func (a *Agent) handleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (snowflake.ID, error) {
 	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 	if err != nil {
 		return 0, err

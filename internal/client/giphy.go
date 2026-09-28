@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 )
@@ -60,6 +60,6 @@ func (c *GiphyClient) Search(ctx context.Context, query string) (string, error) 
 		return "", fmt.Errorf("no results for %q", query)
 	}
 
-	pick := gr.Data[rand.Intn(len(gr.Data))]
+	pick := gr.Data[rand.IntN(len(gr.Data))]
 	return pick.Images.Original.URL, nil
 }

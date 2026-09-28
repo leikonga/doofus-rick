@@ -140,3 +140,17 @@ func TestToolsFindFallsBackToCaseInsensitive(t *testing.T) {
 		t.Error("unknown tool should not match")
 	}
 }
+
+func TestNewToolRejectsMiscasedParameter(t *testing.T) {
+	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
+		return Result{Content: in.Query}, nil
+	})
+
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"Query":"snus"}`)); err == nil {
+		t.Fatal("expected error for miscased parameter")
+	}
+	got, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"snus"}`))
+	if err != nil || got.Content != "snus" {
+		t.Fatalf("valid input: got %+v, %v", got, err)
+	}
+}

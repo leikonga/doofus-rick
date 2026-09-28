@@ -3,7 +3,7 @@ package discord
 import (
 	"context"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -70,7 +70,7 @@ var mamaLines = []string{
 }
 
 func (b *Bot) handleMama(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-	line := mamaLines[rand.Intn(len(mamaLines))]
+	line := mamaLines[rand.IntN(len(mamaLines))]
 	return e.CreateMessage(discord.MessageCreate{
 		Content: line,
 	})

@@ -1,9 +1,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
 	"reflect"
@@ -31,9 +31,7 @@ func NewTool[In any](name, description string, fn func(context.Context, In) (Res
 		Execute: func(ctx context.Context, input json.RawMessage) (Result, error) {
 			var in In
 			if len(input) > 0 {
-				dec := json.NewDecoder(bytes.NewReader(input))
-				dec.DisallowUnknownFields()
-				if err := dec.Decode(&in); err != nil {
+				if err := jsonv2.Unmarshal(input, &in, jsonv2.RejectUnknownMembers(true)); err != nil {
 					return Result{}, fmt.Errorf("invalid input for tool %q: %w; expected parameters: %s", name, err, strings.Join(params, ", "))
 				}
 			}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"runtime/pprof"
 	"slices"
 	"strings"
 	"time"
@@ -39,7 +40,8 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 		return
 	}
 
-	go a.handleMention(ctx, event)
+	labels := pprof.Labels("handler", "mention", "channel", event.ChannelID.String(), "message", event.MessageID.String())
+	go pprof.Do(ctx, labels, func(ctx context.Context) { a.handleMention(ctx, event) })
 }
 
 func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) {
@@ -352,7 +354,11 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 				continue
 			}
 			slog.Info("tool call", "tool", call.Name, "input", call.Arguments)
-			result, err := tool.Execute(ctx, json.RawMessage(call.Arguments))
+			var result llm.Result
+			var err error
+			pprof.Do(ctx, pprof.Labels("tool", tool.Name), func(ctx context.Context) {
+				result, err = tool.Execute(ctx, json.RawMessage(call.Arguments))
+			})
 			if err != nil {
 				slog.Warn("tool execution failed", "tool", call.Name, "error", err)
 				rec.AddTool(call.Name, call.Arguments, err.Error(), true)

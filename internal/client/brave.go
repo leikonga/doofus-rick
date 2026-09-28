@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -200,7 +200,7 @@ func (c *BraveClient) SearchImage(ctx context.Context, query string) (string, er
 		return "", fmt.Errorf("no image results for %q", query)
 	}
 
-	pick := br.Results[rand.Intn(min(len(br.Results), 5))]
+	pick := br.Results[rand.IntN(min(len(br.Results), 5))]
 	if pick.Properties.Resized != "" {
 		return pick.Properties.Resized, nil
 	}

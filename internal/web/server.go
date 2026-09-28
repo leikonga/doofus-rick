@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 
 	"github.com/gorilla/sessions"
 	"github.com/leikonga/doofus-rick/internal/config"
@@ -74,6 +75,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
 	mux.HandleFunc("GET /debug", s.authMiddleware(s.handleDebug))
 	mux.HandleFunc("GET /debug/trace/{id}", s.authMiddleware(s.handleDebugTrace))
+	mux.HandleFunc("GET /debug/pprof/goroutineleak", s.authMiddleware(pprof.Handler("goroutineleak").ServeHTTP))
 }
 
 func (s *Server) render(w http.ResponseWriter, node g.Node) {
