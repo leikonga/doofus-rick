@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 type Role string
@@ -32,6 +33,9 @@ type Message struct {
 	Parts      []ContentPart
 	ToolCalls  []ToolCall
 	ToolCallID string
+	// ReasoningDetails is the provider's opaque reasoning payload on an
+	// assistant message, sent back unchanged so reasoning survives tool calls.
+	ReasoningDetails json.RawMessage
 }
 
 type ToolCall struct {
@@ -86,11 +90,26 @@ type Tool struct {
 
 type Tools []Tool
 
+// Find prefers an exact match and falls back to a case-insensitive one,
+// since models occasionally miscase a declared tool name.
 func (ts Tools) Find(name string) (Tool, bool) {
 	for _, t := range ts {
 		if t.Name == name {
 			return t, true
 		}
 	}
+	for _, t := range ts {
+		if strings.EqualFold(t.Name, name) {
+			return t, true
+		}
+	}
 	return Tool{}, false
+}
+
+func (ts Tools) Names() []string {
+	names := make([]string, len(ts))
+	for i, t := range ts {
+		names[i] = t.Name
+	}
+	return names
 }

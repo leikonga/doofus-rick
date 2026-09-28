@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,33 @@ func TestToolExecuteErrorPropagates(t *testing.T) {
 	_, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 	if !errors.Is(err, wantErr) {
 		t.Errorf("err = %v, want %v", err, wantErr)
+	}
+}
+
+func TestNewToolRejectsUnknownParameterWithExpectedNames(t *testing.T) {
+	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
+		return Result{Content: in.Query}, nil
+	})
+
+	_, err := tool.Execute(context.Background(), json.RawMessage(`{"q":"snus"}`))
+	if err == nil {
+		t.Fatal("expected error for unknown parameter")
+	}
+	if !strings.Contains(err.Error(), "freshness, query") {
+		t.Errorf("error = %q, want expected parameter names listed", err)
+	}
+}
+
+func TestToolsFindFallsBackToCaseInsensitive(t *testing.T) {
+	ts := Tools{{Name: "web_search"}, {Name: "Web_Search"}, {Name: "sys_shell"}}
+
+	if got, ok := ts.Find("Web_Search"); !ok || got.Name != "Web_Search" {
+		t.Errorf("exact match: got %q, %v", got.Name, ok)
+	}
+	if got, ok := ts.Find("SYS_SHELL"); !ok || got.Name != "sys_shell" {
+		t.Errorf("case-insensitive match: got %q, %v", got.Name, ok)
+	}
+	if _, ok := ts.Find("code_ship"); ok {
+		t.Error("unknown tool should not match")
 	}
 }

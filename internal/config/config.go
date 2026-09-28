@@ -27,15 +27,17 @@ type Config struct {
 	Port          string
 	SessionSecret string
 
-	OpenRouterAPIKey   string
-	SystemPromptFile   string
-	RickModel          string
-	RickFallbackModels []string
-	RickMaxTokens      int64
-	RickTurnTimeout    string
-	CodeMaxTokens      int64
-	CodeMaxToolIter    int
-	ShellTimeout       string
+	OpenRouterAPIKey    string
+	SystemPromptFile    string
+	RickModel           string
+	RickFallbackModels  []string
+	RickMaxTokens       int64
+	RickReasoningEffort string
+	CodeReasoningEffort string
+	RickTurnTimeout     string
+	CodeMaxTokens       int64
+	CodeMaxToolIter     int
+	ShellTimeout        string
 
 	GiphyAPIKey string
 	BraveAPIKey string
@@ -114,15 +116,17 @@ func LoadConfig() *Config {
 		Port:          normalizeAddress(getEnv("PORT", ":8080")),
 		SessionSecret: getEnv("SESSION_SECRET", ""),
 
-		OpenRouterAPIKey:   getEnv("OPENROUTER_API_KEY", ""),
-		SystemPromptFile:   getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
-		RickModel:          getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
-		RickFallbackModels: getEnvList("RICK_FALLBACK_MODELS", []string{"z-ai/glm-5.2"}),
-		RickMaxTokens:      getEnvInt64("RICK_MAX_TOKENS", 512),
-		RickTurnTimeout:    getEnv("RICK_TURN_TIMEOUT", "10m"),
-		CodeMaxTokens:      getEnvInt64("CODE_MAX_TOKENS", 4000),
-		CodeMaxToolIter:    getEnvInt("CODE_MAX_TOOL_ITER", 24),
-		ShellTimeout:       getEnv("SHELL_TIMEOUT", "120s"),
+		OpenRouterAPIKey:    getEnv("OPENROUTER_API_KEY", ""),
+		SystemPromptFile:    getEnv("SYSTEM_PROMPT_FILE", "system_prompt.txt"),
+		RickModel:           getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
+		RickFallbackModels:  getEnvList("RICK_FALLBACK_MODELS", []string{"z-ai/glm-5.2"}),
+		RickMaxTokens:       getEnvInt64("RICK_MAX_TOKENS", 16000),
+		RickReasoningEffort: getEnv("RICK_REASONING_EFFORT", "medium"),
+		CodeReasoningEffort: getEnv("CODE_REASONING_EFFORT", "high"),
+		RickTurnTimeout:     getEnv("RICK_TURN_TIMEOUT", "10m"),
+		CodeMaxTokens:       getEnvInt64("CODE_MAX_TOKENS", 64000),
+		CodeMaxToolIter:     getEnvInt("CODE_MAX_TOOL_ITER", 24),
+		ShellTimeout:        getEnv("SHELL_TIMEOUT", "120s"),
 
 		GiphyAPIKey: getEnv("GIPHY_API_KEY", ""),
 		BraveAPIKey: getEnv("BRAVE_API_KEY", ""),
@@ -162,7 +166,7 @@ func LoadConfig() *Config {
 		AmbientEvalDebounce: getEnv("AMBIENT_EVAL_DEBOUNCE", "60s"),
 		AmbientMinScore:     getEnvInt("AMBIENT_MIN_SCORE", 90),
 		AmbientModel:        getEnv("AMBIENT_MODEL", ""),
-		AmbientMaxTokens:    getEnvInt64("AMBIENT_MAX_TOKENS", 120),
+		AmbientMaxTokens:    getEnvInt64("AMBIENT_MAX_TOKENS", 8000),
 
 		AffinityEnabled:     getEnvBool("AFFINITY_ENABLED", true),
 		AffinityBaseline:    getEnvInt("AFFINITY_BASELINE", -20),

@@ -41,59 +41,53 @@ func assistantMsg() llm.Message {
 	return llm.Message{Role: llm.RoleAssistant, Parts: []llm.ContentPart{llm.TextPart("response")}}
 }
 
-func TestBuildTranscript(t *testing.T) {
+func TestBuildHistory(t *testing.T) {
 	msgs := []discord.Message{
-		{
-			ID:        snowflake.ID(1),
-			Author:    discord.User{ID: snowflake.ID(100), Username: "alice"},
-			Content:   "hello",
-			CreatedAt: time.Now(),
-		},
-		{
-			ID:        snowflake.ID(2),
-			Author:    discord.User{ID: snowflake.ID(200), Username: "bob"},
-			Content:   "hi",
-			CreatedAt: time.Now(),
-		},
-		{
-			ID:        snowflake.ID(3),
-			Author:    discord.User{ID: snowflake.ID(300), Username: "rick"},
-			Content:   "yo",
-			CreatedAt: time.Now(),
-		},
+		{ID: 1, Author: discord.User{ID: 100, Username: "alice"}, Content: "trigger", CreatedAt: time.Now()},
+		{ID: 2, Author: discord.User{ID: 200, Username: "bob"}, Content: "hi", CreatedAt: time.Now()},
+		{ID: 3, Author: discord.User{ID: 300, Username: "rick"}, Content: "dei muada", CreatedAt: time.Now()},
+		{ID: 4, Author: discord.User{ID: 400, Username: "mee6", Bot: true}, Content: "level up", CreatedAt: time.Now()},
+		{ID: 5, Author: discord.User{ID: 200, Username: "bob"}, Content: "/mama", CreatedAt: time.Now()},
 	}
+	a := newTestAgent(map[string]string{"100": "alice", "200": "bob"})
 
-	a := newTestAgent(map[string]string{
-		"100": "alice",
-		"200": "bob",
-		"300": "rick",
-	})
+	got := buildHistory(snowflake.ID(300), snowflake.ID(1), msgs, a.memberName)
 
-	got := buildTranscript(snowflake.ID(300), snowflake.ID(1), msgs, a.memberName)
-
-	if len(got) != 1 {
-		t.Errorf("expected 1 message, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("got %d lines, want 3: %q", len(got), got)
 	}
-
-	if got[0].Role != llm.RoleUser {
-		t.Errorf("expected user role, got %s", got[0].Role)
+	if !strings.HasSuffix(got[0], " bob]: hi") {
+		t.Errorf("line 0 = %q, want bob's message", got[0])
 	}
-
-	content := partsText(got[0].Parts)
-	if len(content) == 0 {
-		t.Error("expected content in message")
+	if !strings.HasSuffix(got[1], " rick (du)]: dei muada") {
+		t.Errorf("line 1 = %q, want rick's own reply labelled as him", got[1])
 	}
-
-	if !strings.Contains(content[0], "bob") {
-		t.Error("should contain bob's message")
+	if !strings.HasSuffix(got[2], " mee6 (bot)]: level up") {
+		t.Errorf("line 2 = %q, want foreign bot labelled", got[2])
 	}
+}
 
-	if strings.Contains(content[0], "alice") {
-		t.Error("should not contain alice's message (skipped)")
+func TestBuildVolatileTurn_TriggerLastAndVolatileContextInside(t *testing.T) {
+	now := time.Date(2026, 9, 28, 14, 36, 0, 0, time.UTC)
+	got := buildVolatileTurn(now, "<grad do>\nsnowflake=1 status=online\n</grad do>", "<recall>\nold\n</recall>\n",
+		[]string{"[14:32 klaus]: i hob trainiert"}, "[14:35 hans]: rick wos sogst")
+
+	for _, want := range []string{"<now>2026-09-28 14:36 UTC</now>", "<grad do>", "<recall>", "<verlauf>\n[14:32 klaus]: i hob trainiert\n</verlauf>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("turn missing %q:\n%s", want, got)
+		}
 	}
+	if !strings.HasSuffix(got, "</kontext>\n<nachricht>\n[14:35 hans]: rick wos sogst\n</nachricht>") {
+		t.Errorf("trigger is not the last block:\n%s", got)
+	}
+}
 
-	if strings.Contains(content[0], "rick") {
-		t.Error("should not contain rick's message (bot)")
+func TestBuildVolatileTurn_OmitsEmptySections(t *testing.T) {
+	got := buildVolatileTurn(time.Now(), "", "", nil, "[hans]: (pinged Rick)")
+	for _, absent := range []string{"<grad do>", "<recall>", "<verlauf>"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("turn should not contain %q:\n%s", absent, got)
+		}
 	}
 }
 
@@ -179,34 +173,6 @@ func TestMessageText(t *testing.T) {
 	}
 }
 
-func TestPartsText(t *testing.T) {
-	tests := []struct {
-		name  string
-		parts []llm.ContentPart
-		want  []string
-	}{
-		{"empty parts", []llm.ContentPart{}, []string{}},
-		{"single text", []llm.ContentPart{llm.TextPart("hello")}, []string{"hello"}},
-		{"multiple text", []llm.ContentPart{llm.TextPart("a"), llm.TextPart("b")}, []string{"a", "b"}},
-		{"mixed parts", []llm.ContentPart{llm.ImagePart("http://x"), llm.TextPart("caption")}, []string{"caption"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := partsText(tc.parts)
-			if len(got) != len(tc.want) {
-				t.Errorf("got %d parts, want %d", len(got), len(tc.want))
-				return
-			}
-			for i, w := range tc.want {
-				if got[i] != w {
-					t.Errorf("part %d: got %q, want %q", i, got[i], w)
-				}
-			}
-		})
-	}
-}
-
 func TestBuildCachedPrefix(t *testing.T) {
 	roster := "<users>...\n</users>"
 	got := buildCachedPrefix(roster, "general", "chat")
@@ -221,23 +187,6 @@ func TestBuildCachedPrefix(t *testing.T) {
 	}
 	if strings.Contains(got, "<now>") {
 		t.Error("should not contain timestamp (volatile)")
-	}
-}
-
-func TestBuildUncachedTail(t *testing.T) {
-	got := buildUncachedTail("", "")
-	if !strings.Contains(got, "<now>") {
-		t.Error("expected timestamp in uncached tail")
-	}
-}
-
-func TestBuildUncachedTail_IncludesGradDoAndRecall(t *testing.T) {
-	got := buildUncachedTail("<grad do>\nsnowflake=1 status=online\n</grad do>", "<recall>\nsome context\n</recall>\n")
-	if !strings.Contains(got, "<grad do>") {
-		t.Error("expected grad do block in uncached tail")
-	}
-	if !strings.Contains(got, "<recall>") {
-		t.Error("expected recall block in uncached tail")
 	}
 }
 

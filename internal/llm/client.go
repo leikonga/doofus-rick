@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -50,11 +51,14 @@ type CompletionRequest struct {
 	Model string
 	// FallbackModels are tried in order if Model errors (rate limit, provider
 	// downtime, moderation, etc).
-	FallbackModels []string
-	MaxTokens      int64
-	System         string
-	Messages       []Message
-	Tools          []Tool
+	FallbackModels  []string
+	MaxTokens       int64
+	ReasoningEffort string
+	// System ends in a cache breakpoint, so it must stay byte-identical
+	// across requests that should share a cache entry.
+	System   string
+	Messages []Message
+	Tools    []Tool
 	// SessionID groups related requests so OpenRouter pins them to one
 	// provider, maximising prompt cache hits across a conversation.
 	SessionID string
@@ -68,6 +72,7 @@ type CompletionResponse struct {
 	StopReason   StopReason
 	InputTokens  int64
 	OutputTokens int64
+	CachedTokens int64
 }
 
 type EmbeddingRequest struct {
@@ -83,7 +88,11 @@ type EmbeddingResponse struct {
 func buildChatRequest(req CompletionRequest) components.ChatRequest {
 	chatMessages := make([]components.ChatMessages, 0, len(req.Messages)+1)
 	chatMessages = append(chatMessages, components.CreateChatMessagesSystem(components.ChatSystemMessage{
-		Content: components.CreateChatSystemMessageContentStr(req.System),
+		Content: components.CreateChatSystemMessageContentArrayOfChatContentText([]components.ChatContentText{{
+			Type:         components.ChatContentTextTypeText,
+			Text:         req.System,
+			CacheControl: &components.ChatContentCacheControl{Type: components.ChatContentCacheControlTypeEphemeral},
+		}}),
 	}))
 	for _, m := range req.Messages {
 		chatMessages = append(chatMessages, toSDKMessage(m))
@@ -95,13 +104,22 @@ func buildChatRequest(req CompletionRequest) components.ChatRequest {
 	if req.SessionID != "" {
 		sessionID = &req.SessionID
 	}
+	var reasoning *components.ChatRequestReasoning
+	if req.ReasoningEffort != "" {
+		effort := components.ChatRequestEffort(req.ReasoningEffort)
+		reasoning = &components.ChatRequestReasoning{Effort: optionalnullable.From(&effort)}
+	}
 	return components.ChatRequest{
 		SessionID: sessionID,
-		Model:     &req.Model,
-		Models:    req.FallbackModels,
-		Messages:  chatMessages,
-		MaxTokens: optionalnullable.From(&maxTokens),
-		Tools:     toSDKTools(req.Tools),
+		// Top-level cache_control moves an automatic breakpoint to the end of
+		// the conversation, so each tool-loop iteration reuses the previous one.
+		CacheControl: &components.AnthropicCacheControlDirective{Type: components.AnthropicCacheControlDirectiveTypeEphemeral},
+		Reasoning:    reasoning,
+		Model:        &req.Model,
+		Models:       req.FallbackModels,
+		Messages:     chatMessages,
+		MaxTokens:    optionalnullable.From(&maxTokens),
+		Tools:        toSDKTools(req.Tools),
 		// Only route to providers that support every parameter in this
 		// request (notably tools) instead of one that silently drops it.
 		Provider: optionalnullable.From(&components.ProviderPreferences{
@@ -130,11 +148,14 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (Completio
 		Model:      res.ChatResult.Model,
 		StopReason: stopReasonFrom(choice.FinishReason),
 	}
-	if res.ChatResult.Usage != nil {
-		resp.InputTokens = res.ChatResult.Usage.PromptTokens
-		resp.OutputTokens = res.ChatResult.Usage.CompletionTokens
+	if usage := res.ChatResult.Usage; usage != nil {
+		resp.InputTokens = usage.PromptTokens
+		resp.OutputTokens = usage.CompletionTokens
+		if details, ok := usage.PromptTokensDetails.GetOrZero(); ok && details.CachedTokens != nil {
+			resp.CachedTokens = *details.CachedTokens
+		}
 	}
-	logArgs := []any{"model", resp.Model, "input_tokens", resp.InputTokens,
+	logArgs := []any{"model", resp.Model, "input_tokens", resp.InputTokens, "cached_tokens", resp.CachedTokens,
 		"output_tokens", resp.OutputTokens, "latency_ms", time.Since(start).Milliseconds()}
 	if resp.Model != req.Model {
 		logArgs = append(logArgs, "requested_model", req.Model)
@@ -216,8 +237,9 @@ func toSDKMessage(m Message) components.ChatMessages {
 		})
 	case RoleAssistant:
 		return components.CreateChatMessagesAssistant(components.ChatAssistantMessage{
-			Content:   toSDKAssistantContent(m.Parts),
-			ToolCalls: toSDKToolCalls(m.ToolCalls),
+			Content:          toSDKAssistantContent(m.Parts),
+			ToolCalls:        toSDKToolCalls(m.ToolCalls),
+			ReasoningDetails: toSDKReasoningDetails(m.ReasoningDetails),
 		})
 	case RoleTool:
 		return components.CreateChatMessagesTool(components.ChatToolMessage{
@@ -324,6 +346,13 @@ func fromSDKAssistantMessage(m components.ChatAssistantMessage) Message {
 			}
 		}
 	}
+	if len(m.ReasoningDetails) > 0 {
+		if raw, err := json.Marshal(m.ReasoningDetails); err == nil {
+			out.ReasoningDetails = raw
+		} else {
+			slog.Warn("dropping unmarshalable reasoning details", "error", err)
+		}
+	}
 	for _, tc := range m.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, ToolCall{
 			ID:        tc.ID,
@@ -332,4 +361,16 @@ func fromSDKAssistantMessage(m components.ChatAssistantMessage) Message {
 		})
 	}
 	return out
+}
+
+func toSDKReasoningDetails(raw json.RawMessage) []components.ReasoningDetailUnion {
+	if len(raw) == 0 {
+		return nil
+	}
+	var details []components.ReasoningDetailUnion
+	if err := json.Unmarshal(raw, &details); err != nil {
+		slog.Warn("dropping unparsable reasoning details", "error", err)
+		return nil
+	}
+	return details
 }

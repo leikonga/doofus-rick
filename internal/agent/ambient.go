@@ -30,7 +30,7 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 		return 0, err
 	}
 	slices.Reverse(msgs)
-	messages := buildTranscript(botID, 0, msgs, a.memberName)
+	history := buildHistory(botID, 0, msgs, a.memberName)
 
 	var channelName, channelTopic string
 	var channelOverwrites discord.PermissionOverwrites
@@ -47,23 +47,17 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 	recall := a.buildRecallBlock(ctx, hook, []uint64{uint64(channelID)})
 	hookLabel := fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook)
-	if len(messages) > 0 {
-		messages = append(messages, checkpointMessage())
-	}
-	messages = append(messages, llm.NewUserMessage(llm.TextPart(hookLabel)))
+	system := string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic)
+	turn := buildVolatileTurn(time.Now(), gradDo, recall, history, hookLabel)
 
-	systemFull := string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic)
-	if tail := buildUncachedTail(gradDo, recall); tail != "" {
-		systemFull += "\n\n" + tail
-	}
-
-	rec := a.tracer.Start(channelID.String(), "ambient", systemFull, hookLabel)
+	rec := a.tracer.Start(channelID.String(), "ambient", system, hookLabel)
 	resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
-		Model:     a.config.RickModel,
-		MaxTokens: a.config.AmbientMaxTokens,
-		SessionID: channelID.String(),
-		System:    systemFull,
-		Messages:  messages,
+		Model:           a.config.RickModel,
+		MaxTokens:       a.config.AmbientMaxTokens,
+		ReasoningEffort: a.config.RickReasoningEffort,
+		SessionID:       channelID.String(),
+		System:          system,
+		Messages:        []llm.Message{llm.NewUserMessage(llm.TextPart(turn))},
 	})
 	if err == nil {
 		rec.AddTokens(resp.InputTokens, resp.OutputTokens)

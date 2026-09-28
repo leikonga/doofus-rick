@@ -24,7 +24,8 @@ var (
 
 const (
 	maxContextLen = 500
-	historyLimit  = 7
+	historyLimit  = 10
+	rickLabel     = "rick (du)"
 	normalMaxIter = 8
 )
 
@@ -79,13 +80,13 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 	slices.Reverse(msgs)
 
-	messages := buildTranscript(botID, event.MessageID, msgs, a.memberName)
+	history := buildHistory(botID, event.MessageID, msgs, a.memberName)
 
+	var replyTo string
 	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
-		refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID)
-		if err == nil && !refMsg.Author.Bot && len(refMsg.Content) <= maxContextLen {
-			ts := refMsg.CreatedAt.Format("15:04")
-			messages = append(messages, llm.NewUserMessage(llm.TextPart(fmt.Sprintf("[%s %s (replied to)]: %s", ts, a.memberName(refMsg.Author), a.resolveMentions(refMsg.Content)))))
+		if refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID); err == nil {
+			replyTo = fmt.Sprintf(", antwortet auf %s %s: %q", authorLabel(botID, refMsg.Author, a.memberName),
+				refMsg.CreatedAt.Format("15:04"), truncate(a.resolveMentions(refMsg.Content)))
 		}
 	}
 
@@ -108,23 +109,12 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	attachments := classifyAttachments(ctx, event.Message.Attachments)
 	triggerParts = append(triggerParts, attachments.unsupported...)
 
-	triggerName := a.memberName(event.Message.Author)
-	var triggerLabel string
+	triggerText := "(pinged Rick)"
 	if len(triggerParts) > 0 {
-		triggerLabel = fmt.Sprintf("[%s]: %s", triggerName, strings.Join(triggerParts, " "))
-	} else {
-		triggerLabel = fmt.Sprintf("[%s]: (pinged Rick)", triggerName)
+		triggerText = strings.Join(triggerParts, " ")
 	}
-
-	triggerContentParts := []llm.ContentPart{llm.TextPart(triggerLabel)}
-	for _, url := range attachments.imageURLs {
-		triggerContentParts = append(triggerContentParts, llm.ImagePart(url))
-	}
-	triggerContentParts = append(triggerContentParts, attachments.fileParts...)
-	if len(messages) > 0 {
-		messages = append(messages, checkpointMessage())
-	}
-	messages = append(messages, llm.NewUserMessage(triggerContentParts...))
+	triggerLabel := fmt.Sprintf("[%s %s%s]: %s", event.Message.CreatedAt.Format("15:04"),
+		a.memberName(event.Message.Author), replyTo, triggerText)
 
 	var channelName, channelTopic string
 	var channelOverwrites discord.PermissionOverwrites
@@ -147,13 +137,17 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	recall := <-recallCh
 
+	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(time.Now(), gradDo, recall, history, triggerLabel))}
+	for _, url := range attachments.imageURLs {
+		turnParts = append(turnParts, llm.ImagePart(url))
+	}
+	turnParts = append(turnParts, attachments.fileParts...)
+
 	resp, err := a.callModel(ctx, modelRequest{
-		systemPrompt: string(systemPrompt),
-		cachedPrefix: buildCachedPrefix(leit, channelName, channelTopic),
-		uncachedTail: buildUncachedTail(gradDo, recall),
-		messages:     messages,
-		tracePrompt:  triggerLabel,
-		event:        event,
+		system:      string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic),
+		messages:    []llm.Message{llm.NewUserMessage(turnParts...)},
+		tracePrompt: triggerLabel,
+		event:       event,
 	})
 	if err != nil {
 		slog.Warn("model call failed", "error", err)
@@ -186,70 +180,83 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 }
 
-// checkpointMessage breaks the run of consecutive user turns, since
-// Anthropic silently merges those and would fold the trigger into history.
-func checkpointMessage() llm.Message {
-	return llm.Message{Role: llm.RoleAssistant, Parts: []llm.ContentPart{llm.TextPart("kontext gelesen")}}
-}
-
-func buildTranscript(botID, skipID snowflake.ID, msgs []discord.Message, memberNameFunc func(discord.User) string) []llm.Message {
-	var messages []llm.Message
+func buildHistory(botID, skipID snowflake.ID, msgs []discord.Message, memberNameFunc func(discord.User) string) []string {
+	var lines []string
 	for _, msg := range msgs {
-		if msg.ID == skipID || msg.Author.ID == botID || strings.HasPrefix(msg.Content, "/") {
+		if msg.ID == skipID || strings.HasPrefix(msg.Content, "/") {
 			continue
 		}
 
-		var parts []llm.ContentPart
-		content := msg.Content
-		if len(content) > maxContextLen {
-			content = content[:maxContextLen] + "..."
-		}
-		if content != "" {
-			parts = append(parts, llm.TextPart(content))
+		var parts []string
+		if msg.Content != "" {
+			parts = append(parts, truncate(msg.Content))
 		}
 		for _, s := range msg.StickerItems {
-			parts = append(parts, llm.TextPart("(sticker: "+s.Name+")"))
+			parts = append(parts, "(sticker: "+s.Name+")")
 		}
 		for _, att := range msg.Attachments {
 			if isImageAttachment(att) {
-				parts = append(parts, llm.TextPart("(sent an image)"))
+				parts = append(parts, "(sent an image)")
 			} else {
-				parts = append(parts, llm.TextPart(unsupportedLabel(att)))
+				parts = append(parts, unsupportedLabel(att))
 			}
 		}
 		if len(parts) == 0 {
 			continue
 		}
 
-		name := memberNameFunc(msg.Author)
-		if msg.Author.Bot {
-			name = msg.Author.Username + " (bot)"
-		}
-		ts := msg.CreatedAt.Format("15:04")
-		contentText := fmt.Sprintf("[%s %s]: %s", ts, name, strings.Join(partsText(parts), " "))
-
-		messages = append(messages, llm.NewUserMessage(llm.TextPart(contentText)))
+		lines = append(lines, fmt.Sprintf("[%s %s]: %s", msg.CreatedAt.Format("15:04"),
+			authorLabel(botID, msg.Author, memberNameFunc), strings.Join(parts, " ")))
 	}
-	return messages
+	return lines
 }
 
-func partsText(parts []llm.ContentPart) []string {
-	var texts []string
-	for _, p := range parts {
-		if p.Type == "text" {
-			texts = append(texts, p.Text)
-		}
+func authorLabel(botID snowflake.ID, author discord.User, memberNameFunc func(discord.User) string) string {
+	switch {
+	case author.ID == botID:
+		return rickLabel
+	case author.Bot:
+		return author.Username + " (bot)"
+	default:
+		return memberNameFunc(author)
 	}
-	return texts
+}
+
+func truncate(content string) string {
+	if len(content) > maxContextLen {
+		return content[:maxContextLen] + "..."
+	}
+	return content
+}
+
+func buildVolatileTurn(now time.Time, gradDo, recall string, history []string, trigger string) string {
+	var sb strings.Builder
+	sb.WriteString("<kontext>\n")
+	fmt.Fprintf(&sb, "<now>%s</now>\n", now.Format("2006-01-02 15:04 MST"))
+	if gradDo != "" {
+		sb.WriteString(strings.TrimRight(gradDo, "\n") + "\n")
+	}
+	if recall != "" {
+		sb.WriteString(strings.TrimRight(recall, "\n") + "\n")
+	}
+	if len(history) > 0 {
+		sb.WriteString("<verlauf>\n")
+		for _, line := range history {
+			sb.WriteString(line + "\n")
+		}
+		sb.WriteString("</verlauf>\n")
+	}
+	sb.WriteString("</kontext>\n<nachricht>\n")
+	sb.WriteString(trigger)
+	sb.WriteString("\n</nachricht>")
+	return sb.String()
 }
 
 type modelRequest struct {
-	systemPrompt string
-	cachedPrefix string
-	uncachedTail string
-	messages     []llm.Message
-	tracePrompt  string
-	event        *events.MessageCreate
+	system      string
+	messages    []llm.Message
+	tracePrompt string
+	event       *events.MessageCreate
 }
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
@@ -257,7 +264,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	// Differs from model when a fallback fires; usage bills against the model that ran.
 	servedModel := model
 
-	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.systemPrompt+req.cachedPrefix, req.tracePrompt)
+	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.system, req.tracePrompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
@@ -283,24 +290,20 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			rec.SetMessages(msgsJSON)
 		}
 
-		systemFull := req.systemPrompt + req.cachedPrefix
-		if req.uncachedTail != "" {
-			systemFull += "\n\n" + req.uncachedTail
-		}
-
-		maxTokens := a.config.RickMaxTokens
+		maxTokens, effort := a.config.RickMaxTokens, a.config.RickReasoningEffort
 		if escalated {
-			maxTokens = a.config.CodeMaxTokens
+			maxTokens, effort = a.config.CodeMaxTokens, a.config.CodeReasoningEffort
 		}
 
 		resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
-			Model:          model,
-			FallbackModels: a.config.RickFallbackModels,
-			MaxTokens:      maxTokens,
-			SessionID:      req.event.ChannelID.String(),
-			System:         systemFull,
-			Messages:       messages,
-			Tools:          tools,
+			Model:           model,
+			FallbackModels:  a.config.RickFallbackModels,
+			MaxTokens:       maxTokens,
+			ReasoningEffort: effort,
+			SessionID:       req.event.ChannelID.String(),
+			System:          req.system,
+			Messages:        messages,
+			Tools:           tools,
 		})
 		if err != nil {
 			slog.Warn("model api error", "error", err)
@@ -343,6 +346,9 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			tool, ok := tools.Find(call.Name)
 			if !ok {
 				slog.Warn("unknown tool called by model", "tool", call.Name)
+				msg := fmt.Sprintf("error: no tool named %q; available tools: %s", call.Name, strings.Join(tools.Names(), ", "))
+				rec.AddTool(call.Name, call.Arguments, msg, true)
+				toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, msg))
 				continue
 			}
 			slog.Info("tool call", "tool", call.Name, "input", call.Arguments)
@@ -470,20 +476,6 @@ func buildCachedPrefix(roster, channelName, channelTopic string) string {
 		if channelTopic != "" {
 			fmt.Fprintf(&sb, "\n# topic: %s", channelTopic)
 		}
-	}
-	return sb.String()
-}
-
-func buildUncachedTail(gradDo, recall string) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<now>%s</now>", time.Now().Format("2006-01-02 15:04 MST"))
-	if gradDo != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(gradDo)
-	}
-	if recall != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(recall)
 	}
 	return sb.String()
 }

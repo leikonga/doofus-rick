@@ -187,7 +187,7 @@ func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {
 	var sb strings.Builder
 	sb.WriteString("<recall>\n")
 	for _, c := range chunks {
-		sb.WriteString(c.Content + "\n")
+		fmt.Fprintf(&sb, "<chunk date=%q>\n%s\n</chunk>\n", c.LastActive.Format("2006-01-02"), strings.TrimRight(c.Content, "\n"))
 	}
 	sb.WriteString("</recall>\n")
 	return sb.String()
