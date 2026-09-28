@@ -1,0 +1,19 @@
+package selbst
+
+var packages = map[string]string{
+	"agent":       "rick's turn loop: builds prompts, calls the model, runs tools (web, memory, discord, sys, code), handles mentions and ambient interjections",
+	"ambient":     "decides when rick butts in unprompted: cheap gate (activity window, cooldown, daily cap) then an llm classifier that scores the burst",
+	"archive":     "long-term memory: chunks and embeds chat history, hybrid recall retrieval, affinity scores and their llm scorer, typing theatre",
+	"client":      "outbound clients: brave search and page fetch, giphy, and the sys_shell executor running as the shell user",
+	"codeedit":    "jailed file read/write/replace/insert inside rick's source checkout for code_read and code_edit",
+	"config":      "env-based configuration loaded once at startup",
+	"discord":     "disgo gateway bot: event handlers, slash commands, member and presence cache, archive ingestion, backfill, ambient and reminder loops",
+	"llm":         "openrouter client: chat completions with tools and prompt caching, embeddings, tool schema derivation",
+	"runtimehome": "runtime dir in the work dir: daily jsonl logs, per-boot crash files, readers behind sys_logs, group permissions",
+	"sandbox":     "manifest of native alpine tools installed for sys_shell (tools.txt)",
+	"selbst":      "rick's self-knowledge: build and runtime facts for the <selbst> block, this package map, live vitals",
+	"selfcode":    "code_ship helpers: postgres snapshots and verifying pending migrations against a scratch database",
+	"store":       "postgres via gorm plus goose migrations: messages, chunks, embeddings, quotes, reminders, affinity, traces, token usage",
+	"tracer":      "records each turn (prompt, tools, tokens, response); keeps successes in memory, persists failures",
+	"web":         "http server: discord oauth login, quote pages, debug trace viewer, goroutine leak profile",
+}

@@ -69,10 +69,10 @@ func TestBuildHistory(t *testing.T) {
 
 func TestBuildVolatileTurn_TriggerLastAndVolatileContextInside(t *testing.T) {
 	now := time.Date(2026, 9, 28, 14, 36, 0, 0, time.UTC)
-	got := buildVolatileTurn(now, "<grad do>\nsnowflake=1 status=online\n</grad do>", "<recall>\nold\n</recall>\n",
+	got := buildVolatileTurn(now, "<vitals>uptime=3h12m goroutines=41 heap_mb=78 gc_cycles=120</vitals>", "<grad do>\nsnowflake=1 status=online\n</grad do>", "<recall>\nold\n</recall>\n",
 		[]string{"[14:32 klaus]: i hob trainiert"}, "[14:35 hans]: rick wos sogst")
 
-	for _, want := range []string{"<now>2026-09-28 14:36 UTC</now>", "<grad do>", "<recall>", "<verlauf>\n[14:32 klaus]: i hob trainiert\n</verlauf>"} {
+	for _, want := range []string{"<now>2026-09-28 14:36 UTC</now>\n<vitals>uptime=3h12m goroutines=41 heap_mb=78 gc_cycles=120</vitals>\n<grad do>", "<recall>", "<verlauf>\n[14:32 klaus]: i hob trainiert\n</verlauf>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("turn missing %q:\n%s", want, got)
 		}
@@ -83,8 +83,8 @@ func TestBuildVolatileTurn_TriggerLastAndVolatileContextInside(t *testing.T) {
 }
 
 func TestBuildVolatileTurn_OmitsEmptySections(t *testing.T) {
-	got := buildVolatileTurn(time.Now(), "", "", nil, "[hans]: (pinged Rick)")
-	for _, absent := range []string{"<grad do>", "<recall>", "<verlauf>"} {
+	got := buildVolatileTurn(time.Now(), "", "", "", nil, "[hans]: (pinged Rick)")
+	for _, absent := range []string{"<vitals>", "<grad do>", "<recall>", "<verlauf>"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("turn should not contain %q:\n%s", absent, got)
 		}
@@ -174,10 +174,10 @@ func TestMessageText(t *testing.T) {
 }
 
 func TestBuildCachedPrefix(t *testing.T) {
-	roster := "<users>...\n</users>"
-	got := buildCachedPrefix(roster, "general", "chat")
-	if !strings.Contains(got, "<users>") {
-		t.Error("expected roster in cached prefix")
+	roster := "<leit>\nsnowflake=1 name=hans affinity=-20\n</leit>"
+	got := buildCachedPrefix("<selbst>\ncommit=0123456\n</selbst>", roster, "general", "chat")
+	if !strings.HasPrefix(got, "<selbst>\ncommit=0123456\n</selbst>\n\n<leit>") {
+		t.Errorf("expected <selbst> first, then <leit>:\n%s", got)
 	}
 	if !strings.Contains(got, "# channel: general") {
 		t.Error("expected channel in cached prefix")
@@ -187,6 +187,24 @@ func TestBuildCachedPrefix(t *testing.T) {
 	}
 	if strings.Contains(got, "<now>") {
 		t.Error("should not contain timestamp (volatile)")
+	}
+}
+
+func TestBuildCachedPrefix_SkipsEmptyBlocks(t *testing.T) {
+	tests := []struct {
+		name, selbst, roster, channel, want string
+	}{
+		{"all empty", "", "", "", ""},
+		{"selbst only", "<selbst></selbst>", "", "", "<selbst></selbst>"},
+		{"roster only", "", "<leit></leit>", "", "<leit></leit>"},
+		{"selbst and channel", "<selbst></selbst>", "", "general", "<selbst></selbst>\n\n# channel: general"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := buildCachedPrefix(tc.selbst, tc.roster, tc.channel, ""); got != tc.want {
+				t.Errorf("buildCachedPrefix() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

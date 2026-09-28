@@ -3,6 +3,7 @@ package agent
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/sandbox"
+	"github.com/leikonga/doofus-rick/internal/selbst"
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -43,6 +45,7 @@ type Agent struct {
 	giphy          *client.GiphyClient
 	shell          *client.Shell
 	shellDesc      string
+	selbstBlock    string
 	runtimeLogs    runtimeLogs
 	tracer         *tracer.Tracer
 	retriever      *archive.Retriever
@@ -87,6 +90,12 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 	if err != nil {
 		slog.Error("failed to parse sandbox tool manifest, sys_shell lists no tools", "error", err)
 	}
+	self := selbst.Gather(c.RickModel, c.ShellUser, c.PprofAddr, selbst.Paths{
+		Work:   c.WorkDir,
+		Source: c.RickRepoDir,
+		Logs:   filepath.Join(c.WorkDir, "runtime", "logs"),
+		Crash:  filepath.Join(c.WorkDir, "runtime", "crash"),
+	})
 	var logs runtimeLogs
 	if home != nil { // a typed-nil *Home in the interface would defeat logReport's nil check
 		logs = home
@@ -102,6 +111,7 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
 		shell:         client.NewShell(c.WorkDir, shellTimeout, c.ShellUser),
 		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
+		selbstBlock:   self.Block(),
 		tracer:        tr,
 		retriever: archive.NewRetriever(archive.RetrievalConfig{
 			TopK:           c.RecallTopK,

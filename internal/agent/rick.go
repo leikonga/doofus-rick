@@ -17,6 +17,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/selbst"
 )
 
 var (
@@ -158,14 +159,15 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	recall := <-recallCh
 
-	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(time.Now(), gradDo, recall, history, triggerLabel))}
+	now := time.Now()
+	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(now, selbst.Vitals(now), gradDo, recall, history, triggerLabel))}
 	for _, url := range attachments.imageURLs {
 		turnParts = append(turnParts, llm.ImagePart(url))
 	}
 	turnParts = append(turnParts, attachments.fileParts...)
 
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic),
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channelName, channelTopic),
 		messages:    []llm.Message{llm.NewUserMessage(turnParts...)},
 		tracePrompt: triggerLabel,
 		event:       event,
@@ -250,10 +252,13 @@ func truncate(content string) string {
 	return content
 }
 
-func buildVolatileTurn(now time.Time, gradDo, recall string, history []string, trigger string) string {
+func buildVolatileTurn(now time.Time, vitals, gradDo, recall string, history []string, trigger string) string {
 	var sb strings.Builder
 	sb.WriteString("<kontext>\n")
 	fmt.Fprintf(&sb, "<now>%s</now>\n", now.Format("2006-01-02 15:04 MST"))
+	if vitals != "" {
+		sb.WriteString(vitals + "\n")
+	}
 	if gradDo != "" {
 		sb.WriteString(strings.TrimRight(gradDo, "\n") + "\n")
 	}
@@ -488,10 +493,16 @@ func (a *Agent) resolveMentions(content string) string {
 	})
 }
 
-func buildCachedPrefix(roster, channelName, channelTopic string) string {
+func buildCachedPrefix(selbstBlock, roster, channelName, channelTopic string) string {
 	var sb strings.Builder
-	if roster != "" {
-		sb.WriteString(roster)
+	for _, block := range []string{selbstBlock, roster} {
+		if block == "" {
+			continue
+		}
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(block)
 	}
 	if channelName != "" {
 		if sb.Len() > 0 {

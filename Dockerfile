@@ -10,9 +10,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
+ARG GIT_COMMIT
+ARG GIT_COMMIT_TIME
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s" -o doofus-rick ./cmd/doofus-rick
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+    -ldflags="-w -s -X github.com/leikonga/doofus-rick/internal/selbst.commit=${GIT_COMMIT} -X github.com/leikonga/doofus-rick/internal/selbst.commitTime=${GIT_COMMIT_TIME}" \
+    -o doofus-rick ./cmd/doofus-rick
 RUN adduser -D -g '' appuser
 
 FROM golang:1.27.1-alpine AS toolchain

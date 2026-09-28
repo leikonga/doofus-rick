@@ -12,6 +12,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/selbst"
 )
 
 // HandleAmbient runs an unprompted, reduced persona call for a burst the
@@ -58,8 +59,9 @@ func (a *Agent) handleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
 	recall := a.buildRecallBlock(ctx, hook, []uint64{uint64(channelID)})
 	hookLabel := fmt.Sprintf("[ambient hook, no one asked, do not reply to any single message]: %s", hook)
-	system := string(systemPrompt) + buildCachedPrefix(leit, channelName, channelTopic)
-	turn := buildVolatileTurn(time.Now(), gradDo, recall, history, hookLabel)
+	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channelName, channelTopic)
+	now := time.Now()
+	turn := buildVolatileTurn(now, selbst.Vitals(now), gradDo, recall, history, hookLabel)
 
 	rec := a.tracer.Start(channelID.String(), "ambient", system, hookLabel)
 	resp, err := a.llm.Complete(ctx, llm.CompletionRequest{
