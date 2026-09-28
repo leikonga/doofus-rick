@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"runtime/pprof"
 	"slices"
 	"strings"
@@ -44,7 +45,25 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 	go pprof.Do(ctx, labels, func(ctx context.Context) { a.handleMention(ctx, event) })
 }
 
+func recoverTurn(ctx context.Context, err *error) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	var labels []any
+	pprof.ForLabels(ctx, func(key, value string) bool {
+		labels = append(labels, key, value)
+		return true
+	})
+	slog.ErrorContext(ctx, "turn panicked", "panic", v, "stack", string(debug.Stack()), slog.Group("labels", labels...))
+	if err != nil {
+		*err = fmt.Errorf("turn panicked: %v", v)
+	}
+}
+
 func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) {
+	defer recoverTurn(ctx, nil)
+
 	ctx, cancel := context.WithTimeout(ctx, a.turnTimeout)
 	defer cancel()
 

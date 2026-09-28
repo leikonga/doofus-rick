@@ -16,6 +16,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/logbuf"
+	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 	"github.com/leikonga/doofus-rick/internal/web"
@@ -24,9 +25,8 @@ import (
 const envProduction = "production"
 
 func main() {
-	textHandler := slog.NewTextHandler(os.Stdout, nil)
-	logHandler, logBuf := logbuf.New(textHandler)
-	slog.SetDefault(slog.New(logHandler))
+	stdoutHandler := slog.NewTextHandler(os.Stdout, nil)
+	slog.SetDefault(slog.New(stdoutHandler))
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -43,6 +43,19 @@ func main() {
 	defer cancel()
 
 	c := config.LoadConfig()
+
+	sink := slog.Handler(stdoutHandler)
+	home, homeErr := runtimehome.Open(c.WorkDir, time.Now())
+	if homeErr == nil {
+		defer home.Close()
+		sink = slog.NewMultiHandler(stdoutHandler, home.Handler())
+	}
+	logHandler, logBuf := logbuf.New(sink)
+	slog.SetDefault(slog.New(logHandler))
+	if homeErr != nil {
+		slog.Warn("runtime home unavailable, logging to stdout only", "work_dir", c.WorkDir, "error", homeErr)
+	}
+
 	db := store.MustInit(c)
 	if os.Getenv("APP_ENV") != envProduction {
 		db.MaybeSeed(ctx)

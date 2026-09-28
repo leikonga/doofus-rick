@@ -27,7 +27,9 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 	return sentID, err
 }
 
-func (a *Agent) handleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (snowflake.ID, error) {
+func (a *Agent) handleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (_ snowflake.ID, err error) {
+	defer recoverTurn(ctx, &err)
+
 	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 	if err != nil {
 		return 0, err
