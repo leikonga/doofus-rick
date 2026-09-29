@@ -67,18 +67,6 @@ type Agent struct {
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, home *runtimehome.Home, tr *tracer.Tracer) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	llmClient := llm.NewClient(c.OpenRouterAPIKey)
-	typingMaxDelay, err := time.ParseDuration(c.TypingMaxDelay)
-	if err != nil {
-		typingMaxDelay = 20 * time.Second
-	}
-	turnTimeout, err := time.ParseDuration(c.RickTurnTimeout)
-	if err != nil {
-		turnTimeout = 10 * time.Minute
-	}
-	shellTimeout, err := time.ParseDuration(c.ShellTimeout)
-	if err != nil {
-		shellTimeout = 120 * time.Second
-	}
 	editor, err := codeedit.New(c.RickRepoDir)
 	if err != nil {
 		slog.Warn("code repo dir not available, code_read and code_edit will error until cloned", "dir", c.RickRepoDir, "error", err)
@@ -117,7 +105,7 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		discordClient: dc,
 		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
 		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
-		shell:         client.NewShell(c.WorkDir, shellTimeout, c.ShellUser),
+		shell:         client.NewShell(c.WorkDir, c.ShellTimeout, c.ShellUser),
 		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
 		selbstBlock:   self.Block(),
 		tracer:        tr,
@@ -128,17 +116,15 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			NeighborChunks: c.RecallNeighborChunks,
 		}, s, llmClient),
 		affinity: archive.NewAffinity(archive.AffinityConfig{
-			Baseline:    c.AffinityBaseline,
-			DecayPerDay: c.AffinityDecayPerDay,
-			Model:       c.AffinityModel,
+			Baseline: c.AffinityBaseline,
 		}, s),
 		typingTheatre: archive.NewTypingTheatre(archive.TypingTheatreConfig{
 			Enabled:  c.TypingTheatre,
-			MaxDelay: typingMaxDelay,
+			MaxDelay: c.TypingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
 		codeedit:         editor,
-		turnTimeout:      turnTimeout,
+		turnTimeout:      c.RickTurnTimeout,
 		selfcode:         sc,
 		cmdRunner:        cmdRunner,
 		tasks:            s,

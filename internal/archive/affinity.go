@@ -8,10 +8,8 @@ import (
 )
 
 type AffinityConfig struct {
-	Enabled     bool
-	Baseline    int
-	DecayPerDay float64
-	Model       string
+	Enabled  bool
+	Baseline int
 }
 
 type Affinity struct {
@@ -22,9 +20,6 @@ type Affinity struct {
 func NewAffinity(config AffinityConfig, s *store.Store) *Affinity {
 	if config.Baseline == 0 {
 		config.Baseline = -20
-	}
-	if config.DecayPerDay == 0 {
-		config.DecayPerDay = 0.10
 	}
 	return &Affinity{config: config, store: s}
 }

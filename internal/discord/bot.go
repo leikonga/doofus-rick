@@ -43,10 +43,8 @@ type Bot struct {
 	backfillMutex     sync.Mutex
 	chunker           *archive.Chunker
 	embedder          *archive.Embedder
-	chunkGapDuration  time.Duration
 	ambientGate       *ambient.Gate
 	ambientClassifier *ambient.Classifier
-	ambientWindow     time.Duration
 	affinityScorer    *archive.AffinityScorer
 	deployReportOnce  sync.Once
 	taskReportOnce    sync.Once
@@ -90,9 +88,8 @@ func (b *Bot) Run() error {
 	b.client = client
 	b.agent = agent.New(b.store, b.config, b, b.client, b.runtimeHome, b.tracer)
 
-	b.chunkGapDuration = parseDurationOr(b.config.ChunkGap, archive.DefaultChunkGap)
 	b.chunker = archive.NewChunker(archive.ChunkConfig{
-		ChunkGap:      b.chunkGapDuration,
+		ChunkGap:      b.config.ChunkGap,
 		ChunkMaxMsgs:  b.config.ChunkMaxMsgs,
 		ChunkMaxChars: b.config.ChunkMaxChars,
 	}, b)
@@ -100,18 +97,15 @@ func (b *Bot) Run() error {
 	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, llmClient)
 
 	if b.config.AmbientEnabled {
-		b.ambientWindow = parseDurationOr(b.config.AmbientWindow, 90*time.Second)
 		b.ambientGate = ambient.NewGate(ambient.GateConfig{
 			Enabled:      b.config.AmbientEnabled,
-			Window:       b.ambientWindow,
+			Window:       b.config.AmbientWindow,
 			MinMsgs:      b.config.AmbientMinMsgs,
 			MinAuthors:   b.config.AmbientMinAuthors,
-			Cooldown:     parseDurationOr(b.config.AmbientCooldown, 60*time.Minute),
+			Cooldown:     b.config.AmbientCooldown,
 			DailyCap:     b.config.AmbientDailyCap,
-			EvalDebounce: parseDurationOr(b.config.AmbientEvalDebounce, 60*time.Second),
+			EvalDebounce: b.config.AmbientEvalDebounce,
 			MinScore:     b.config.AmbientMinScore,
-			Model:        b.config.AmbientModel,
-			MaxTokens:    b.config.AmbientMaxTokens,
 		}, b.store)
 		classifierModel := b.config.AmbientModel
 		if classifierModel == "" {
@@ -130,9 +124,7 @@ func (b *Bot) Run() error {
 			affinityModel = b.config.RickModel
 		}
 		aff := archive.NewAffinity(archive.AffinityConfig{
-			Baseline:    b.config.AffinityBaseline,
-			DecayPerDay: b.config.AffinityDecayPerDay,
-			Model:       affinityModel,
+			Baseline: b.config.AffinityBaseline,
 		}, b.store)
 		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff, b.store)
 	}
@@ -185,14 +177,6 @@ func (b *Bot) reportInterruptedTasksOnce(*events.GuildReady) {
 	})
 }
 
-func parseDurationOr(s string, fallback time.Duration) time.Duration {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return fallback
-	}
-	return d
-}
-
 func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	if !b.config.ArchiveEnabled {
 		return
@@ -240,7 +224,7 @@ func (b *Bot) checkAmbient(channelID snowflake.ID) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		since := time.Now().Add(-b.ambientWindow)
+		since := time.Now().Add(-b.config.AmbientWindow)
 		msgs, err := b.store.GetRecentMessagesSince(ctx, uint64(channelID), since, 200)
 		if err != nil {
 			slog.Warn("failed to load ambient window", "channel", channelID, "error", err)
@@ -332,7 +316,7 @@ func (b *Bot) chunkChannel(ctx context.Context, channelID uint64) {
 		return
 	}
 
-	chunks = completeChunks(chunks, time.Now(), b.chunkGapDuration)
+	chunks = completeChunks(chunks, time.Now(), b.config.ChunkGap)
 
 	botID := uint64(b.client.ID())
 	for _, c := range chunks {
@@ -511,10 +495,7 @@ func (b *Bot) runBackfillWorker(ctx context.Context) {
 		slog.Info("backfill worker finished", "status", state.Status, "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
 	}()
 
-	delay, err := time.ParseDuration(b.config.BackfillDelay)
-	if err != nil {
-		delay = 1 * time.Second
-	}
+	delay := b.config.BackfillDelay
 
 	if seeded, err := b.seedBackfillChannels(ctx); err != nil {
 		slog.Warn("failed to seed backfill channels from guild", "error", err)

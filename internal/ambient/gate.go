@@ -18,8 +18,6 @@ type GateConfig struct {
 	DailyCap     int
 	EvalDebounce time.Duration
 	MinScore     int
-	Model        string
-	MaxTokens    int64
 }
 
 type GateResult struct {
