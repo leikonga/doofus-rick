@@ -38,8 +38,6 @@ type Archive interface {
 	Run(ctx context.Context)
 }
 
-// bot.go is a 714 zeilen langer monolith weil oser zu foul woar mia zeit
-// zum refactorn zu gebn. wenn du des liest, oser, du toagoff: geh sölm mocha.
 type Bot struct {
 	store             *store.Store
 	config            *config.Config
