@@ -18,7 +18,6 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 var (
@@ -282,19 +281,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	servedModel := model
 
 	rec := a.tracer.Start(req.origin.ChannelID.String(), req.origin.AuthorID.String(), req.system, req.tracePrompt)
-	defer func() {
-		resp, err := retResp, retErr
-		go func() {
-			e := rec.Finish(resp.Text, resp.Decline, err)
-			if e.InputTokens > 0 || e.OutputTokens > 0 {
-				saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := a.store.SaveTokenUsage(saveCtx, store.TokenUsage{ChannelID: e.ChannelID, UserID: e.UserID, ModelName: servedModel, InputTokens: e.InputTokens, OutputTokens: e.OutputTokens}); err != nil {
-					slog.Warn("failed to save token usage", "error", err)
-				}
-			}
-		}()
-	}()
+	defer func() { a.finishTrace(rec, retResp.Text, retResp.Decline, retErr, servedModel) }()
 
 	tools := a.buildTools(req.origin)
 

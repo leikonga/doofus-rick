@@ -1,9 +1,11 @@
 package tracer
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 )
@@ -93,7 +95,8 @@ func (r *Recording) AddTokens(input, output int64) {
 }
 
 // Finish seals the recording and routes it: successes go to the in-memory
-// ring, failures (err or decline) call the persist hook.
+// ring, failures (err or decline) call the persist hook. Cancelled traces
+// are returned but neither persisted nor ringed.
 func (r *Recording) Finish(response string, decline bool, err error) *Entry {
 	r.entry.Response = response
 	r.entry.Decline = decline
@@ -104,6 +107,9 @@ func (r *Recording) Finish(response string, decline bool, err error) *Entry {
 	r.entry.Failed = err != nil || decline
 	e := r.entry
 	ep := &e
+	if errors.Is(err, context.Canceled) {
+		return ep
+	}
 	if r.entry.Failed {
 		if r.tracer.persist != nil {
 			r.tracer.persist(ep)
