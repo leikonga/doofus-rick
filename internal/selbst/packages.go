@@ -9,6 +9,7 @@ var packages = map[string]string{
 	"config":      "env-based configuration loaded once at startup",
 	"discord":     "disgo gateway bot: event handlers, slash commands, member and presence cache, archive ingestion, backfill, ambient checks, starts the task runner, deploy and interrupted-task reports on boot",
 	"llm":         "openrouter client: chat completions with tools and prompt caching, embeddings, tool schema derivation",
+	"pgtest":      "test-only postgres harness: one pgvector testcontainer per test binary, truncates tables per test, skips without docker",
 	"runtimehome": "runtime dir in the work dir: daily jsonl logs, per-boot crash files, deploy journal (ship, boot, reported), readers behind sys_logs, group permissions",
 	"sandbox":     "manifest of native alpine tools installed for sys_shell (tools.txt)",
 	"selbst":      "rick's self-knowledge: build and runtime facts for the <selbst> block, this package map, live vitals, deploy status and the post-restart deploy report",
