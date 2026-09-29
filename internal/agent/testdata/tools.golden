@@ -1,0 +1,412 @@
+[
+  {
+    "name": "decline",
+    "description": "Decline to respond and optionally react with an emoji instead.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "emoji": {
+          "description": "Unicode emoji to react with.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "sys_logs",
+    "description": "Read warnings and errors from Rick's persistent process logs (they survive restarts) plus any crash reports from earlier boots. Use when asked why Rick didn't respond or what went wrong.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "hours": {
+          "description": "How many hours back to look. Defaults to 24; clamped to 1..336.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "web_media",
+    "description": "Search for a GIF or a static image and post it as a response.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "caption": {
+          "description": "Optional short text to post alongside the result.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Search query. Supports site: operators for images.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Kind of media to search for.",
+          "enum": [
+            "gif",
+            "image"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "web_search",
+    "description": "Search the web and get titles, URLs, and descriptions from the top results. Supports standard operators like site:, intitle:, etc. Use web_fetch to read the full content of any result URL.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "freshness": {
+          "description": "Restrict results by age. Use one of: pd (past 24 hours)",
+          "type": "string"
+        },
+        "query": {
+          "description": "Search query.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "web_fetch",
+    "description": "Fetch and read the text content of a web page. Use after web_search to dig into a specific result.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "URL to fetch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "sys_shell",
+    "description": "FIXED SHELL DESCRIPTION",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Shell command to run.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_quote_save",
+    "description": "Save a quote to the quote book and display it as a quote embed. Use when someone says something memorable or worth archiving.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "The quote text to save.",
+          "type": "string"
+        },
+        "participant_ids": {
+          "description": "Discord snowflakes of any additional participants in the quote.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_quote_list",
+    "description": "Look up all saved quotes for a user by their Discord snowflake. Use to find ammunition for roasting someone.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "user_id": {
+          "description": "Discord snowflake of the user to look up.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "memory_search",
+    "description": "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "description": "What to search for.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "messages searches archived chat history via hybrid retrieval; quotes searches the quote book.",
+          "enum": [
+            "messages",
+            "quotes"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "scope"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "code_read",
+    "description": "Read a file from Rick's own source checkout, cat -n style with line numbers.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Maximum number of lines to return. Omit for no limit.",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "0-based line number to start from. Omit to start at the beginning.",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path to the file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "code_edit",
+    "description": "Edit a file in Rick's own source checkout. command=write overwrites the whole file, command=str_replace replaces one exact match, command=insert adds a new line.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Which edit operation to perform.",
+          "enum": [
+            "write",
+            "str_replace",
+            "insert"
+          ],
+          "type": "string"
+        },
+        "file_text": {
+          "description": "Full file content. Required for command=write.",
+          "type": "string"
+        },
+        "insert_line": {
+          "description": "Line number after which to insert",
+          "type": "integer"
+        },
+        "new_str": {
+          "description": "Replacement text for command=str_replace",
+          "type": "string"
+        },
+        "old_str": {
+          "description": "Exact text to replace. Required for command=str_replace.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path to the file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "code_ship",
+    "description": "Verify Rick's own source changes (build, vet, test, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "description": "Commit message describing the change.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "sys_task",
+    "description": "Schedule yourself to do something once, later or right now in the background. When a task fires it runs a full turn of yours with every tool, in the channel it was created in, and your answer is posted there mentioning whoever asked. Each task runs exactly once; a task turn cannot create further tasks. Examples: a reminder (\"remind me at 8 to drink water\": prompt tells your future self to remind them in your own voice), research and report back (\"find out X and tell me\": fire now, do the digging in the task), check something later (\"in 2h check if the site is up\"). list shows everyone's pending and running tasks plus the last few finished ones; cancel stops anyone's task by id.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "create schedules a task; list shows everyone's tasks; cancel stops one by id.",
+          "enum": [
+            "create",
+            "list",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "fire_at": {
+          "description": "create: when to fire",
+          "type": "string"
+        },
+        "id": {
+          "description": "cancel: id of the task to cancel.",
+          "type": "integer"
+        },
+        "in": {
+          "description": "create: delay from now as a Go duration",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "create: what you should do when the task fires",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "discord_send_message",
+    "description": "Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_id": {
+          "description": "Discord channel snowflake ID to send the message to.",
+          "type": "string"
+        },
+        "content": {
+          "description": "Message content to send.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel_id",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "discord_create_poll",
+    "description": "Create a Discord poll in a channel.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_multiselect": {
+          "description": "Whether multiple answers can be selected.",
+          "type": "boolean"
+        },
+        "answers": {
+          "description": "List of answer options.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "channel_id": {
+          "description": "Discord channel snowflake ID.",
+          "type": "string"
+        },
+        "duration_hours": {
+          "description": "Poll duration in hours (1-168).",
+          "type": "integer"
+        },
+        "question": {
+          "description": "Poll question text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel_id",
+        "question",
+        "answers",
+        "duration_hours"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "discord_send_file",
+    "description": "Attach and send a file from the work directory (/rick/work) to any channel. Use after sys_shell writes output to a file when the content is too long for a message.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "caption": {
+          "description": "Optional message to accompany the file.",
+          "type": "string"
+        },
+        "channel_id": {
+          "description": "Discord channel snowflake ID to post the file in.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute path to the file inside /rick/work",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel_id",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "discord_react",
+    "description": "Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "emojis": {
+          "description": "Unicode emojis to react with.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "emojis"
+      ],
+      "type": "object"
+    }
+  }
+]

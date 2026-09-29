@@ -198,18 +198,9 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		return
 	}
 
-	// Other bots are skipped, but Rick's own messages are archived so the
-	// ambient gate can see whether he already spoke in a burst.
 	isRick := b.client != nil && e.Message.Author.ID == b.client.ID()
-	if e.Message.Author.Bot && !isRick {
-		return
-	}
 
-	if strings.HasPrefix(e.Message.Content, "/") {
-		return
-	}
-
-	if b.isChannelDenied(e.ChannelID) {
+	if !shouldArchive(archiveLive, isRick, e.Message, b.config.ArchiveDenyChannels, e.ChannelID) {
 		return
 	}
 
@@ -222,25 +213,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		return
 	}
 
-	content := e.Message.Content
-	if len(content) > 10000 {
-		content = content[:10000]
-	}
-
-	attachmentsJSON, _ := b.serializeAttachments(e.Message.Attachments)
-
-	msg := store.Message{
-		ID:          uint64(e.Message.ID),
-		ChannelID:   uint64(e.ChannelID),
-		AuthorID:    uint64(e.Message.Author.ID),
-		AuthorName:  e.Message.Author.Username,
-		Content:     content,
-		ReplyToID:   nil,
-		IsBot:       e.Message.Author.Bot,
-		Attachments: attachmentsJSON,
-		CreatedAt:   e.Message.CreatedAt,
-		EditedAt:    nil,
-	}
+	msg := toStoredMessage(e.Message, e.ChannelID)
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -359,10 +332,7 @@ func (b *Bot) chunkChannel(ctx context.Context, channelID uint64) {
 		return
 	}
 
-	cutoff := time.Now().Add(-b.chunkGapDuration)
-	if chunks[len(chunks)-1].EndedAt.After(cutoff) {
-		chunks = chunks[:len(chunks)-1]
-	}
+	chunks = completeChunks(chunks, time.Now(), b.chunkGapDuration)
 
 	botID := uint64(b.client.ID())
 	for _, c := range chunks {
@@ -416,11 +386,11 @@ func (b *Bot) runEmbeddingLoop(ctx context.Context) {
 	}
 }
 
-func (b *Bot) isChannelDenied(channelID snowflake.ID) bool {
-	if b.config.ArchiveDenyChannels == "" {
+func isChannelDenied(denyList string, channelID snowflake.ID) bool {
+	if denyList == "" {
 		return false
 	}
-	denied := strings.SplitSeq(b.config.ArchiveDenyChannels, ",")
+	denied := strings.SplitSeq(denyList, ",")
 	for d := range denied {
 		d = strings.TrimSpace(d)
 		if d == "" {
@@ -433,7 +403,67 @@ func (b *Bot) isChannelDenied(channelID snowflake.ID) bool {
 	return false
 }
 
-func (b *Bot) serializeAttachments(attachments []discord.Attachment) (*string, error) {
+type archiveMode int
+
+const (
+	archiveLive archiveMode = iota
+	archiveBackfill
+)
+
+const maxArchivedContentBytes = 10000
+
+// Live archives Rick's own messages so the ambient gate can see whether he already spoke in a burst.
+// Backfill archives other bots but never Rick.
+func shouldArchive(mode archiveMode, fromRick bool, msg discord.Message, denyList string, channelID snowflake.ID) bool {
+	switch mode {
+	case archiveLive:
+		if msg.Author.Bot && !fromRick {
+			return false
+		}
+	case archiveBackfill:
+		if fromRick {
+			return false
+		}
+	}
+	if strings.HasPrefix(msg.Content, "/") {
+		return false
+	}
+	return !isChannelDenied(denyList, channelID)
+}
+
+func toStoredMessage(msg discord.Message, channelID snowflake.ID) store.Message {
+	content := msg.Content
+	if len(content) > maxArchivedContentBytes {
+		content = content[:maxArchivedContentBytes]
+	}
+
+	attachmentsJSON, _ := serializeAttachments(msg.Attachments)
+
+	return store.Message{
+		ID:          uint64(msg.ID),
+		ChannelID:   uint64(channelID),
+		AuthorID:    uint64(msg.Author.ID),
+		AuthorName:  msg.Author.Username,
+		Content:     content,
+		ReplyToID:   nil,
+		IsBot:       msg.Author.Bot,
+		Attachments: attachmentsJSON,
+		CreatedAt:   msg.CreatedAt,
+		EditedAt:    nil,
+	}
+}
+
+func completeChunks(chunks []archive.Chunk, now time.Time, gap time.Duration) []archive.Chunk {
+	if len(chunks) == 0 {
+		return chunks
+	}
+	if chunks[len(chunks)-1].EndedAt.After(now.Add(-gap)) {
+		return chunks[:len(chunks)-1]
+	}
+	return chunks
+}
+
+func serializeAttachments(attachments []discord.Attachment) (*string, error) {
 	if len(attachments) == 0 {
 		return nil, nil
 	}
@@ -637,15 +667,7 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 				oldestFetched = uint64(msg.ID)
 			}
 
-			if msg.Author.ID == botID {
-				continue
-			}
-
-			if strings.HasPrefix(msg.Content, "/") {
-				continue
-			}
-
-			if b.isChannelDenied(snowflake.ID(channelID)) {
+			if !shouldArchive(archiveBackfill, msg.Author.ID == botID, msg, b.config.ArchiveDenyChannels, snowflake.ID(channelID)) {
 				continue
 			}
 
@@ -658,25 +680,7 @@ func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.
 				continue
 			}
 
-			content := msg.Content
-			if len(content) > 10000 {
-				content = content[:10000]
-			}
-
-			attachmentsJSON, _ := b.serializeAttachments(msg.Attachments)
-
-			storedMsg := store.Message{
-				ID:          uint64(msg.ID),
-				ChannelID:   uint64(channelID),
-				AuthorID:    uint64(msg.Author.ID),
-				AuthorName:  msg.Author.Username,
-				Content:     content,
-				ReplyToID:   nil,
-				IsBot:       msg.Author.Bot,
-				Attachments: attachmentsJSON,
-				CreatedAt:   msg.CreatedAt,
-				EditedAt:    nil,
-			}
+			storedMsg := toStoredMessage(msg, snowflake.ID(channelID))
 
 			if err := b.store.CreateMessage(ctx, storedMsg); err != nil {
 				slog.Warn("failed to archive message during backfill", "error", err)
