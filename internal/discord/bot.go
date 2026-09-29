@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -16,30 +15,31 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
-	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/ambient"
 	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"github.com/leikonga/doofus-rick/internal/tracer"
 )
+
+type Agent interface {
+	HandleMention(ctx context.Context, e *events.MessageCreate)
+	HandleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (snowflake.ID, error)
+	ReportDeploy(ctx context.Context)
+	ReportInterruptedTasks(ctx context.Context)
+	RunTasks(ctx context.Context)
+}
 
 // bot.go is a 714 zeilen langer monolith weil oser zu foul woar mia zeit
 // zum refactorn zu gebn. wenn du des liest, oser, du toagoff: geh sölm mocha.
 type Bot struct {
-	ctx               context.Context
 	store             *store.Store
 	config            *config.Config
 	client            *disgobot.Client
-	agent             *agent.Agent
-	runtimeHome       *runtimehome.Home
-	tracer            *tracer.Tracer
+	agent             Agent
 	cache             UserCache
 	presences         sync.Map // snowflake.ID -> UserPresence
 	voiceChannels     sync.Map // snowflake.ID -> string (channel name, empty if unknown)
-	httpClient        *http.Client
 	backfillMutex     sync.Mutex
 	chunker           *archive.Chunker
 	embedder          *archive.Embedder
@@ -50,43 +50,46 @@ type Bot struct {
 	taskReportOnce    sync.Once
 }
 
-func New(ctx context.Context, s *store.Store, c *config.Config, home *runtimehome.Home, tr *tracer.Tracer) *Bot {
-	return &Bot{
-		ctx:         ctx,
-		store:       s,
-		config:      c,
-		runtimeHome: home,
-		tracer:      tr,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
-	}
-}
-
-func (b *Bot) Run() error {
-	r := handler.New()
-	r.SlashCommand("/ping", b.handlePingCommand)
-	r.SlashCommand("/quote", b.handleQuote)
-	r.SlashCommand("/randomquote", b.handleRandomQuote)
-	r.SlashCommand("/mama", b.handleMama)
-	r.Modal("/quote", b.handleQuoteSubmission)
-
-	client, err := disgo.New(b.config.DiscordToken,
+func New(c *config.Config, s *store.Store) (*Bot, error) {
+	client, err := disgo.New(c.DiscordToken,
 		disgobot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences, gateway.IntentGuildVoiceStates),
 		),
-		disgobot.WithEventListeners(r),
-		disgobot.WithEventListenerFunc(func(e *events.MessageCreate) { b.agent.HandleMention(b.ctx, e) }),
-		disgobot.WithEventListenerFunc(b.onGuildReady),
-		disgobot.WithEventListenerFunc(b.reportDeployOnce),
-		disgobot.WithEventListenerFunc(b.reportInterruptedTasksOnce),
-		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
-		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
-		disgobot.WithEventListenerFunc(b.onMessageCreate),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	b.client = client
-	b.agent = agent.New(b.store, b.config, b, b.client, b.runtimeHome, b.tracer)
+	return &Bot{store: s, config: c, client: client}, nil
+}
+
+func (b *Bot) Client() *disgobot.Client {
+	return b.client
+}
+
+func (b *Bot) Open(ctx context.Context, a Agent) error {
+	b.agent = a
+
+	r := handler.New()
+	r.SlashCommand("/ping", b.handlePingCommand)
+	r.SlashCommand("/quote", b.handleQuote)
+	r.SlashCommand("/randomquote", func(d discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+		return b.handleRandomQuote(ctx, d, e)
+	})
+	r.SlashCommand("/mama", b.handleMama)
+	r.Modal("/quote", func(e *handler.ModalEvent) error {
+		return b.handleQuoteSubmission(ctx, e)
+	})
+
+	b.client.AddEventListeners(
+		r,
+		disgobot.NewListenerFunc(func(e *events.MessageCreate) { a.HandleMention(ctx, e) }),
+		disgobot.NewListenerFunc(b.onGuildReady),
+		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportDeployOnce(ctx) }),
+		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportInterruptedTasksOnce(ctx) }),
+		disgobot.NewListenerFunc(b.onPresenceUpdate),
+		disgobot.NewListenerFunc(b.onGuildVoiceStateUpdate),
+		disgobot.NewListenerFunc(b.onMessageCreate),
+	)
 
 	b.chunker = archive.NewChunker(archive.ChunkConfig{
 		ChunkGap:      b.config.ChunkGap,
@@ -133,44 +136,44 @@ func (b *Bot) Run() error {
 		slog.Warn("no discord guild configured, skipping command registration")
 	} else {
 		guildID := snowflake.MustParse(b.config.DiscordGuild)
-		if err = handler.SyncCommands(client, commands, []snowflake.ID{guildID}); err != nil {
+		if err := handler.SyncCommands(b.client, commands, []snowflake.ID{guildID}); err != nil {
 			slog.Error("failed to sync commands", "error", err)
 		}
 	}
 
-	if err = client.OpenGateway(b.ctx); err != nil {
+	if err := b.client.OpenGateway(ctx); err != nil {
 		return err
 	}
 
 	if b.config.BackfillEnabled {
-		go b.runBackfillWorker(b.ctx)
+		go b.runBackfillWorker(ctx)
 	}
 
-	go b.agent.RunTasks(b.ctx)
+	go a.RunTasks(ctx)
 
 	if b.config.ArchiveEnabled {
-		go b.runChunkingLoop(b.ctx)
-		go b.runEmbeddingLoop(b.ctx)
+		go b.runChunkingLoop(ctx)
+		go b.runEmbeddingLoop(ctx)
 	}
 
-	slog.Info("connected to discord", "appid", client.ApplicationID)
+	slog.Info("connected to discord", "appid", b.client.ApplicationID)
 	return nil
 }
 
-func (b *Bot) reportDeployOnce(*events.GuildReady) {
+func (b *Bot) reportDeployOnce(ctx context.Context) {
 	b.deployReportOnce.Do(func() {
 		go func() {
-			ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 			b.agent.ReportDeploy(ctx)
 		}()
 	})
 }
 
-func (b *Bot) reportInterruptedTasksOnce(*events.GuildReady) {
+func (b *Bot) reportInterruptedTasksOnce(ctx context.Context) {
 	b.taskReportOnce.Do(func() {
 		go func() {
-			ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 			b.agent.ReportInterruptedTasks(ctx)
 		}()

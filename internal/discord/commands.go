@@ -113,8 +113,8 @@ func (b *Bot) handleQuote(_ discord.SlashCommandInteractionData, e *handler.Comm
 	})
 }
 
-func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
-	ctx, cancel := context.WithTimeout(b.ctx, 10*time.Second)
+func (b *Bot) handleRandomQuote(ctx context.Context, _ discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	quote, err := b.store.GetRandomQuote(ctx)
@@ -142,8 +142,8 @@ func (b *Bot) handleRandomQuote(_ discord.SlashCommandInteractionData, e *handle
 	})
 }
 
-func (b *Bot) handleQuoteSubmission(e *handler.ModalEvent) error {
-	ctx, cancel := context.WithTimeout(b.ctx, 10*time.Second)
+func (b *Bot) handleQuoteSubmission(ctx context.Context, e *handler.ModalEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	content := e.Data.Text("content")

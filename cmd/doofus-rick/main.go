@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
@@ -107,9 +108,14 @@ func main() {
 		}
 	})
 
-	rick := discordpkg.New(ctx, db, c, home, tr)
+	rick, err := discordpkg.New(c, db)
+	if err != nil {
+		slog.Error("failed to create discord client", "error", err)
+		os.Exit(1)
+	}
+	ag := agent.New(db, c, rick, rick.Client(), home, tr)
 	go func() {
-		if err := rick.Run(); err != nil {
+		if err := rick.Open(ctx, ag); err != nil {
 			slog.Error("failed to connect to discord", "error", err)
 			os.Exit(1)
 		}
