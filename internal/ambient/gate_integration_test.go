@@ -170,7 +170,7 @@ func TestUpdateState(t *testing.T) {
 	g, s := integrationGate(t)
 	ctx := context.Background()
 
-	if err := g.UpdateState(ctx, testChannel, 95, "hook", 4242); err != nil {
+	if err := g.UpdateState(ctx, testChannel, 4242); err != nil {
 		t.Fatalf("UpdateState: %v", err)
 	}
 	state, err := s.GetAmbientState(ctx, uint64(testChannel))
@@ -194,7 +194,7 @@ func TestUpdateState(t *testing.T) {
 	}
 
 	saveState(t, s, store.AmbientState{LastFire: state.LastFire, FiresToday: 1, LastUnpromptedID: ptr(uint64(4242)), LastUnpromptedIgnored: true})
-	if err := g.UpdateState(ctx, testChannel, 95, "hook", 0); err != nil {
+	if err := g.UpdateState(ctx, testChannel, 0); err != nil {
 		t.Fatal(err)
 	}
 	state, err = s.GetAmbientState(ctx, uint64(testChannel))

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/leikonga/doofus-rick/internal/agent"
+	"github.com/leikonga/doofus-rick/internal/ambient"
 	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
@@ -125,7 +126,7 @@ func run() error {
 	}, db, llmClient)
 	aff := archive.NewAffinity(archive.AffinityConfig{Baseline: c.AffinityBaseline}, db)
 
-	rick, err := discordpkg.New(c, db, llmClient)
+	rick, err := discordpkg.New(c, db)
 	if err != nil {
 		return fmt.Errorf("create discord client: %w", err)
 	}
@@ -165,9 +166,30 @@ func run() error {
 		EmbedModel:      c.RickEmbedModel,
 	}, db, rick.Client().Rest, rick.Client().ID, chunker, embedder, scorer)
 
+	gate := ambient.NewGate(ambient.GateConfig{
+		Enabled:      c.AmbientEnabled,
+		Window:       c.AmbientWindow,
+		MinMsgs:      c.AmbientMinMsgs,
+		MinAuthors:   c.AmbientMinAuthors,
+		Cooldown:     c.AmbientCooldown,
+		DailyCap:     c.AmbientDailyCap,
+		EvalDebounce: c.AmbientEvalDebounce,
+		MinScore:     c.AmbientMinScore,
+	}, db)
+	classifierModel := c.AmbientModel
+	if classifierModel == "" {
+		classifierModel = c.RickModel
+	}
+	classifier := ambient.NewClassifier(ambient.ClassifierConfig{
+		Model:     classifierModel,
+		MaxTokens: c.AmbientMaxTokens,
+		MinScore:  c.AmbientMinScore,
+	}, llmClient, db)
+	watcher := ambient.NewWatcher(ambient.WatcherConfig{Enabled: c.AmbientEnabled, Window: c.AmbientWindow}, db, gate, classifier, ag, rick.Client().ID)
+
 	errCh := make(chan error, 2)
 	go func() {
-		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest}); err != nil {
+		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest, Ambient: watcher}); err != nil {
 			errCh <- fmt.Errorf("connect to discord: %w", err)
 		}
 	}()

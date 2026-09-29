@@ -123,7 +123,7 @@ func (g *Gate) LogFire(ctx context.Context, channelID snowflake.ID, score int, h
 // UpdateState records a fire and the ID of the unprompted message Rick just
 // sent, so a later mechanism can mark it ignored if nobody engages with it.
 // unpromptedMsgID is 0 when the send failed and no message exists to track.
-func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, score int, hook string, unpromptedMsgID uint64) error {
+func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, unpromptedMsgID uint64) error {
 	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
