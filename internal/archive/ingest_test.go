@@ -1,4 +1,4 @@
-package discord
+package archive
 
 import (
 	"strings"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
-	"github.com/leikonga/doofus-rick/internal/archive"
 )
 
 func TestIsChannelDenied(t *testing.T) {
@@ -34,41 +33,45 @@ func TestIsChannelDenied(t *testing.T) {
 	}
 }
 
-func TestShouldArchive(t *testing.T) {
+func TestFilter(t *testing.T) {
 	human := discord.User{ID: 1}
 	otherBot := discord.User{ID: 2, Bot: true}
 	rick := discord.User{ID: 3, Bot: true}
 
 	tests := []struct {
 		name     string
-		mode     archiveMode
-		fromRick bool
+		backfill bool
 		author   discord.User
 		content  string
 		denyList string
 		want     bool
 	}{
-		{"live human", archiveLive, false, human, "hi", "", true},
-		{"backfill human", archiveBackfill, false, human, "hi", "", true},
-		{"live rick archived", archiveLive, true, rick, "hi", "", true},
-		{"backfill rick skipped", archiveBackfill, true, rick, "hi", "", false},
-		{"live other bot skipped", archiveLive, false, otherBot, "hi", "", false},
-		{"backfill other bot archived", archiveBackfill, false, otherBot, "hi", "", true},
-		{"live slash prefix", archiveLive, false, human, "/cmd", "", false},
-		{"backfill slash prefix", archiveBackfill, false, human, "/cmd", "", false},
-		{"live rick slash prefix", archiveLive, true, rick, "/cmd", "", false},
-		{"slash not at start", archiveLive, false, human, "a /cmd", "", true},
-		{"live denied channel with whitespace", archiveLive, false, human, "hi", " 5 , 42 ", false},
-		{"backfill denied channel with whitespace", archiveBackfill, false, human, "hi", " 5 , 42 ", false},
-		{"live channel not denied", archiveLive, false, human, "hi", "5,6", true},
-		{"backfill empty deny list", archiveBackfill, false, human, "hi", "", true},
-		{"live empty content", archiveLive, false, human, "", "", true},
+		{"live human", false, human, "hi", "", true},
+		{"backfill human", true, human, "hi", "", true},
+		{"live rick archived", false, rick, "hi", "", true},
+		{"backfill rick skipped", true, rick, "hi", "", false},
+		{"live other bot skipped", false, otherBot, "hi", "", false},
+		{"backfill other bot archived", true, otherBot, "hi", "", true},
+		{"live slash prefix", false, human, "/cmd", "", false},
+		{"backfill slash prefix", true, human, "/cmd", "", false},
+		{"live rick slash prefix", false, rick, "/cmd", "", false},
+		{"slash not at start", false, human, "a /cmd", "", true},
+		{"live denied channel with whitespace", false, human, "hi", " 5 , 42 ", false},
+		{"backfill denied channel with whitespace", true, human, "hi", " 5 , 42 ", false},
+		{"live channel not denied", false, human, "hi", "5,6", true},
+		{"backfill empty deny list", true, human, "hi", "", true},
+		{"live empty content", false, human, "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := discord.Message{Author: tt.author, Content: tt.content}
-			if got := shouldArchive(tt.mode, tt.fromRick, msg, tt.denyList, 42); got != tt.want {
-				t.Errorf("shouldArchive() = %v, want %v", got, tt.want)
+			f := filter{denyList: tt.denyList}
+			keep := f.keepLive
+			if tt.backfill {
+				keep = f.keepBackfill
+			}
+			if got := keep(msg, 42, rick.ID); got != tt.want {
+				t.Errorf("keep() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -149,33 +152,33 @@ func TestCompleteChunks(t *testing.T) {
 	gap := 30 * time.Minute
 	cutoff := now.Add(-gap)
 
-	chunkEndingAt := func(id uint64, end time.Time) archive.Chunk {
-		return archive.Chunk{FirstMessageID: id, EndedAt: end}
+	chunkEndingAt := func(id uint64, end time.Time) Chunk {
+		return Chunk{FirstMessageID: id, EndedAt: end}
 	}
 
 	tests := []struct {
 		name    string
-		chunks  []archive.Chunk
+		chunks  []Chunk
 		wantIDs []uint64
 	}{
 		{"empty", nil, nil},
-		{"last chunk inside gap dropped", []archive.Chunk{
+		{"last chunk inside gap dropped", []Chunk{
 			chunkEndingAt(1, now.Add(-2*time.Hour)),
 			chunkEndingAt(2, now.Add(-time.Minute)),
 		}, []uint64{1}},
-		{"last chunk at cutoff kept", []archive.Chunk{
+		{"last chunk at cutoff kept", []Chunk{
 			chunkEndingAt(1, now.Add(-2*time.Hour)),
 			chunkEndingAt(2, cutoff),
 		}, []uint64{1, 2}},
-		{"last chunk one nanosecond inside cutoff dropped", []archive.Chunk{
+		{"last chunk one nanosecond inside cutoff dropped", []Chunk{
 			chunkEndingAt(1, now.Add(-2*time.Hour)),
 			chunkEndingAt(2, cutoff.Add(time.Nanosecond)),
 		}, []uint64{1}},
-		{"all old kept", []archive.Chunk{
+		{"all old kept", []Chunk{
 			chunkEndingAt(1, now.Add(-3*time.Hour)),
 			chunkEndingAt(2, now.Add(-2*time.Hour)),
 		}, []uint64{1, 2}},
-		{"single fresh chunk leaves nothing", []archive.Chunk{
+		{"single fresh chunk leaves nothing", []Chunk{
 			chunkEndingAt(1, now),
 		}, nil},
 	}

@@ -125,7 +125,7 @@ func run() error {
 	}, db, llmClient)
 	aff := archive.NewAffinity(archive.AffinityConfig{Baseline: c.AffinityBaseline}, db)
 
-	rick, err := discordpkg.New(c, db, llmClient, aff)
+	rick, err := discordpkg.New(c, db, llmClient)
 	if err != nil {
 		return fmt.Errorf("create discord client: %w", err)
 	}
@@ -140,9 +140,34 @@ func run() error {
 		Tracer:    tr,
 	})
 
+	chunker := archive.NewChunker(archive.ChunkConfig{
+		ChunkGap:      c.ChunkGap,
+		ChunkMaxMsgs:  c.ChunkMaxMsgs,
+		ChunkMaxChars: c.ChunkMaxChars,
+	}, rick)
+	embedder := archive.NewEmbedder(archive.EmbeddingConfig{Model: c.RickEmbedModel}, db, llmClient)
+	var scorer archive.ChunkScorer
+	if c.AffinityEnabled {
+		affinityModel := c.AffinityModel
+		if affinityModel == "" {
+			affinityModel = c.RickModel
+		}
+		scorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff, db)
+	}
+	ingest := archive.NewIngest(archive.IngestConfig{
+		ArchiveEnabled:  c.ArchiveEnabled,
+		BackfillEnabled: c.BackfillEnabled,
+		DenyList:        c.ArchiveDenyChannels,
+		GuildID:         c.DiscordGuild,
+		BackfillDelay:   c.BackfillDelay,
+		BackfillBatch:   c.BackfillBatch,
+		ChunkGap:        c.ChunkGap,
+		EmbedModel:      c.RickEmbedModel,
+	}, db, rick.Client().Rest, rick.Client().ID, chunker, embedder, scorer)
+
 	errCh := make(chan error, 2)
 	go func() {
-		if err := rick.Open(ctx, ag); err != nil {
+		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest}); err != nil {
 			errCh <- fmt.Errorf("connect to discord: %w", err)
 		}
 	}()

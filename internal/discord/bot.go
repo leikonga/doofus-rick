@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/ambient"
-	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -30,29 +28,34 @@ type Agent interface {
 	RunTasks(ctx context.Context)
 }
 
+type Handlers struct {
+	Agent   Agent
+	Archive Archive
+}
+
+type Archive interface {
+	RecordLive(ctx context.Context, msg discord.Message, channelID snowflake.ID) bool
+	Run(ctx context.Context)
+}
+
 // bot.go is a 714 zeilen langer monolith weil oser zu foul woar mia zeit
 // zum refactorn zu gebn. wenn du des liest, oser, du toagoff: geh sölm mocha.
 type Bot struct {
 	store             *store.Store
 	config            *config.Config
 	llm               *llm.Client
-	affinity          *archive.Affinity
 	client            *disgobot.Client
 	agent             Agent
 	cache             UserCache
 	presences         sync.Map // snowflake.ID -> UserPresence
 	voiceChannels     sync.Map // snowflake.ID -> string (channel name, empty if unknown)
-	backfillMutex     sync.Mutex
-	chunker           *archive.Chunker
-	embedder          *archive.Embedder
 	ambientGate       *ambient.Gate
 	ambientClassifier *ambient.Classifier
-	affinityScorer    *archive.AffinityScorer
 	deployReportOnce  sync.Once
 	taskReportOnce    sync.Once
 }
 
-func New(c *config.Config, s *store.Store, llmClient *llm.Client, aff *archive.Affinity) (*Bot, error) {
+func New(c *config.Config, s *store.Store, llmClient *llm.Client) (*Bot, error) {
 	client, err := disgo.New(c.DiscordToken,
 		disgobot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences, gateway.IntentGuildVoiceStates),
@@ -61,15 +64,15 @@ func New(c *config.Config, s *store.Store, llmClient *llm.Client, aff *archive.A
 	if err != nil {
 		return nil, err
 	}
-	return &Bot{store: s, config: c, client: client, llm: llmClient, affinity: aff}, nil
+	return &Bot{store: s, config: c, client: client, llm: llmClient}, nil
 }
 
 func (b *Bot) Client() *disgobot.Client {
 	return b.client
 }
 
-func (b *Bot) Open(ctx context.Context, a Agent) error {
-	b.agent = a
+func (b *Bot) Open(ctx context.Context, h Handlers) error {
+	b.agent = h.Agent
 
 	r := handler.New()
 	r.SlashCommand("/ping", b.handlePingCommand)
@@ -84,21 +87,21 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 
 	b.client.AddEventListeners(
 		r,
-		disgobot.NewListenerFunc(func(e *events.MessageCreate) { a.HandleMention(ctx, e) }),
+		disgobot.NewListenerFunc(func(e *events.MessageCreate) { h.Agent.HandleMention(ctx, e) }),
 		disgobot.NewListenerFunc(b.onGuildReady),
 		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportDeployOnce(ctx) }),
 		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportInterruptedTasksOnce(ctx) }),
 		disgobot.NewListenerFunc(b.onPresenceUpdate),
 		disgobot.NewListenerFunc(b.onGuildVoiceStateUpdate),
-		disgobot.NewListenerFunc(b.onMessageCreate),
+		disgobot.NewListenerFunc(func(e *events.MessageCreate) {
+			if !b.config.ArchiveEnabled {
+				return
+			}
+			if h.Archive.RecordLive(ctx, e.Message, e.ChannelID) {
+				b.checkAmbient(e.ChannelID)
+			}
+		}),
 	)
-
-	b.chunker = archive.NewChunker(archive.ChunkConfig{
-		ChunkGap:      b.config.ChunkGap,
-		ChunkMaxMsgs:  b.config.ChunkMaxMsgs,
-		ChunkMaxChars: b.config.ChunkMaxChars,
-	}, b)
-	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, b.llm)
 
 	if b.config.AmbientEnabled {
 		b.ambientGate = ambient.NewGate(ambient.GateConfig{
@@ -122,14 +125,6 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 		}, b.llm, b.store)
 	}
 
-	if b.config.AffinityEnabled {
-		affinityModel := b.config.AffinityModel
-		if affinityModel == "" {
-			affinityModel = b.config.RickModel
-		}
-		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, b.llm, b.affinity, b.store)
-	}
-
 	if b.config.DiscordGuild == "" {
 		slog.Warn("no discord guild configured, skipping command registration")
 	} else {
@@ -143,16 +138,9 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 		return err
 	}
 
-	if b.config.BackfillEnabled {
-		go b.runBackfillWorker(ctx)
-	}
+	h.Archive.Run(ctx)
 
-	go a.RunTasks(ctx)
-
-	if b.config.ArchiveEnabled {
-		go b.runChunkingLoop(ctx)
-		go b.runEmbeddingLoop(ctx)
-	}
+	go h.Agent.RunTasks(ctx)
 
 	slog.Info("connected to discord", "appid", b.client.ApplicationID)
 	return nil
@@ -176,41 +164,6 @@ func (b *Bot) reportInterruptedTasksOnce(ctx context.Context) {
 			b.agent.ReportInterruptedTasks(ctx)
 		}()
 	})
-}
-
-func (b *Bot) onMessageCreate(e *events.MessageCreate) {
-	if !b.config.ArchiveEnabled {
-		return
-	}
-
-	isRick := b.client != nil && e.Message.Author.ID == b.client.ID()
-
-	if !shouldArchive(archiveLive, isRick, e.Message, b.config.ArchiveDenyChannels, e.ChannelID) {
-		return
-	}
-
-	isForgotten, err := b.store.IsAuthorForgotten(context.Background(), uint64(e.Message.Author.ID))
-	if err != nil {
-		slog.Warn("failed to check if author is forgotten", "error", err)
-		return
-	}
-	if isForgotten {
-		return
-	}
-
-	msg := toStoredMessage(e.Message, e.ChannelID)
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := b.store.CreateMessage(ctx, msg); err != nil {
-			slog.Warn("failed to archive message", "error", err)
-		}
-	}()
-
-	if !isRick {
-		b.checkAmbient(e.ChannelID)
-	}
 }
 
 // checkAmbient evaluates the ambient gate for a channel after a human
@@ -271,425 +224,4 @@ func (b *Bot) checkAmbient(channelID snowflake.ID) {
 			slog.Warn("failed to update ambient state", "channel", channelID, "error", err)
 		}
 	}()
-}
-
-func (b *Bot) runChunkingLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			channelIDs, err := b.store.GetChannelsWithUnchunkedMessages(ctx, 100)
-			if err != nil {
-				slog.Warn("failed to list channels with unchunked messages", "error", err)
-				continue
-			}
-			for _, channelID := range channelIDs {
-				b.chunkChannel(ctx, channelID)
-			}
-		}
-	}
-}
-
-// chunkChannel closes any complete chunks for a channel's unchunked
-// messages, leaving the trailing chunk unsaved if it's still within
-// ChunkGap of now, since more messages could still extend it.
-func (b *Bot) chunkChannel(ctx context.Context, channelID uint64) {
-	sinceID, err := b.store.GetLastChunkedMessageID(ctx, channelID)
-	if err != nil {
-		slog.Warn("failed to get last chunked message id", "channel", channelID, "error", err)
-		return
-	}
-
-	msgs, err := b.store.GetUnchunkedMessages(ctx, channelID, sinceID, 500)
-	if err != nil {
-		slog.Warn("failed to get unchunked messages", "channel", channelID, "error", err)
-		return
-	}
-	if len(msgs) == 0 {
-		return
-	}
-
-	chunks := b.chunker.ChunkMessages(msgs)
-	if len(chunks) == 0 {
-		return
-	}
-
-	chunks = completeChunks(chunks, time.Now(), b.config.ChunkGap)
-
-	botID := uint64(b.client.ID())
-	for _, c := range chunks {
-		c.Content = b.chunker.BuildChunkContent(c)
-		stored := store.Chunk{
-			ChannelID:      c.ChannelID,
-			Content:        c.Content,
-			StartedAt:      c.StartedAt,
-			EndedAt:        c.EndedAt,
-			MessageCount:   len(c.Messages),
-			FirstMessageID: c.FirstMessageID,
-			LastMessageID:  c.LastMessageID,
-		}
-		if err := b.store.CreateChunk(ctx, stored); err != nil {
-			slog.Warn("failed to save chunk", "channel", channelID, "error", err)
-			return
-		}
-
-		if b.affinityScorer != nil {
-			go func(c archive.Chunk) {
-				scoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				if err := b.affinityScorer.ScoreChunk(scoreCtx, c, botID); err != nil {
-					slog.Warn("affinity scoring failed", "channel", channelID, "error", err)
-				}
-			}(c)
-		}
-	}
-}
-
-func (b *Bot) runEmbeddingLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			chunks, err := b.store.GetChunksWithoutEmbedding(ctx, b.config.RickEmbedModel, 100)
-			if err != nil {
-				slog.Warn("failed to get chunks pending embedding", "error", err)
-				continue
-			}
-			if len(chunks) == 0 {
-				continue
-			}
-			if err := b.embedder.EmbedChunks(ctx, chunks); err != nil {
-				slog.Warn("failed to embed chunks", "error", err)
-			}
-		}
-	}
-}
-
-func isChannelDenied(denyList string, channelID snowflake.ID) bool {
-	if denyList == "" {
-		return false
-	}
-	denied := strings.SplitSeq(denyList, ",")
-	for d := range denied {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
-		if d == channelID.String() {
-			return true
-		}
-	}
-	return false
-}
-
-type archiveMode int
-
-const (
-	archiveLive archiveMode = iota
-	archiveBackfill
-)
-
-const maxArchivedContentBytes = 10000
-
-// Live archives Rick's own messages so the ambient gate can see whether he already spoke in a burst.
-// Backfill archives other bots but never Rick.
-func shouldArchive(mode archiveMode, fromRick bool, msg discord.Message, denyList string, channelID snowflake.ID) bool {
-	switch mode {
-	case archiveLive:
-		if msg.Author.Bot && !fromRick {
-			return false
-		}
-	case archiveBackfill:
-		if fromRick {
-			return false
-		}
-	}
-	if strings.HasPrefix(msg.Content, "/") {
-		return false
-	}
-	return !isChannelDenied(denyList, channelID)
-}
-
-func toStoredMessage(msg discord.Message, channelID snowflake.ID) store.Message {
-	content := msg.Content
-	if len(content) > maxArchivedContentBytes {
-		content = content[:maxArchivedContentBytes]
-	}
-
-	attachmentsJSON, _ := serializeAttachments(msg.Attachments)
-
-	return store.Message{
-		ID:          uint64(msg.ID),
-		ChannelID:   uint64(channelID),
-		AuthorID:    uint64(msg.Author.ID),
-		AuthorName:  msg.Author.Username,
-		Content:     content,
-		ReplyToID:   nil,
-		IsBot:       msg.Author.Bot,
-		Attachments: attachmentsJSON,
-		CreatedAt:   msg.CreatedAt,
-		EditedAt:    nil,
-	}
-}
-
-func completeChunks(chunks []archive.Chunk, now time.Time, gap time.Duration) []archive.Chunk {
-	if len(chunks) == 0 {
-		return chunks
-	}
-	if chunks[len(chunks)-1].EndedAt.After(now.Add(-gap)) {
-		return chunks[:len(chunks)-1]
-	}
-	return chunks
-}
-
-func serializeAttachments(attachments []discord.Attachment) (*string, error) {
-	if len(attachments) == 0 {
-		return nil, nil
-	}
-	return &attachments[0].Filename, nil
-}
-
-func (b *Bot) runBackfillWorker(ctx context.Context) {
-	b.backfillMutex.Lock()
-	defer b.backfillMutex.Unlock()
-
-	slog.Info("backfill worker starting")
-
-	state, err := b.store.GetOrCreateBackfillState(ctx)
-	if err != nil {
-		slog.Warn("failed to get backfill state", "error", err)
-		return
-	}
-
-	if state.Status == "running" {
-		slog.Warn("backfill state was left running, previous attempt likely crashed; resetting and starting anew")
-	}
-
-	state.Status = "running"
-	state.StartedAt = &[]time.Time{time.Now()}[0]
-	state.LastError = nil
-	state.UpdatedAt = time.Now()
-	if err := b.store.UpdateBackfillState(ctx, state); err != nil {
-		slog.Warn("failed to update backfill state", "error", err)
-		return
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			state.Status = "failed"
-			errMsg := fmt.Sprintf("panic: %v", r)
-			state.LastError = &errMsg
-		} else if state.Status == "running" {
-			state.Status = "done"
-		}
-		state.FinishedAt = &[]time.Time{time.Now()}[0]
-		state.UpdatedAt = time.Now()
-		if err := b.store.UpdateBackfillState(context.Background(), state); err != nil {
-			slog.Warn("failed to finalize backfill state", "error", err)
-		}
-		slog.Info("backfill worker finished", "status", state.Status, "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
-	}()
-
-	delay := b.config.BackfillDelay
-
-	if seeded, err := b.seedBackfillChannels(ctx); err != nil {
-		slog.Warn("failed to seed backfill channels from guild", "error", err)
-	} else if seeded > 0 {
-		slog.Info("seeded new channels for backfill", "count", seeded)
-	}
-
-	channels, err := b.store.GetBackfillChannels(ctx, 100)
-	if err != nil {
-		slog.Warn("failed to get backfill channels", "error", err)
-		return
-	}
-
-	state.ChannelsTotal = len(channels)
-	state.ChannelsDone = 0
-	state.UpdatedAt = time.Now()
-	if err := b.store.UpdateBackfillState(ctx, state); err != nil {
-		slog.Warn("failed to update channels total", "error", err)
-		return
-	}
-
-	slog.Info("backfill processing channels", "count", len(channels))
-
-	for _, ch := range channels {
-		select {
-		case <-ctx.Done():
-			state.Status = "failed"
-			errMsg := "interrupted"
-			state.LastError = &errMsg
-			state.UpdatedAt = time.Now()
-			if err := b.store.UpdateBackfillState(context.Background(), state); err != nil {
-				slog.Warn("failed to record backfill interruption", "error", err)
-			}
-			return
-		default:
-		}
-
-		if err := b.backfillChannel(ctx, ch.ChannelID, delay); err != nil {
-			ch.LastError = &[]string{err.Error()}[0]
-			ch.UpdatedAt = time.Now()
-			if saveErr := b.store.SaveBackfillChannel(ctx, &ch); saveErr != nil {
-				slog.Warn("failed to save backfill channel error state", "error", saveErr)
-			}
-			slog.Warn("backfill failed for channel", "channel", ch.ChannelID, "error", err)
-			continue
-		}
-
-		ch.Done = true
-		ch.UpdatedAt = time.Now()
-		if err := b.store.SaveBackfillChannel(ctx, &ch); err != nil {
-			slog.Warn("failed to save backfill channel completion", "error", err)
-		}
-
-		state.ChannelsDone++
-		state.MessagesSeen += ch.MessagesSeen
-		state.UpdatedAt = time.Now()
-		if err := b.store.UpdateBackfillState(ctx, state); err != nil {
-			slog.Warn("failed to update backfill progress", "error", err)
-		}
-
-		elapsed := time.Since(*state.StartedAt)
-		remaining := state.ChannelsTotal - state.ChannelsDone
-		eta := (elapsed / time.Duration(state.ChannelsDone)) * time.Duration(remaining)
-		slog.Info("backfill channel done", "channel", ch.ChannelID, "messages_seen", ch.MessagesSeen,
-			"progress", fmt.Sprintf("%d/%d", state.ChannelsDone, state.ChannelsTotal),
-			"total_messages_seen", state.MessagesSeen,
-			"elapsed", elapsed.Round(time.Second), "eta", eta.Round(time.Second))
-	}
-}
-
-// seedBackfillChannels inserts a pending backfill_channel row for every
-// guild message channel not already tracked, so enabling backfill picks up
-// the whole guild without requiring channels to be seeded by hand.
-func (b *Bot) seedBackfillChannels(ctx context.Context) (int, error) {
-	if b.config.DiscordGuild == "" {
-		return 0, nil
-	}
-	guildID, err := snowflake.Parse(b.config.DiscordGuild)
-	if err != nil {
-		return 0, err
-	}
-
-	channels, err := b.client.Rest.GetGuildChannels(guildID)
-	if err != nil {
-		return 0, err
-	}
-
-	var ids []uint64
-	for _, ch := range channels {
-		if _, ok := ch.(discord.GuildMessageChannel); ok {
-			ids = append(ids, uint64(ch.ID()))
-		}
-	}
-
-	return b.store.SeedBackfillChannels(ctx, ids)
-}
-
-func (b *Bot) backfillChannel(ctx context.Context, channelID uint64, delay time.Duration) error {
-	botID := b.client.ID()
-	channelStart := time.Now()
-
-	newestMsg, err := b.client.Rest.GetMessages(snowflake.ID(channelID), 0, 0, 0, 1)
-	if err != nil {
-		return err
-	}
-
-	var newestAtStart uint64
-	if len(newestMsg) > 0 {
-		newestAtStart = uint64(newestMsg[0].ID)
-	}
-
-	channel, err := b.store.GetBackfillChannel(ctx, channelID)
-	if err != nil {
-		channel = &store.BackfillChannel{
-			ChannelID:     channelID,
-			NewestAtStart: &newestAtStart,
-			OldestFetched: nil,
-			Done:          false,
-		}
-	}
-
-	oldestFetched := uint64(0)
-	if channel.OldestFetched != nil {
-		oldestFetched = *channel.OldestFetched
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var before uint64
-		if oldestFetched > 0 {
-			before = oldestFetched
-		}
-
-		msgs, err := b.client.Rest.GetMessages(snowflake.ID(channelID), snowflake.ID(before), 0, 0, b.config.BackfillBatch)
-		if err != nil {
-			return err
-		}
-
-		if len(msgs) == 0 {
-			break
-		}
-
-		for _, msg := range msgs {
-			if msg.ID < snowflake.ID(oldestFetched) || oldestFetched == 0 {
-				oldestFetched = uint64(msg.ID)
-			}
-
-			if !shouldArchive(archiveBackfill, msg.Author.ID == botID, msg, b.config.ArchiveDenyChannels, snowflake.ID(channelID)) {
-				continue
-			}
-
-			isForgotten, err := b.store.IsAuthorForgotten(ctx, uint64(msg.Author.ID))
-			if err != nil {
-				slog.Warn("failed to check if author is forgotten", "error", err)
-				continue
-			}
-			if isForgotten {
-				continue
-			}
-
-			storedMsg := toStoredMessage(msg, snowflake.ID(channelID))
-
-			if err := b.store.CreateMessage(ctx, storedMsg); err != nil {
-				slog.Warn("failed to archive message during backfill", "error", err)
-				continue
-			}
-
-			channel.MessagesSeen++
-		}
-
-		channel.OldestFetched = &oldestFetched
-		channel.UpdatedAt = time.Now()
-		if err := b.store.SaveBackfillChannel(ctx, channel); err != nil {
-			slog.Warn("failed to save backfill cursor", "error", err)
-		}
-
-		elapsed := time.Since(channelStart)
-		rate := float64(channel.MessagesSeen) / elapsed.Seconds()
-		slog.Info("backfill channel progress", "channel", channelID, "messages_seen", channel.MessagesSeen,
-			"batch_size", len(msgs), "elapsed", elapsed.Round(time.Second),
-			"rate_per_sec", fmt.Sprintf("%.1f", rate))
-
-		if len(msgs) < b.config.BackfillBatch {
-			break
-		}
-
-		time.Sleep(delay)
-	}
-
-	return nil
 }
