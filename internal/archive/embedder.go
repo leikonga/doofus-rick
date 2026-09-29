@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"strconv"
 
@@ -41,7 +42,9 @@ func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
 	if err != nil {
 		return err
 	}
-	e.store.SaveTokenUsage(ctx, strconv.FormatUint(batch[0].ChannelID, 10), "embedder", e.config.Model, resp.InputTokens, 0)
+	if err := e.store.SaveTokenUsage(ctx, store.TokenUsage{ChannelID: strconv.FormatUint(batch[0].ChannelID, 10), UserID: "embedder", ModelName: e.config.Model, InputTokens: resp.InputTokens}); err != nil {
+		slog.Warn("failed to save token usage", "error", err)
+	}
 
 	for i, embedding := range resp.Embeddings {
 		if i >= len(batch) {

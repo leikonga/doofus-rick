@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -74,7 +75,9 @@ Conversation:
 	if err != nil {
 		return ClassifierResult{}, err
 	}
-	c.store.SaveTokenUsage(ctx, strconv.FormatUint(channelID, 10), "ambient-classifier", c.config.Model, resp.InputTokens, resp.OutputTokens)
+	if err := c.store.SaveTokenUsage(ctx, store.TokenUsage{ChannelID: strconv.FormatUint(channelID, 10), UserID: "ambient-classifier", ModelName: c.config.Model, InputTokens: resp.InputTokens, OutputTokens: resp.OutputTokens}); err != nil {
+		slog.Warn("failed to save token usage", "error", err)
+	}
 
 	var result ClassifierResult
 	if err := json.Unmarshal([]byte(resp.Message.Parts[0].Text), &result); err != nil {

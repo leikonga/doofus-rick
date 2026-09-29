@@ -15,6 +15,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selbst"
+	"github.com/leikonga/doofus-rick/internal/store"
 )
 
 // HandleAmbient runs an unprompted, reduced persona call for a burst the
@@ -141,7 +142,9 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 		if e.InputTokens > 0 || e.OutputTokens > 0 {
 			saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			a.store.SaveTokenUsage(saveCtx, e.ChannelID, e.UserID, a.config.RickModel, e.InputTokens, e.OutputTokens)
+			if err := a.store.SaveTokenUsage(saveCtx, store.TokenUsage{ChannelID: e.ChannelID, UserID: e.UserID, ModelName: a.config.RickModel, InputTokens: e.InputTokens, OutputTokens: e.OutputTokens}); err != nil {
+				slog.Warn("failed to save token usage", "error", err)
+			}
 		}
 	}()
 	if err != nil {

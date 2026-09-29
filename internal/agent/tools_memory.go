@@ -71,7 +71,10 @@ type getUserQuotesIn struct {
 func (a *Agent) getUserQuotesTool() llm.Tool {
 	return llm.NewTool("memory_quote_list", "Look up all saved quotes for a user by their Discord snowflake. Use to find ammunition for roasting someone.",
 		func(ctx context.Context, in getUserQuotesIn) (llm.Result, error) {
-			quotes := a.store.GetQuotesByParticipant(ctx, in.UserID)
+			quotes, err := a.store.GetQuotesByParticipant(ctx, in.UserID)
+			if err != nil {
+				slog.Warn("failed to get quotes by participant", "user_id", in.UserID, "error", err)
+			}
 			if len(quotes) == 0 {
 				return llm.Result{Content: "no quotes found for this user"}, nil
 			}
@@ -97,7 +100,10 @@ func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 		func(ctx context.Context, in searchHistoryIn) (llm.Result, error) {
 			switch in.Scope {
 			case "quotes":
-				quotes := a.store.SearchQuotes(ctx, in.Query)
+				quotes, err := a.store.SearchQuotes(ctx, in.Query)
+				if err != nil {
+					slog.Warn("failed to search quotes", "query", in.Query, "error", err)
+				}
 				if len(quotes) == 0 {
 					return llm.Result{Content: "no matching quotes found"}, nil
 				}

@@ -42,7 +42,7 @@ func (s *Store) GetBackfillState(ctx context.Context) (*BackfillState, error) {
 	var state BackfillState
 	err := s.db.WithContext(ctx).Where("id = 1").First(&state).Error
 	if err != nil {
-		return nil, err
+		return nil, mapNotFound(err)
 	}
 	return &state, nil
 }
@@ -54,7 +54,7 @@ func (s *Store) GetOrCreateBackfillState(ctx context.Context) (*BackfillState, e
 	if err == nil {
 		return state, nil
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 
@@ -98,7 +98,7 @@ func (s *Store) GetBackfillChannels(ctx context.Context, limit int) ([]BackfillC
 func (s *Store) GetBackfillChannel(ctx context.Context, channelID uint64) (*BackfillChannel, error) {
 	var channel BackfillChannel
 	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&channel).Error
-	return &channel, err
+	return &channel, mapNotFound(err)
 }
 
 func (s *Store) SaveBackfillChannel(ctx context.Context, channel *BackfillChannel) error {
@@ -124,7 +124,7 @@ func (s *Store) GetChunksWithoutEmbedding(ctx context.Context, model string, lim
 func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
 	var chunk Chunk
 	err := s.db.WithContext(ctx).Where("id = ?", id).First(&chunk).Error
-	return &chunk, err
+	return &chunk, mapNotFound(err)
 }
 
 // GetNeighborChunks returns the chunks adjacent to chunkID in the same channel, in chronological order.
@@ -222,7 +222,7 @@ func (s *Store) GetAffinity(ctx context.Context, userID uint64) (*UserAffinity, 
 	var affinity UserAffinity
 	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&affinity).Error
 	if err != nil {
-		return nil, err
+		return nil, mapNotFound(err)
 	}
 	return &affinity, nil
 }
@@ -239,7 +239,7 @@ func (s *Store) GetAmbientState(ctx context.Context, channelID uint64) (*Ambient
 	var state AmbientState
 	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&state).Error
 	if err != nil {
-		return nil, err
+		return nil, mapNotFound(err)
 	}
 	return &state, nil
 }

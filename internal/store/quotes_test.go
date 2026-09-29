@@ -9,7 +9,6 @@ import (
 
 	"github.com/leikonga/doofus-rick/internal/pgtest"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"gorm.io/gorm"
 )
 
 func seedQuotes(t *testing.T, s *store.Store) {
@@ -59,8 +58,8 @@ func TestQuoteCreateAndGet(t *testing.T) {
 func TestQuoteGetMissing(t *testing.T) {
 	s := pgtest.Store(t)
 	_, err := s.GetQuote(context.Background(), "999")
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("err = %v, want gorm.ErrRecordNotFound", err)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want store.ErrNotFound", err)
 	}
 }
 
@@ -70,8 +69,8 @@ func TestQuoteGetRandomEmpty(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on empty table")
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Errorf("err = %v, want gorm.ErrRecordNotFound", err)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("err = %v, want store.ErrNotFound", err)
 	}
 }
 
@@ -86,7 +85,11 @@ func TestQuoteGetRandomNonEmpty(t *testing.T) {
 func TestQuoteGetQuotesOrdering(t *testing.T) {
 	s := pgtest.Store(t)
 	seedQuotes(t, s)
-	got := contents(s.GetQuotes(context.Background()))
+	quotes, err := s.GetQuotes(context.Background())
+	if err != nil {
+		t.Fatalf("GetQuotes: %v", err)
+	}
+	got := contents(quotes)
 	want := []string{"Delta", "bravo charlie", "Alpha Bravo"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -109,7 +112,11 @@ func TestQuoteSearch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := contents(s.SearchQuotes(context.Background(), tt.query))
+			quotes, err := s.SearchQuotes(context.Background(), tt.query)
+			if err != nil {
+				t.Fatalf("SearchQuotes: %v", err)
+			}
+			got := contents(quotes)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
@@ -134,7 +141,11 @@ func TestQuoteGetByParticipant(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := contents(s.GetQuotesByParticipant(context.Background(), tt.id))
+			quotes, err := s.GetQuotesByParticipant(context.Background(), tt.id)
+			if err != nil {
+				t.Fatalf("GetQuotesByParticipant: %v", err)
+			}
+			got := contents(quotes)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}

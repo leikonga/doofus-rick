@@ -9,7 +9,6 @@ import (
 
 	"github.com/leikonga/doofus-rick/internal/pgtest"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"gorm.io/gorm"
 )
 
 func msg(id, channel uint64, at time.Time) store.Message {
@@ -201,7 +200,7 @@ func TestBackfillState(t *testing.T) {
 	s := pgtest.Store(t)
 	ctx := context.Background()
 
-	if _, err := s.GetBackfillState(ctx); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := s.GetBackfillState(ctx); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetBackfillState on empty = %v", err)
 	}
 	first, err := s.GetOrCreateBackfillState(ctx)
@@ -271,8 +270,8 @@ func TestSeedBackfillChannels(t *testing.T) {
 func TestGetBackfillChannelMissing(t *testing.T) {
 	s := pgtest.Store(t)
 	ch, err := s.GetBackfillChannel(context.Background(), 404)
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("err = %v, want gorm.ErrRecordNotFound", err)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("err = %v, want store.ErrNotFound", err)
 	}
 	if ch == nil {
 		t.Error("returns non-nil empty channel alongside the error")

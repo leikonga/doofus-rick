@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -92,7 +93,9 @@ Conversation:
 	if err != nil {
 		return err
 	}
-	s.store.SaveTokenUsage(ctx, strconv.FormatUint(chunk.ChannelID, 10), "affinity-scorer", s.config.Model, resp.InputTokens, resp.OutputTokens)
+	if err := s.store.SaveTokenUsage(ctx, store.TokenUsage{ChannelID: strconv.FormatUint(chunk.ChannelID, 10), UserID: "affinity-scorer", ModelName: s.config.Model, InputTokens: resp.InputTokens, OutputTokens: resp.OutputTokens}); err != nil {
+		slog.Warn("failed to save token usage", "error", err)
+	}
 
 	var text strings.Builder
 	for _, p := range resp.Message.Parts {

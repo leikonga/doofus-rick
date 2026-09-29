@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -85,7 +86,21 @@ func main() {
 	tr := tracer.New(func(e *tracer.Entry) {
 		tctx, tcancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer tcancel()
-		db.SaveFailureTrace(tctx, e)
+		blob, err := json.Marshal(e)
+		if err != nil {
+			slog.Warn("failed to marshal failure trace", "error", err)
+			return
+		}
+		if err := db.SaveFailureTrace(tctx, store.FailureTrace{
+			TraceID:   e.ID,
+			ChannelID: e.ChannelID,
+			UserID:    e.UserID,
+			Blob:      string(blob),
+			Decline:   e.Decline,
+			ErrMsg:    e.Err,
+		}); err != nil {
+			slog.Warn("failed to save failure trace", "error", err)
+		}
 	})
 
 	rick := discordpkg.New(ctx, db, c, home, tr)

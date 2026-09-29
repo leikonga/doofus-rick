@@ -7,7 +7,6 @@ import (
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"gorm.io/gorm"
 )
 
 type GateConfig struct {
@@ -83,7 +82,7 @@ func (g *Gate) CheckGate(ctx context.Context, channelID snowflake.ID, rickID sno
 
 	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if !errors.Is(err, store.ErrNotFound) {
 			return GateResult{Passed: false, Reason: "failed to get state"}
 		}
 		// No state row yet means ambient has never fired in this channel.
@@ -129,7 +128,7 @@ func (g *Gate) LogFire(ctx context.Context, channelID snowflake.ID, score int, h
 func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, score int, hook string, unpromptedMsgID uint64) error {
 	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
 		state = &store.AmbientState{ChannelID: uint64(channelID)}
@@ -157,7 +156,7 @@ func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, score in
 func (g *Gate) EvalTouch(ctx context.Context, channelID snowflake.ID) error {
 	state, err := g.store.GetAmbientState(ctx, uint64(channelID))
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
 		state = &store.AmbientState{ChannelID: uint64(channelID)}

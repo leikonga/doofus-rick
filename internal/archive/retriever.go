@@ -64,7 +64,9 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	if len(channelIDs) > 0 {
 		channelKey = strconv.FormatUint(channelIDs[0], 10)
 	}
-	r.store.SaveTokenUsage(ctx, channelKey, "retriever", r.config.EmbedModel, embedResp.InputTokens, 0)
+	if err := r.store.SaveTokenUsage(ctx, store.TokenUsage{ChannelID: channelKey, UserID: "retriever", ModelName: r.config.EmbedModel, InputTokens: embedResp.InputTokens}); err != nil {
+		slog.Warn("failed to save token usage", "error", err)
+	}
 	if len(embedResp.Embeddings) == 0 {
 		return nil, fmt.Errorf("archive: empty query embedding")
 	}
