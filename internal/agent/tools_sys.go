@@ -29,6 +29,8 @@ func (a *Agent) shellExecTool() llm.Tool {
 func shellDescription(shellUser, workDir, pprofAddr string, tools []sandbox.Tool) string {
 	var sb strings.Builder
 	sb.WriteString("Run a shell command with bash and return stdout+stderr. ")
+	sb.WriteString("Separate sys_shell calls in one response run at the same time in no guaranteed order: use them for independent tasks. ")
+	sb.WriteString("Steps that depend on each other belong in ONE call as a sequence, chained with && or written as a heredoc script. ")
 	fmt.Fprintf(&sb, "Alpine Linux; runs as the unprivileged user %s, not as the bot process. ", shellUser)
 	fmt.Fprintf(&sb, "Working directory and HOME are %s, persistent across calls and redeploys; store files, scripts, databases and cloned repos there. ", workDir)
 	sb.WriteString("Python packages: uv run --with <pkg> python3 -c '...', or uvx <tool>. ")

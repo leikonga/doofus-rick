@@ -11,6 +11,7 @@ import (
 	"runtime/pprof"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -365,38 +366,10 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			maxIter = a.config.CodeMaxToolIter
 		}
 
-		var toolMessages []llm.Message
-		var toolDone bool
-		for _, call := range resp.Message.ToolCalls {
-			tool, ok := tools.Find(call.Name)
-			if !ok {
-				slog.Warn("unknown tool called by model", "tool", call.Name)
-				msg := fmt.Sprintf("error: no tool named %q; available tools: %s", call.Name, strings.Join(tools.Names(), ", "))
-				rec.AddTool(call.Name, call.Arguments, msg, true)
-				toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, msg))
-				continue
-			}
-			slog.Info("tool call", "tool", call.Name, "input", call.Arguments)
-			var result llm.Result
-			var err error
-			pprof.Do(ctx, pprof.Labels("tool", tool.Name), func(ctx context.Context) {
-				result, err = tool.Execute(ctx, json.RawMessage(call.Arguments))
-			})
-			if err != nil {
-				slog.Warn("tool execution failed", "tool", call.Name, "error", err)
-				rec.AddTool(call.Name, call.Arguments, err.Error(), true)
-				toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, err.Error()))
-				continue
-			}
-			if result.Response != nil {
-				rec.AddTool(call.Name, call.Arguments, "(terminal)", false)
-				return *result.Response, nil
-			}
-			rec.AddTool(call.Name, call.Arguments, result.Content, false)
-			if result.Done {
-				toolDone = true
-			}
-			toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, result.Content))
+		outcomes := runToolCalls(ctx, tools, resp.Message.ToolCalls)
+		terminal, toolMessages, toolDone := collectToolResults(rec, tools, resp.Message.ToolCalls, outcomes)
+		if terminal != nil {
+			return *terminal, nil
 		}
 
 		if toolDone {
@@ -410,6 +383,88 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	}
 	slog.Warn("tool iteration limit reached, declining", "max_iter", maxIter)
 	return llm.RickResponse{Decline: true}, nil
+}
+
+type toolOutcome struct {
+	found  bool
+	result llm.Result
+	err    error
+}
+
+type toolRecorder interface {
+	AddTool(name, input, result string, isErr bool)
+}
+
+func runToolCalls(ctx context.Context, tools llm.Tools, calls []llm.ToolCall) []toolOutcome {
+	outcomes := make([]toolOutcome, len(calls))
+	var codeLane []func()
+	var wg sync.WaitGroup
+	for i, call := range calls {
+		tool, ok := tools.Find(call.Name)
+		if !ok {
+			continue
+		}
+		outcomes[i].found = true
+		run := func() { outcomes[i].result, outcomes[i].err = executeTool(ctx, tool, call) }
+		// code_ tools share one repo checkout, so they run one at a time in call order.
+		if strings.HasPrefix(tool.Name, "code_") {
+			codeLane = append(codeLane, run)
+			continue
+		}
+		wg.Go(run)
+	}
+	if len(codeLane) > 0 {
+		wg.Go(func() {
+			for _, run := range codeLane {
+				run()
+			}
+		})
+	}
+	wg.Wait()
+	return outcomes
+}
+
+func executeTool(ctx context.Context, tool llm.Tool, call llm.ToolCall) (result llm.Result, err error) {
+	slog.Info("tool call", "tool", call.Name, "input", call.Arguments)
+	pprof.Do(ctx, pprof.Labels("tool", tool.Name), func(ctx context.Context) {
+		defer func() {
+			if v := recover(); v != nil {
+				slog.ErrorContext(ctx, "tool panicked", "tool", tool.Name, "panic", v, "stack", string(debug.Stack()))
+				err = fmt.Errorf("tool %s panicked: %v", tool.Name, v)
+			}
+		}()
+		result, err = tool.Execute(ctx, json.RawMessage(call.Arguments))
+	})
+	return result, err
+}
+
+func collectToolResults(rec toolRecorder, tools llm.Tools, calls []llm.ToolCall, outcomes []toolOutcome) (terminal *llm.RickResponse, toolMessages []llm.Message, done bool) {
+	for i, call := range calls {
+		outcome := outcomes[i]
+		if !outcome.found {
+			slog.Warn("unknown tool called by model", "tool", call.Name)
+			msg := fmt.Sprintf("error: no tool named %q; available tools: %s", call.Name, strings.Join(tools.Names(), ", "))
+			rec.AddTool(call.Name, call.Arguments, msg, true)
+			toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, msg))
+			continue
+		}
+		if outcome.err != nil {
+			slog.Warn("tool execution failed", "tool", call.Name, "error", outcome.err)
+			rec.AddTool(call.Name, call.Arguments, outcome.err.Error(), true)
+			toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, outcome.err.Error()))
+			continue
+		}
+		if outcome.result.Response != nil {
+			rec.AddTool(call.Name, call.Arguments, "(terminal)", false)
+			return outcome.result.Response, nil, false
+		}
+		rec.AddTool(call.Name, call.Arguments, outcome.result.Content, false)
+		if outcome.result.Done {
+			done = true
+		}
+		toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, outcome.result.Content))
+	}
+	return nil, toolMessages, done
 }
 
 func escalateForCode(alreadyEscalated bool, calls []llm.ToolCall) bool {

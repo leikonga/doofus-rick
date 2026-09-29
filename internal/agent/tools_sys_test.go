@@ -146,6 +146,15 @@ func TestShellDescriptionListsOnlyAvailableTools(t *testing.T) {
 	}
 }
 
+func TestShellDescriptionTeachesParallelCallOrdering(t *testing.T) {
+	desc := shellDescription("rick", "/rick/work", "", nil)
+	for _, want := range []string{"run at the same time", "depend on each other belong in ONE call"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("description missing %q:\n%s", want, desc)
+		}
+	}
+}
+
 func TestShellDescriptionOmitsPprofWhenDisabled(t *testing.T) {
 	if desc := shellDescription("rick", "/rick/work", "", nil); strings.Contains(desc, "pprof") {
 		t.Fatalf("description mentions pprof with empty addr:\n%s", desc)
