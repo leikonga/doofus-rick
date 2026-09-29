@@ -1,9 +1,10 @@
 package selbst
 
 var packages = map[string]string{
-	"agent":       "rick's turn loop: builds prompts, calls the model, runs tools (web, memory, discord, sys, code), handles mentions and ambient interjections, runs sys_task background tasks via the task runner",
+	"affinity":    "per-user affinity score ledger and the llm scorer that adjusts it from archived chunks rick took part in",
+	"agent":       "rick's turn loop: builds prompts, calls the model, runs tools (web, memory, discord, sys, code), handles mentions and ambient interjections, typing theatre, runs sys_task background tasks via the task runner",
 	"ambient":     "decides when rick butts in unprompted: cheap gate (activity window, cooldown, daily cap) then an llm classifier that scores the burst",
-	"archive":     "long-term memory: chunks and embeds chat history, hybrid recall retrieval, affinity scores and their llm scorer, typing theatre",
+	"archive":     "long-term memory: live and backfill message ingest, chunking, embeddings, hybrid recall retrieval",
 	"brave":       "brave search api: web search, page fetch and image search for web_search, web_fetch and web_media",
 	"codeedit":    "jailed file read/write/replace/insert inside rick's source checkout for code_read and code_edit",
 	"config":      "env-based configuration loaded once at startup",

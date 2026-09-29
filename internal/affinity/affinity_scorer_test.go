@@ -1,4 +1,4 @@
-package archive
+package affinity
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -25,12 +26,12 @@ func chatCompletionServer(t *testing.T, content string) *httptest.Server {
 	}))
 }
 
-func TestAffinityScorer_NoOpWhenRickDidNotParticipate(t *testing.T) {
+func TestScorer_NoOpWhenRickDidNotParticipate(t *testing.T) {
 	srv := chatCompletionServer(t, `{"users":[{"user_id":"1","delta":5,"reason":"nice"}]}`)
 	defer srv.Close()
 
-	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{}, nil)
-	chunk := Chunk{Messages: []store.Message{
+	scorer := NewScorer(ScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Ledger{}, nil)
+	chunk := archive.Chunk{Messages: []store.Message{
 		{AuthorID: 1, IsBot: false},
 		{AuthorID: 2, IsBot: false},
 	}}
@@ -40,13 +41,13 @@ func TestAffinityScorer_NoOpWhenRickDidNotParticipate(t *testing.T) {
 	}
 }
 
-func TestAffinityScorer_NoOpWhenNoOtherParticipants(t *testing.T) {
+func TestScorer_NoOpWhenNoOtherParticipants(t *testing.T) {
 	srv := chatCompletionServer(t, `{"users":[]}`)
 	defer srv.Close()
 
-	scorer := NewAffinityScorer(AffinityScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Affinity{}, nil)
+	scorer := NewScorer(ScorerConfig{Model: "test"}, llm.NewClientWithServerURL("test-key", srv.URL), &Ledger{}, nil)
 	rickID := uint64(999)
-	chunk := Chunk{Messages: []store.Message{
+	chunk := archive.Chunk{Messages: []store.Message{
 		{AuthorID: rickID, IsBot: true},
 	}}
 

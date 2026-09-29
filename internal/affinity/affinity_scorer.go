@@ -1,4 +1,4 @@
-package archive
+package affinity
 
 import (
 	"context"
@@ -8,32 +8,33 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-type AffinityScorerConfig struct {
+type ScorerConfig struct {
 	Model     string
 	MaxTokens int64
 }
 
-// AffinityScorer judges a closed chunk Rick participated in and nudges each
+// Scorer judges a closed chunk Rick participated in and nudges each
 // other participant's affinity score. Personality-free by design, like the
 // ambient classifier: this is a neutral judgment call about how an exchange
 // reflects on the relationship, not something Rick's own persona should be
 // deciding about itself.
-type AffinityScorer struct {
-	config   AffinityScorerConfig
+type Scorer struct {
+	config   ScorerConfig
 	client   *llm.Client
-	affinity *Affinity
+	affinity *Ledger
 	store    *store.Store
 }
 
-func NewAffinityScorer(config AffinityScorerConfig, c *llm.Client, aff *Affinity, s *store.Store) *AffinityScorer {
+func NewScorer(config ScorerConfig, c *llm.Client, aff *Ledger, s *store.Store) *Scorer {
 	if config.MaxTokens == 0 {
 		config.MaxTokens = 300
 	}
-	return &AffinityScorer{config: config, client: c, affinity: aff, store: s}
+	return &Scorer{config: config, client: c, affinity: aff, store: s}
 }
 
 type affinityDelta struct {
@@ -50,7 +51,7 @@ const affinityScorerSystemPrompt = "You are a neutral relationship scorer. Outpu
 
 // ScoreChunk scores every non-bot participant other than rick in the chunk.
 // A no-op if rick isn't one of the chunk's authors, or if nobody else is.
-func (s *AffinityScorer) ScoreChunk(ctx context.Context, chunk Chunk, rickID uint64) error {
+func (s *Scorer) ScoreChunk(ctx context.Context, chunk archive.Chunk, rickID uint64) error {
 	rickSpoke := false
 	participants := make(map[uint64]struct{})
 	for _, m := range chunk.Messages {

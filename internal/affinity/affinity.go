@@ -1,4 +1,4 @@
-package archive
+package affinity
 
 import (
 	"context"
@@ -7,36 +7,35 @@ import (
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-type AffinityConfig struct {
-	Enabled  bool
+type Config struct {
 	Baseline int
 }
 
-type Affinity struct {
-	config AffinityConfig
+type Ledger struct {
+	config Config
 	store  *store.Store
 }
 
-func NewAffinity(config AffinityConfig, s *store.Store) *Affinity {
+func New(config Config, s *store.Store) *Ledger {
 	if config.Baseline == 0 {
 		config.Baseline = -20
 	}
-	return &Affinity{config: config, store: s}
+	return &Ledger{config: config, store: s}
 }
 
-type AffinityResult struct {
+type Result struct {
 	UserID     uint64
 	Score      int
 	LastReason string
 }
 
-func (a *Affinity) Get(ctx context.Context, userID uint64) (*AffinityResult, error) {
+func (a *Ledger) Get(ctx context.Context, userID uint64) (*Result, error) {
 	affinity, err := a.store.GetAffinity(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &AffinityResult{
+	return &Result{
 		UserID: affinity.UserID,
 		Score:  affinity.Score,
 		LastReason: func() string {
@@ -48,7 +47,7 @@ func (a *Affinity) Get(ctx context.Context, userID uint64) (*AffinityResult, err
 	}, nil
 }
 
-func (a *Affinity) Update(ctx context.Context, userID uint64, reason string, delta int) error {
+func (a *Ledger) Update(ctx context.Context, userID uint64, reason string, delta int) error {
 	affinity, err := a.store.GetAffinity(ctx, userID)
 	if err != nil {
 		affinity = &store.UserAffinity{

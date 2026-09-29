@@ -1,4 +1,4 @@
-package archive
+package agent
 
 import (
 	"testing"
@@ -6,14 +6,14 @@ import (
 )
 
 func TestTypingTheatre_ShouldType_DisabledAlwaysFalse(t *testing.T) {
-	tt := NewTypingTheatre(TypingTheatreConfig{Enabled: false, Chance: 1.0})
+	tt := newTypingTheatre(typingTheatreConfig{Enabled: false, Chance: 1.0})
 	if tt.ShouldType() {
 		t.Fatal("expected disabled theatre to never type")
 	}
 }
 
 func TestTypingTheatre_ShouldType_ChanceOneAlwaysTrue(t *testing.T) {
-	tt := NewTypingTheatre(TypingTheatreConfig{Enabled: true, Chance: 1.0})
+	tt := newTypingTheatre(typingTheatreConfig{Enabled: true, Chance: 1.0})
 	for range 20 {
 		if !tt.ShouldType() {
 			t.Fatal("expected chance=1.0 to always type")
@@ -24,7 +24,7 @@ func TestTypingTheatre_ShouldType_ChanceOneAlwaysTrue(t *testing.T) {
 func TestTypingTheatre_GetTypingSequence_ScalesToMaxDelay(t *testing.T) {
 	// Regression test: MaxDelay was configured but silently ignored in favor
 	// of a hardcoded 5s/12s/3s sequence.
-	tt := NewTypingTheatre(TypingTheatreConfig{Enabled: true, Chance: 1.0, MaxDelay: 40 * time.Second})
+	tt := newTypingTheatre(typingTheatreConfig{Enabled: true, Chance: 1.0, MaxDelay: 40 * time.Second})
 	seq := tt.GetTypingSequence()
 	if len(seq) != 3 {
 		t.Fatalf("expected 3-step sequence, got %d", len(seq))
@@ -46,7 +46,7 @@ func TestTypingTheatre_GetTypingSequence_ScalesToMaxDelay(t *testing.T) {
 }
 
 func TestTypingTheatre_GetTypingSequence_EmptyWhenNotTyping(t *testing.T) {
-	tt := NewTypingTheatre(TypingTheatreConfig{Enabled: false})
+	tt := newTypingTheatre(typingTheatreConfig{Enabled: false})
 	if seq := tt.GetTypingSequence(); seq != nil {
 		t.Fatalf("expected nil sequence when disabled, got %v", seq)
 	}

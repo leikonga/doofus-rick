@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/affinity"
 	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/ambient"
 	"github.com/leikonga/doofus-rick/internal/archive"
@@ -124,7 +125,7 @@ func run() error {
 		EmbedModel:     c.RickEmbedModel,
 		NeighborChunks: c.RecallNeighborChunks,
 	}, db, llmClient)
-	aff := archive.NewAffinity(archive.AffinityConfig{Baseline: c.AffinityBaseline}, db)
+	aff := affinity.New(affinity.Config{Baseline: c.AffinityBaseline}, db)
 
 	rick, err := discordpkg.New(c, db)
 	if err != nil {
@@ -153,7 +154,7 @@ func run() error {
 		if affinityModel == "" {
 			affinityModel = c.RickModel
 		}
-		scorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff, db)
+		scorer = affinity.NewScorer(affinity.ScorerConfig{Model: affinityModel}, llmClient, aff, db)
 	}
 	ingest := archive.NewIngest(archive.IngestConfig{
 		ArchiveEnabled:  c.ArchiveEnabled,

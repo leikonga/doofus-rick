@@ -9,6 +9,7 @@ import (
 	disgobot "github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/affinity"
 	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/brave"
 	"github.com/leikonga/doofus-rick/internal/codeedit"
@@ -52,8 +53,8 @@ type Agent struct {
 	crashFile        string
 	tracer           *tracer.Tracer
 	retriever        *archive.Retriever
-	affinity         *archive.Affinity
-	typingTheatre    *archive.TypingTheatre
+	affinity         *affinity.Ledger
+	typingTheatre    *typingTheatre
 	typingChannels   sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
 	codeedit         *codeedit.Editor
 	turnTimeout      time.Duration
@@ -72,7 +73,7 @@ type Deps struct {
 	Discord   DiscordState
 	Client    *disgobot.Client
 	Retriever *archive.Retriever
-	Affinity  *archive.Affinity
+	Affinity  *affinity.Ledger
 	Home      *runtimehome.Home
 	Tracer    *tracer.Tracer
 }
@@ -124,7 +125,7 @@ func New(c *config.Config, d Deps) *Agent {
 		tracer:        d.Tracer,
 		retriever:     d.Retriever,
 		affinity:      d.Affinity,
-		typingTheatre: archive.NewTypingTheatre(archive.TypingTheatreConfig{
+		typingTheatre: newTypingTheatre(typingTheatreConfig{
 			Enabled:  c.TypingTheatre,
 			MaxDelay: c.TypingMaxDelay,
 			Chance:   c.TypingChance,
