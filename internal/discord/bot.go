@@ -35,6 +35,8 @@ type Agent interface {
 type Bot struct {
 	store             *store.Store
 	config            *config.Config
+	llm               *llm.Client
+	affinity          *archive.Affinity
 	client            *disgobot.Client
 	agent             Agent
 	cache             UserCache
@@ -50,7 +52,7 @@ type Bot struct {
 	taskReportOnce    sync.Once
 }
 
-func New(c *config.Config, s *store.Store) (*Bot, error) {
+func New(c *config.Config, s *store.Store, llmClient *llm.Client, aff *archive.Affinity) (*Bot, error) {
 	client, err := disgo.New(c.DiscordToken,
 		disgobot.WithGatewayConfigOpts(
 			gateway.WithIntents(gateway.IntentGuilds, gateway.IntentGuildMembers, gateway.IntentGuildMessages, gateway.IntentMessageContent, gateway.IntentGuildPresences, gateway.IntentGuildVoiceStates),
@@ -59,7 +61,7 @@ func New(c *config.Config, s *store.Store) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Bot{store: s, config: c, client: client}, nil
+	return &Bot{store: s, config: c, client: client, llm: llmClient, affinity: aff}, nil
 }
 
 func (b *Bot) Client() *disgobot.Client {
@@ -96,8 +98,7 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 		ChunkMaxMsgs:  b.config.ChunkMaxMsgs,
 		ChunkMaxChars: b.config.ChunkMaxChars,
 	}, b)
-	llmClient := llm.NewClient(b.config.OpenRouterAPIKey)
-	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, llmClient)
+	b.embedder = archive.NewEmbedder(archive.EmbeddingConfig{Model: b.config.RickEmbedModel}, b.store, b.llm)
 
 	if b.config.AmbientEnabled {
 		b.ambientGate = ambient.NewGate(ambient.GateConfig{
@@ -118,7 +119,7 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 			Model:     classifierModel,
 			MaxTokens: b.config.AmbientMaxTokens,
 			MinScore:  b.config.AmbientMinScore,
-		}, llmClient, b.store)
+		}, b.llm, b.store)
 	}
 
 	if b.config.AffinityEnabled {
@@ -126,10 +127,7 @@ func (b *Bot) Open(ctx context.Context, a Agent) error {
 		if affinityModel == "" {
 			affinityModel = b.config.RickModel
 		}
-		aff := archive.NewAffinity(archive.AffinityConfig{
-			Baseline: b.config.AffinityBaseline,
-		}, b.store)
-		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, llmClient, aff, b.store)
+		b.affinityScorer = archive.NewAffinityScorer(archive.AffinityScorerConfig{Model: affinityModel}, b.llm, b.affinity, b.store)
 	}
 
 	if b.config.DiscordGuild == "" {

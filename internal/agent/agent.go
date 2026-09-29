@@ -66,9 +66,20 @@ type Agent struct {
 	interruptedTasks chan []store.Task
 }
 
-func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, home *runtimehome.Home, tr *tracer.Tracer) *Agent {
+type Deps struct {
+	Store     *store.Store
+	LLM       *llm.Client
+	Discord   DiscordState
+	Client    *disgobot.Client
+	Retriever *archive.Retriever
+	Affinity  *archive.Affinity
+	Home      *runtimehome.Home
+	Tracer    *tracer.Tracer
+}
+
+func New(c *config.Config, d Deps) *Agent {
 	httpClient := &http.Client{Timeout: 15 * time.Second}
-	llmClient := llm.NewClient(c.OpenRouterAPIKey)
+	home := d.Home
 	editor, err := codeedit.New(c.RickRepoDir)
 	if err != nil {
 		slog.Warn("code repo dir not available, code_read and code_edit will error until cloned", "dir", c.RickRepoDir, "error", err)
@@ -100,26 +111,19 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		runtimeLogs:   logs,
 		deploys:       deploys,
 		crashFile:     crashFile,
-		store:         s,
+		store:         d.Store,
 		config:        c,
-		llm:           llmClient,
-		discord:       ds,
-		discordClient: dc,
+		llm:           d.LLM,
+		discord:       d.Discord,
+		discordClient: d.Client,
 		brave:         brave.New(httpClient, c.BraveAPIKey),
 		giphy:         giphy.New(httpClient, c.GiphyAPIKey),
 		shell:         shell.New(c.WorkDir, c.ShellTimeout, c.ShellUser),
 		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
 		selbstBlock:   self.Block(),
-		tracer:        tr,
-		retriever: archive.NewRetriever(archive.RetrievalConfig{
-			TopK:           c.RecallTopK,
-			MinScore:       c.RecallMinScore,
-			EmbedModel:     c.RickEmbedModel,
-			NeighborChunks: c.RecallNeighborChunks,
-		}, s, llmClient),
-		affinity: archive.NewAffinity(archive.AffinityConfig{
-			Baseline: c.AffinityBaseline,
-		}, s),
+		tracer:        d.Tracer,
+		retriever:     d.Retriever,
+		affinity:      d.Affinity,
 		typingTheatre: archive.NewTypingTheatre(archive.TypingTheatreConfig{
 			Enabled:  c.TypingTheatre,
 			MaxDelay: c.TypingMaxDelay,
@@ -129,7 +133,7 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		turnTimeout:      c.RickTurnTimeout,
 		selfcode:         sc,
 		cmdRunner:        cmdRunner,
-		tasks:            s,
+		tasks:            d.Store,
 		taskWake:         make(chan struct{}, 1),
 		interruptedTasks: make(chan []store.Task, 1),
 	}

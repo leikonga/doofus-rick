@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"github.com/leikonga/doofus-rick/internal/agent"
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
+	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selbst"
 	"github.com/leikonga/doofus-rick/internal/shell"
@@ -51,12 +53,20 @@ func main() {
 		}
 	}
 
+	if err := run(); err != nil {
+		slog.Error("doofus-rick stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	c := config.LoadConfig()
 
-	sink := slog.Handler(stdoutHandler)
+	stdoutHandler := slog.Default().Handler()
+	sink := stdoutHandler
 	home, homeErr := runtimehome.Open(c.WorkDir, time.Now())
 	if homeErr == nil {
 		defer home.Close()
@@ -74,15 +84,13 @@ func main() {
 
 	if os.Getenv("APP_ENV") == envProduction {
 		if _, err := shell.Credential(c.ShellUser); err != nil {
-			slog.Error("sys_shell cannot run as its own user", "user", c.ShellUser, "error", err)
-			os.Exit(1)
+			return fmt.Errorf("sys_shell cannot run as its own user %s: %w", c.ShellUser, err)
 		}
 	}
 
 	db, err := store.Open(ctx, c.DSN())
 	if err != nil {
-		slog.Error("failed to open database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("open database: %w", err)
 	}
 	if os.Getenv("APP_ENV") != envProduction {
 		db.MaybeSeed(ctx)
@@ -108,16 +116,34 @@ func main() {
 		}
 	})
 
-	rick, err := discordpkg.New(c, db)
+	llmClient := llm.NewClient(c.OpenRouterAPIKey)
+	retriever := archive.NewRetriever(archive.RetrievalConfig{
+		TopK:           c.RecallTopK,
+		MinScore:       c.RecallMinScore,
+		EmbedModel:     c.RickEmbedModel,
+		NeighborChunks: c.RecallNeighborChunks,
+	}, db, llmClient)
+	aff := archive.NewAffinity(archive.AffinityConfig{Baseline: c.AffinityBaseline}, db)
+
+	rick, err := discordpkg.New(c, db, llmClient, aff)
 	if err != nil {
-		slog.Error("failed to create discord client", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("create discord client: %w", err)
 	}
-	ag := agent.New(db, c, rick, rick.Client(), home, tr)
+	ag := agent.New(c, agent.Deps{
+		Store:     db,
+		LLM:       llmClient,
+		Discord:   rick,
+		Client:    rick.Client(),
+		Retriever: retriever,
+		Affinity:  aff,
+		Home:      home,
+		Tracer:    tr,
+	})
+
+	errCh := make(chan error, 2)
 	go func() {
 		if err := rick.Open(ctx, ag); err != nil {
-			slog.Error("failed to connect to discord", "error", err)
-			os.Exit(1)
+			errCh <- fmt.Errorf("connect to discord: %w", err)
 		}
 	}()
 
@@ -128,8 +154,7 @@ func main() {
 	go func() {
 		slog.Info("starting web server", "port", c.Port)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("failed to start web server", "error", err)
-			os.Exit(1)
+			errCh <- fmt.Errorf("web server: %w", err)
 		}
 	}()
 
@@ -144,7 +169,12 @@ func main() {
 		}()
 	}
 
-	<-ctx.Done()
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case err := <-errCh:
+		runErr = err
+	}
 	if err := httpSrv.Shutdown(context.Background()); err != nil {
 		slog.Error("failed to shut down web server", "error", err)
 	}
@@ -153,6 +183,8 @@ func main() {
 			slog.Error("failed to shut down pprof server", "error", err)
 		}
 	}
+
+	return runErr
 }
 
 func newPprofServer(addr string) *http.Server {
