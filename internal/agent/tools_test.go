@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/disgoorg/disgo/events"
 	"github.com/leikonga/doofus-rick/internal/codeedit"
 )
 
 func TestBuildToolsCountAndNames(t *testing.T) {
 	a := &Agent{}
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
-	tools := a.buildTools(event)
+	tools := a.buildTools(turnOrigin{})
 
 	const want = 17
 	if len(tools) != want {
@@ -22,7 +20,7 @@ func TestBuildToolsCountAndNames(t *testing.T) {
 	wantNames := []string{
 		"decline", "discord_react", "web_media", "web_search", "web_fetch",
 		"sys_shell", "discord_send_message", "discord_create_poll", "discord_send_file", "memory_quote_save",
-		"memory_quote_list", "discord_schedule_reminder", "sys_logs", "memory_search",
+		"memory_quote_list", "sys_task", "sys_logs", "memory_search",
 		"code_read", "code_edit", "code_ship",
 	}
 	seen := make(map[string]bool, len(tools))
@@ -38,8 +36,7 @@ func TestBuildToolsCountAndNames(t *testing.T) {
 
 func TestBuildToolsDispatchRoutesToRightExecutor(t *testing.T) {
 	a := &Agent{}
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
-	tools := a.buildTools(event)
+	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("web_search")
 	if !ok {
@@ -69,8 +66,7 @@ func TestCodeEditRejectsUnknownCommand(t *testing.T) {
 		t.Fatalf("codeedit.New: %v", err)
 	}
 	a := &Agent{codeedit: ed}
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
-	tools := a.buildTools(event)
+	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("code_edit")
 	if !ok {
@@ -89,8 +85,7 @@ func TestCodeReadSurfacesJailViolation(t *testing.T) {
 		t.Fatalf("codeedit.New: %v", err)
 	}
 	a := &Agent{codeedit: ed}
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
-	tools := a.buildTools(event)
+	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("code_read")
 	if !ok {
@@ -104,8 +99,7 @@ func TestCodeReadSurfacesJailViolation(t *testing.T) {
 
 func TestBuildToolsDispatchSurfacesUnmarshalError(t *testing.T) {
 	a := &Agent{}
-	event := &events.MessageCreate{GenericMessage: &events.GenericMessage{}}
-	tools := a.buildTools(event)
+	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("web_search")
 	if !ok {

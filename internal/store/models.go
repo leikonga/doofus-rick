@@ -15,16 +15,6 @@ type Quote struct {
 	Votes        int          `gorm:"not null;default:0"`
 }
 
-type Reminder struct {
-	gorm.Model
-
-	ChannelID string    `gorm:"not null"`
-	UserID    string    `gorm:"not null"`
-	Message   string    `gorm:"not null"`
-	FireAt    time.Time `gorm:"type:timestamptz;not null;index"`
-	Fired     bool      `gorm:"not null;default:false"`
-}
-
 type TokenUsage struct {
 	gorm.Model
 

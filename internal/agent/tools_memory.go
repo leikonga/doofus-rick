@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/events"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -18,10 +17,10 @@ type saveQuoteIn struct {
 	ParticipantIDs []string `json:"participant_ids" jsonschema:"description=Discord snowflakes of any additional participants in the quote."`
 }
 
-func (a *Agent) saveQuoteTool(event *events.MessageCreate) llm.Tool {
+func (a *Agent) saveQuoteTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("memory_quote_save", "Save a quote to the quote book and display it as a quote embed. Use when someone says something memorable or worth archiving.",
 		func(ctx context.Context, in saveQuoteIn) (llm.Result, error) {
-			creatorID := event.Message.Author.ID.String()
+			creatorID := origin.AuthorID.String()
 			q := store.Quote{
 				Content:      in.Content,
 				Creator:      creatorID,
@@ -43,11 +42,11 @@ func (a *Agent) saveQuoteTool(event *events.MessageCreate) llm.Tool {
 				Footer:      memberEmbedFooter(author, creatorID),
 			}
 
-			_, sendErr := event.Client().Rest.CreateMessage(event.ChannelID, discord.NewMessageCreate().
-				WithEmbeds(embed).
-				WithMessageReferenceByID(event.MessageID),
-			)
-			if sendErr != nil {
+			msg := discord.NewMessageCreate().WithEmbeds(embed)
+			if origin.MessageID != 0 {
+				msg = msg.WithMessageReferenceByID(origin.MessageID)
+			}
+			if _, sendErr := a.discordClient.Rest.CreateMessage(origin.ChannelID, msg); sendErr != nil {
 				slog.Warn("failed to send quote embed", "error", sendErr)
 			}
 
@@ -93,7 +92,7 @@ type searchHistoryIn struct {
 // pre-fetch injected into every prompt: nothing depends on Rick calling
 // this, it's for digging on purpose when the automatic context missed
 // something. Folds the old search_quotes tool in via the scope param.
-func (a *Agent) searchHistoryTool(event *events.MessageCreate) llm.Tool {
+func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("memory_search", "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
 		func(ctx context.Context, in searchHistoryIn) (llm.Result, error) {
 			switch in.Scope {
@@ -108,7 +107,7 @@ func (a *Agent) searchHistoryTool(event *events.MessageCreate) llm.Tool {
 				}
 				return llm.Result{Content: sb.String()}, nil
 			case "messages", "":
-				channelIDs := a.visibleChannelIDs(event.Message.Author.ID)
+				channelIDs := a.visibleChannelIDs(origin.AuthorID)
 				if len(channelIDs) == 0 {
 					return llm.Result{Content: "no channels to search"}, nil
 				}

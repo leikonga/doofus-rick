@@ -49,6 +49,7 @@ type Bot struct {
 	ambientWindow     time.Duration
 	affinityScorer    *archive.AffinityScorer
 	deployReportOnce  sync.Once
+	taskReportOnce    sync.Once
 }
 
 func New(ctx context.Context, s *store.Store, c *config.Config, home *runtimehome.Home, tr *tracer.Tracer) *Bot {
@@ -78,6 +79,7 @@ func (b *Bot) Run() error {
 		disgobot.WithEventListenerFunc(func(e *events.MessageCreate) { b.agent.HandleMention(b.ctx, e) }),
 		disgobot.WithEventListenerFunc(b.onGuildReady),
 		disgobot.WithEventListenerFunc(b.reportDeployOnce),
+		disgobot.WithEventListenerFunc(b.reportInterruptedTasksOnce),
 		disgobot.WithEventListenerFunc(b.onPresenceUpdate),
 		disgobot.WithEventListenerFunc(b.onGuildVoiceStateUpdate),
 		disgobot.WithEventListenerFunc(b.onMessageCreate),
@@ -152,7 +154,7 @@ func (b *Bot) Run() error {
 		go b.runBackfillWorker(b.ctx)
 	}
 
-	go b.runReminderLoop(b.ctx)
+	go b.agent.RunTasks(b.ctx)
 
 	if b.config.ArchiveEnabled {
 		go b.runChunkingLoop(b.ctx)
@@ -173,44 +175,22 @@ func (b *Bot) reportDeployOnce(*events.GuildReady) {
 	})
 }
 
+func (b *Bot) reportInterruptedTasksOnce(*events.GuildReady) {
+	b.taskReportOnce.Do(func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(b.ctx, 2*time.Minute)
+			defer cancel()
+			b.agent.ReportInterruptedTasks(ctx)
+		}()
+	})
+}
+
 func parseDurationOr(s string, fallback time.Duration) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return fallback
 	}
 	return d
-}
-
-func (b *Bot) runReminderLoop(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			b.fireReminders(ctx)
-		}
-	}
-}
-
-func (b *Bot) fireReminders(ctx context.Context) {
-	reminders, err := b.store.GetDueReminders(ctx)
-	if err != nil {
-		slog.Warn("failed to fetch due reminders", "error", err)
-		return
-	}
-	for _, r := range reminders {
-		chID := snowflake.MustParse(r.ChannelID)
-		content := fmt.Sprintf("<@%s> %s", r.UserID, r.Message)
-		if _, err := b.client.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(content)); err != nil {
-			slog.Warn("failed to send reminder", "id", r.ID, "error", err)
-			continue
-		}
-		if err := b.store.MarkReminderFired(ctx, r.ID); err != nil {
-			slog.Warn("failed to mark reminder fired", "id", r.ID, "error", err)
-		}
-	}
 }
 
 func (b *Bot) onMessageCreate(e *events.MessageCreate) {

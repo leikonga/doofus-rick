@@ -113,21 +113,10 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 	slices.Reverse(msgs)
 	history := buildHistory(botID, 0, msgs, a.memberName)
 
-	var channelName, channelTopic string
-	var channelOverwrites discord.PermissionOverwrites
-	if ch, err := a.discordClient.Rest.GetChannel(channelID); err == nil {
-		channelName = ch.Name()
-		if gmc, ok := ch.(discord.GuildMessageChannel); ok {
-			if gmc.Topic() != nil {
-				channelTopic = *gmc.Topic()
-			}
-			channelOverwrites = gmc.PermissionOverwrites()
-		}
-	}
-
-	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
+	channel := a.channelInfo(channelID)
+	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
 	recall := a.buildRecallBlock(ctx, note.recallQuery, []uint64{uint64(channelID)})
-	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channelName, channelTopic)
+	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.name, channel.topic)
 	now := time.Now()
 	turn := buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, note.trigger)
 

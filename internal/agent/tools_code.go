@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/disgoorg/disgo/events"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 )
@@ -90,7 +89,7 @@ type codeShipIn struct {
 	Message string `json:"message" jsonschema:"required,description=Commit message describing the change."`
 }
 
-func (a *Agent) codeShipTool(event *events.MessageCreate) llm.Tool {
+func (a *Agent) codeShipTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("code_ship", "Verify Rick's own source changes (build, vet, test, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
 		func(ctx context.Context, in codeShipIn) (llm.Result, error) {
 			if a.codeedit == nil || a.selfcode == nil {
@@ -153,13 +152,13 @@ func (a *Agent) codeShipTool(event *events.MessageCreate) llm.Tool {
 			if out, err := a.gitPush(ctx); err != nil {
 				return llm.Result{}, fmt.Errorf("git push failed: %v\n%s", err, out)
 			}
-			a.recordShip(ctx, event, in.Message)
+			a.recordShip(ctx, origin, in.Message)
 
 			return llm.Result{Content: "built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."}, nil
 		})
 }
 
-func (a *Agent) recordShip(ctx context.Context, event *events.MessageCreate, message string) {
+func (a *Agent) recordShip(ctx context.Context, origin turnOrigin, message string) {
 	if a.deploys == nil {
 		slog.Debug("deploy journal unavailable, not recording ship")
 		return
@@ -173,8 +172,8 @@ func (a *Agent) recordShip(ctx context.Context, event *events.MessageCreate, mes
 	err = a.deploys.Append(runtimehome.DeployRecord{
 		Kind:      runtimehome.DeployShip,
 		Commit:    commit,
-		ChannelID: event.ChannelID.String(),
-		Requester: event.Message.Author.ID.String(),
+		ChannelID: origin.ChannelID.String(),
+		Requester: origin.AuthorID.String(),
 		Summary:   message,
 		At:        time.Now(),
 	})

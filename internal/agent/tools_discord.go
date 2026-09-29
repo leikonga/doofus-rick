@@ -2,27 +2,23 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
-	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-func (a *Agent) discordTools(event *events.MessageCreate) llm.Tools {
+func (a *Agent) discordTools(origin turnOrigin) llm.Tools {
 	return llm.Tools{
 		a.sendMessageTool(),
 		a.createPollTool(),
 		a.sendFileTool(),
-		a.scheduleReminderTool(),
-		a.reactTool(event),
+		a.reactTool(origin),
 	}
 }
 
@@ -115,48 +111,20 @@ func (a *Agent) sendFileTool() llm.Tool {
 		})
 }
 
-type scheduleReminderIn struct {
-	ChannelID string `json:"channel_id" jsonschema:"required,description=Channel to post the reminder in."`
-	UserID    string `json:"user_id" jsonschema:"required,description=Discord snowflake of the user to remind."`
-	Message   string `json:"message" jsonschema:"required,description=Reminder message text."`
-	FireAt    string `json:"fire_at" jsonschema:"required,description=ISO 8601 UTC timestamp when to fire the reminder, e.g. 2006-01-02T15:04:05Z."`
-}
-
-func (a *Agent) scheduleReminderTool() llm.Tool {
-	return llm.NewTool("discord_schedule_reminder",
-		"Schedule a one-shot reminder that will be posted in a channel at a specific time. "+
-			"Use when a user asks to be reminded about something later. "+
-			"The reminder will mention the target user.",
-		func(ctx context.Context, in scheduleReminderIn) (llm.Result, error) {
-			fireAt, err := time.Parse(time.RFC3339, in.FireAt)
-			if err != nil {
-				return llm.Result{Content: "invalid fire_at format, use ISO 8601 e.g. 2006-01-02T15:04:05Z"}, nil
-			}
-			if fireAt.Before(time.Now()) {
-				return llm.Result{Content: "fire_at is in the past"}, nil
-			}
-			r := store.Reminder{
-				ChannelID: in.ChannelID,
-				UserID:    in.UserID,
-				Message:   in.Message,
-				FireAt:    fireAt,
-			}
-			if err := a.store.CreateReminder(ctx, r); err != nil {
-				return llm.Result{}, err
-			}
-			return llm.Result{Content: fmt.Sprintf("reminder scheduled for %s", fireAt.Format(time.RFC3339))}, nil
-		})
-}
-
 type reactIn struct {
 	Emojis []string `json:"emojis" jsonschema:"required,description=Unicode emojis to react with."`
 }
 
-func (a *Agent) reactTool(event *events.MessageCreate) llm.Tool {
+var errNoMessageToReact = errors.New("no message to react to in a task")
+
+func (a *Agent) reactTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("discord_react", "Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response.",
 		func(_ context.Context, in reactIn) (llm.Result, error) {
+			if origin.MessageID == 0 {
+				return llm.Result{}, errNoMessageToReact
+			}
 			for _, emoji := range in.Emojis {
-				if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, emoji); err != nil {
+				if err := a.discordClient.Rest.AddReaction(origin.ChannelID, origin.MessageID, emoji); err != nil {
 					slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
 				}
 			}

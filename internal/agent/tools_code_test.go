@@ -11,8 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/codeedit"
 	"github.com/leikonga/doofus-rick/internal/config"
@@ -132,11 +130,11 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
 }
 
 func codeShipTestTool(a *Agent) (func(context.Context, json.RawMessage) (string, error), bool) {
-	return codeShipTestToolFor(a, &events.MessageCreate{GenericMessage: &events.GenericMessage{}})
+	return codeShipTestToolFor(a, turnOrigin{})
 }
 
-func codeShipTestToolFor(a *Agent, event *events.MessageCreate) (func(context.Context, json.RawMessage) (string, error), bool) {
-	tool, ok := a.buildTools(event).Find("code_ship")
+func codeShipTestToolFor(a *Agent, origin turnOrigin) (func(context.Context, json.RawMessage) (string, error), bool) {
+	tool, ok := a.buildTools(origin).Find("code_ship")
 	if !ok {
 		return nil, false
 	}
@@ -312,11 +310,7 @@ func TestCodeShipJournalsShipOnlyAfterSuccessfulPush(t *testing.T) {
 			}
 			a := newShipTestAgent(t, fr)
 			a.deploys = runtimehome.NewJournal(filepath.Join(t.TempDir(), "deploys.jsonl"))
-			event := &events.MessageCreate{GenericMessage: &events.GenericMessage{
-				ChannelID: snowflake.ID(42),
-				Message:   discord.Message{Author: discord.User{ID: snowflake.ID(7)}},
-			}}
-			exec, ok := codeShipTestToolFor(a, event)
+			exec, ok := codeShipTestToolFor(a, turnOrigin{ChannelID: snowflake.ID(42), AuthorID: snowflake.ID(7)})
 			if !ok {
 				t.Fatal("code_ship tool not found")
 			}

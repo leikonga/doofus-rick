@@ -138,24 +138,14 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	triggerLabel := fmt.Sprintf("[%s %s%s]: %s", event.Message.CreatedAt.Format("15:04"),
 		a.memberName(event.Message.Author), replyTo, triggerText)
 
-	var channelName, channelTopic string
-	var channelOverwrites discord.PermissionOverwrites
-	if ch, err := event.Client().Rest.GetChannel(event.ChannelID); err == nil {
-		channelName = ch.Name()
-		if gmc, ok := ch.(discord.GuildMessageChannel); ok {
-			if gmc.Topic() != nil {
-				channelTopic = *gmc.Topic()
-			}
-			channelOverwrites = gmc.PermissionOverwrites()
-		}
-	}
+	channel := a.channelInfo(event.ChannelID)
 
 	recallCh := make(chan string, 1)
 	go func() {
 		recallCh <- a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(event.Message.Author.ID))
 	}()
 
-	leit, gradDo := a.buildUserRoster(ctx, channelOverwrites)
+	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
 
 	recall := <-recallCh
 
@@ -167,10 +157,10 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	turnParts = append(turnParts, attachments.fileParts...)
 
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channelName, channelTopic),
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.name, channel.topic),
 		messages:    []llm.Message{llm.NewUserMessage(turnParts...)},
 		tracePrompt: triggerLabel,
-		event:       event,
+		origin:      turnOrigin{ChannelID: event.ChannelID, AuthorID: event.Message.Author.ID, MessageID: event.MessageID},
 	})
 	if err != nil {
 		slog.Warn("model call failed", "error", err)
@@ -282,7 +272,7 @@ type modelRequest struct {
 	system      string
 	messages    []llm.Message
 	tracePrompt string
-	event       *events.MessageCreate
+	origin      turnOrigin
 }
 
 func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.RickResponse, retErr error) {
@@ -290,7 +280,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	// Differs from model when a fallback fires; usage bills against the model that ran.
 	servedModel := model
 
-	rec := a.tracer.Start(req.event.ChannelID.String(), req.event.Message.Author.ID.String(), req.system, req.tracePrompt)
+	rec := a.tracer.Start(req.origin.ChannelID.String(), req.origin.AuthorID.String(), req.system, req.tracePrompt)
 	defer func() {
 		resp, err := retResp, retErr
 		go func() {
@@ -303,7 +293,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		}()
 	}()
 
-	tools := a.buildTools(req.event)
+	tools := a.buildTools(req.origin)
 
 	messages := req.messages
 
@@ -326,7 +316,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 			FallbackModels:  a.config.RickFallbackModels,
 			MaxTokens:       maxTokens,
 			ReasoningEffort: effort,
-			SessionID:       req.event.ChannelID.String(),
+			SessionID:       req.origin.ChannelID.String(),
 			System:          req.system,
 			Messages:        messages,
 			Tools:           tools,
@@ -545,6 +535,27 @@ func (a *Agent) resolveMentions(content string) string {
 		}
 		return "@" + name
 	})
+}
+
+type channelInfo struct {
+	name       string
+	topic      string
+	overwrites discord.PermissionOverwrites
+}
+
+func (a *Agent) channelInfo(channelID snowflake.ID) channelInfo {
+	ch, err := a.discordClient.Rest.GetChannel(channelID)
+	if err != nil {
+		return channelInfo{}
+	}
+	info := channelInfo{name: ch.Name()}
+	if gmc, ok := ch.(discord.GuildMessageChannel); ok {
+		if gmc.Topic() != nil {
+			info.topic = *gmc.Topic()
+		}
+		info.overwrites = gmc.PermissionOverwrites()
+	}
+	return info
 }
 
 func buildCachedPrefix(selbstBlock, roster, channelName, channelTopic string) string {

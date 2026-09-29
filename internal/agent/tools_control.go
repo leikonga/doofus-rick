@@ -3,16 +3,18 @@ package agent
 import (
 	"context"
 
-	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
-// Tools exposes buildTools for the check subcommand's boot smoke test.
-func (a *Agent) Tools(event *events.MessageCreate) llm.Tools {
-	return a.buildTools(event)
+type turnOrigin struct {
+	ChannelID snowflake.ID
+	AuthorID  snowflake.ID
+	MessageID snowflake.ID
+	TaskID    uint64
 }
 
-func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
+func (a *Agent) buildTools(origin turnOrigin) llm.Tools {
 	tools := llm.Tools{
 		a.declineTool(),
 		a.checkLogsTool(),
@@ -20,14 +22,15 @@ func (a *Agent) buildTools(event *events.MessageCreate) llm.Tools {
 		a.webSearchTool(),
 		a.fetchPageTool(),
 		a.shellExecTool(),
-		a.saveQuoteTool(event),
+		a.saveQuoteTool(origin),
 		a.getUserQuotesTool(),
-		a.searchHistoryTool(event),
+		a.searchHistoryTool(origin),
 		a.codeReadTool(),
 		a.codeEditTool(),
-		a.codeShipTool(event),
+		a.codeShipTool(origin),
+		a.taskTool(origin),
 	}
-	return append(tools, a.discordTools(event)...)
+	return append(tools, a.discordTools(origin)...)
 }
 
 type declineIn struct {

@@ -48,7 +48,7 @@ func Init(c *config.Config) (*Store, error) {
 	if err := runMigrations(s.db); err != nil {
 		return nil, err
 	}
-	if err := s.db.AutoMigrate(&Quote{}, &Reminder{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
+	if err := s.db.AutoMigrate(&Quote{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
 		return nil, err
 	}
 

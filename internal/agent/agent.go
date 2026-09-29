@@ -35,29 +35,33 @@ type DiscordState interface {
 }
 
 type Agent struct {
-	store          *store.Store
-	config         *config.Config
-	llm            *llm.Client
-	discord        DiscordState
-	discordClient  *disgobot.Client
-	brave          *client.BraveClient
-	giphy          *client.GiphyClient
-	shell          *client.Shell
-	shellDesc      string
-	selbstBlock    string
-	runtimeLogs    runtimeLogs
-	deploys        *runtimehome.Journal
-	crashFile      string
-	tracer         *tracer.Tracer
-	retriever      *archive.Retriever
-	affinity       *archive.Affinity
-	typingTheatre  *archive.TypingTheatre
-	typingChannels sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
-	codeedit       *codeedit.Editor
-	turnTimeout    time.Duration
-	repoMu         sync.RWMutex
-	selfcode       *selfcode.Selfcode
-	cmdRunner      selfcode.Runner
+	store            *store.Store
+	config           *config.Config
+	llm              *llm.Client
+	discord          DiscordState
+	discordClient    *disgobot.Client
+	brave            *client.BraveClient
+	giphy            *client.GiphyClient
+	shell            *client.Shell
+	shellDesc        string
+	selbstBlock      string
+	runtimeLogs      runtimeLogs
+	deploys          *runtimehome.Journal
+	crashFile        string
+	tracer           *tracer.Tracer
+	retriever        *archive.Retriever
+	affinity         *archive.Affinity
+	typingTheatre    *archive.TypingTheatre
+	typingChannels   sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
+	codeedit         *codeedit.Editor
+	turnTimeout      time.Duration
+	repoMu           sync.RWMutex
+	selfcode         *selfcode.Selfcode
+	cmdRunner        selfcode.Runner
+	tasks            taskStore
+	taskWake         chan struct{}
+	taskCancels      taskCancels
+	interruptedTasks chan []store.Task
 }
 
 func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client, home *runtimehome.Home, tr *tracer.Tracer) *Agent {
@@ -133,10 +137,13 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 			MaxDelay: typingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
-		codeedit:    editor,
-		turnTimeout: turnTimeout,
-		selfcode:    sc,
-		cmdRunner:   cmdRunner,
+		codeedit:         editor,
+		turnTimeout:      turnTimeout,
+		selfcode:         sc,
+		cmdRunner:        cmdRunner,
+		tasks:            s,
+		taskWake:         make(chan struct{}, 1),
+		interruptedTasks: make(chan []store.Task, 1),
 	}
 }
 
