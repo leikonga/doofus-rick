@@ -2,8 +2,10 @@ package discord
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -88,6 +90,17 @@ var commands = []discord.ApplicationCommandCreate{
 	discord.SlashCommandCreate{
 		Name:        "randomquote",
 		Description: "get a random quote",
+	},
+	discord.SlashCommandCreate{
+		Name:        "quotes",
+		Description: "list all quotes a user created or is part of",
+		Options: []discord.ApplicationCommandOption{
+			discord.ApplicationCommandOptionUser{
+				Name:        "user",
+				Description: "whose quotes",
+				Required:    true,
+			},
+		},
 	},
 	discord.SlashCommandCreate{
 		Name:        "mama",
@@ -196,4 +209,44 @@ func memberEmbedFooter(member *discord.Member, fallbackID string) *discord.Embed
 		Text:    member.EffectiveName(),
 		IconURL: member.User.EffectiveAvatarURL(),
 	}
+}
+
+func (b *Bot) handleQuotes(ctx context.Context, data discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	user := data.User("user")
+	quotes, err := b.store.GetQuotesByUser(ctx, user.ID.String())
+	if err != nil {
+		slog.Warn("failed to list quotes for user", "user", user.ID, "error", err)
+	}
+	if len(quotes) == 0 {
+		return e.CreateMessage(discord.MessageCreate{
+			Content: "de sau hot no koa zitat",
+			Flags:   discord.MessageFlagEphemeral,
+		})
+	}
+
+	var sb strings.Builder
+	shown := 0
+	for _, q := range quotes {
+		line := "- " + q.CreatedAt.Format("2006-01-02") + ": " + strings.ReplaceAll(q.Content, "\n", " / ") + "\n"
+		if sb.Len()+len(line) > 3900 {
+			break
+		}
+		sb.WriteString(line)
+		shown++
+	}
+
+	title := fmt.Sprintf("%d zitate vo %s", len(quotes), user.EffectiveName())
+	if shown < len(quotes) {
+		title += fmt.Sprintf(" (%d angezeigt)", shown)
+	}
+	return e.CreateMessage(discord.MessageCreate{
+		Embeds: []discord.Embed{{
+			Title:       title,
+			Description: sb.String(),
+			Color:       0x11806A,
+		}},
+	})
 }

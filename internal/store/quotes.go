@@ -41,3 +41,10 @@ func (s *Store) SearchQuotes(ctx context.Context, query string) ([]Quote, error)
 	err := q.Find(&quotes).Error
 	return quotes, err
 }
+
+// GetQuotesByUser returns quotes the user created or participates in.
+func (s *Store) GetQuotesByUser(ctx context.Context, userID string) ([]Quote, error) {
+	var quotes []Quote
+	err := s.db.WithContext(ctx).Where(`creator = ? OR participants LIKE ?`, userID, `%"`+userID+`"%`).Order("created_at desc").Find(&quotes).Error
+	return quotes, err
+}

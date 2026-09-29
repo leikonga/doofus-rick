@@ -100,3 +100,24 @@ func (s *Server) getParticipants(q store.Quote) (participants []string) {
 	}
 	return
 }
+
+func (s *Server) handleUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name, err := s.members.GetUsernameForID(id)
+	if err != nil {
+		name = id
+	}
+	quotes, err := s.store.GetQuotesByUser(r.Context(), id)
+	if err != nil {
+		slog.Warn("failed to get quotes for user", "user", id, "error", err)
+	}
+	display := make([]QuoteDisplay, len(quotes))
+	for i, quote := range quotes {
+		creator, err := s.members.GetUsernameForID(quote.Creator)
+		if err != nil {
+			creator = quote.Creator
+		}
+		display[i] = QuoteDisplay{Quote: quote, CreatorName: creator, ParticipantNames: s.getParticipants(quote)}
+	}
+	s.render(w, UserLayout(QuotesPageProps{}, name, display))
+}

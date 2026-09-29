@@ -4,11 +4,7 @@
     gap: 1rem;
 }
 
-a.quote-card {
-    text-decoration: none;
-    color: inherit;
-}
-a.quote-card article {
+article.quote-card {
     margin: 0;
 }
 
@@ -21,3 +17,6 @@ a.quote-card article {
     color: var(--pico-muted-color);
     font-size: 0.875rem;
 }
+
+.quote-content > :first-child { margin-top: 0; }
+.quote-content > :last-child { margin-bottom: 0; }

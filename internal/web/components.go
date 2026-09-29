@@ -1,12 +1,17 @@
 package web
 
 import (
+	"bytes"
 	"fmt"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 	g "maragu.dev/gomponents"
 	//nolint:staticcheck // ST1001: dot-import is the documented gomponents/html idiom, keeps the HTML DSL terse
 	. "maragu.dev/gomponents/html"
 )
+
+var markdown = goldmark.New(goldmark.WithExtensions(extension.GFM, extension.Linkify))
 
 type QuotesPageProps struct {
 	Title       string
@@ -94,15 +99,46 @@ func QuoteResults(quotes []QuoteDisplay) g.Node {
 	})
 }
 
+func renderMarkdown(src string) g.Node {
+	var buf bytes.Buffer
+	if err := markdown.Convert([]byte(src), &buf); err != nil {
+		return g.Text(src)
+	}
+	return g.Raw(buf.String())
+}
+
 func QuoteCard(quote QuoteDisplay) g.Node {
-	return A(Href(fmt.Sprintf("/quote/%d", quote.ID)), Class("quote-card"),
-		Article(
-			BlockQuote(
-				g.Text(quote.Content),
-				Footer(
-					Cite(g.Textf("Added on %s by %s", quote.CreatedAt.Format("Jan 02, 2006"), quote.CreatorName)),
-				),
-			),
+	meta := []g.Node{
+		g.Textf("Added on %s by ", quote.CreatedAt.Format("Jan 02, 2006")),
+		A(Href("/user/"+quote.Creator), g.Text(quote.CreatorName)),
+	}
+	if len(quote.ParticipantNames) > 0 {
+		meta = append(meta, g.Text(" · with "))
+		for i, name := range quote.ParticipantNames {
+			if i > 0 {
+				meta = append(meta, g.Text(", "))
+			}
+			if quote.Participants != nil && i < len(*quote.Participants) {
+				meta = append(meta, A(Href("/user/"+(*quote.Participants)[i]), g.Text(name)))
+			} else {
+				meta = append(meta, g.Text(name))
+			}
+		}
+	}
+	meta = append(meta, g.Text(" · "), A(Href(fmt.Sprintf("/quote/%d", quote.ID)), g.Text("permalink")))
+
+	return Article(Class("quote-card"),
+		BlockQuote(
+			Div(Class("quote-content"), renderMarkdown(quote.Content)),
+			Footer(Cite(meta...)),
 		),
 	)
+}
+
+func UserLayout(props QuotesPageProps, name string, quotes []QuoteDisplay) g.Node {
+	props.Title = name + " · doofus-rick"
+	return rootLayout(props, g.Group([]g.Node{
+		H2(g.Textf("%d quotes with %s", len(quotes), name)),
+		Div(Class("quote-list"), QuoteResults(quotes)),
+	}))
 }

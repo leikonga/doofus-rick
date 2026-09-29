@@ -77,6 +77,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.authMiddleware(s.handleHome))
 	mux.HandleFunc("GET /search", s.authMiddleware(s.handleSearch))
 	mux.HandleFunc("GET /quote/{id}", s.authMiddleware(s.handleQuote))
+	mux.HandleFunc("GET /user/{id}", s.authMiddleware(s.handleUser))
 	mux.HandleFunc("GET /debug", s.authMiddleware(s.handleDebug))
 	mux.HandleFunc("GET /debug/trace/{id}", s.authMiddleware(s.handleDebugTrace))
 	mux.HandleFunc("GET /debug/pprof/goroutineleak", s.authMiddleware(pprof.Handler("goroutineleak").ServeHTTP))

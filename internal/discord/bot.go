@@ -78,6 +78,9 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 	r.SlashCommand("/randomquote", func(d discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
 		return b.handleRandomQuote(ctx, d, e)
 	})
+	r.SlashCommand("/quotes", func(d discord.SlashCommandInteractionData, e *handler.CommandEvent) error {
+		return b.handleQuotes(ctx, d, e)
+	})
 	r.SlashCommand("/mama", b.handleMama)
 	r.Modal("/quote", func(e *handler.ModalEvent) error {
 		return b.handleQuoteSubmission(ctx, e)
