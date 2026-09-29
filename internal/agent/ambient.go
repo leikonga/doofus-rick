@@ -140,7 +140,7 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 			servedModel = resp.Model
 		}
 	}
-	a.finishTrace(rec, rawText, false, err, servedModel)
+	a.finishTrace(ctx, rec, rawText, false, err, servedModel)
 	if err != nil {
 		return 0, err
 	}

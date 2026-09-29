@@ -1,8 +1,8 @@
 package agent
 
 import (
+	"context"
 	"testing"
-	"time"
 
 	"github.com/leikonga/doofus-rick/internal/pgtest"
 	"github.com/leikonga/doofus-rick/internal/tracer"
@@ -23,37 +23,41 @@ func TestFinishTraceSavesServedModel(t *testing.T) {
 	a := &Agent{store: pgtest.Store(t)}
 	rec := tracer.New(nil).Start("chan", "user", "sys", "prompt")
 	rec.AddTokens(11, 5)
-	a.finishTrace(rec, "hi", false, nil, "served/model")
+	a.finishTrace(context.Background(), rec, "hi", false, nil, "served/model")
+	a.Wait()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		rows := usageRows(t)
-		if len(rows) == 1 {
-			if rows[0] != (usageRow{ModelName: "served/model", InputTokens: 11, OutputTokens: 5}) {
-				t.Fatalf("unexpected row: %+v", rows[0])
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no token usage row, got %d", len(rows))
-		}
-		time.Sleep(20 * time.Millisecond)
+	rows := usageRows(t)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 token usage row, got %d", len(rows))
+	}
+	if rows[0] != (usageRow{ModelName: "served/model", InputTokens: 11, OutputTokens: 5}) {
+		t.Fatalf("unexpected row: %+v", rows[0])
+	}
+}
+
+func TestFinishTraceSavesAfterCancellation(t *testing.T) {
+	a := &Agent{store: pgtest.Store(t)}
+	rec := tracer.New(nil).Start("chan", "user", "sys", "prompt")
+	rec.AddTokens(3, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	a.finishTrace(ctx, rec, "hi", false, nil, "served/model")
+	a.Wait()
+
+	if rows := usageRows(t); len(rows) != 1 {
+		t.Fatalf("expected 1 token usage row after cancelled ctx, got %d", len(rows))
 	}
 }
 
 func TestFinishTraceZeroTokensWritesNothing(t *testing.T) {
 	a := &Agent{store: pgtest.Store(t)}
 	tr := tracer.New(nil)
-	a.finishTrace(tr.Start("chan", "user", "sys", "prompt"), "hi", false, nil, "served/model")
+	a.finishTrace(context.Background(), tr.Start("chan", "user", "sys", "prompt"), "hi", false, nil, "served/model")
+	a.Wait()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for len(tr.RecentSuccesses()) == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("finishTrace goroutine did not finish")
-		}
-		time.Sleep(20 * time.Millisecond)
+	if len(tr.RecentSuccesses()) == 0 {
+		t.Fatal("trace was not finished")
 	}
-	time.Sleep(100 * time.Millisecond)
 	if rows := usageRows(t); len(rows) != 0 {
 		t.Fatalf("expected no rows, got %+v", rows)
 	}

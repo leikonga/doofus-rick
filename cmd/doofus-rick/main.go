@@ -33,8 +33,9 @@ import (
 )
 
 const (
-	envProduction = "production"
-	workGroup     = "rickwork"
+	envProduction   = "production"
+	shutdownTimeout = 8 * time.Second
+	workGroup       = "rickwork"
 )
 
 func main() {
@@ -223,16 +224,44 @@ func run() error {
 	case err := <-errCh:
 		runErr = err
 	}
-	if err := httpSrv.Shutdown(context.Background()); err != nil {
+	cancel()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancelShutdown()
+
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("failed to shut down web server", "error", err)
 	}
 	if pprofSrv != nil {
-		if err := pprofSrv.Shutdown(context.Background()); err != nil {
+		if err := pprofSrv.Shutdown(shutdownCtx); err != nil {
 			slog.Error("failed to shut down pprof server", "error", err)
 		}
 	}
+	rick.Close(shutdownCtx)
+
+	if waitAll(shutdownCtx, rick.Wait, ingest.Wait, watcher.Wait, ag.Wait) {
+		slog.Info("shutdown complete")
+	} else {
+		slog.Warn("shutdown timed out, abandoning goroutines still running", "timeout", shutdownTimeout)
+	}
 
 	return runErr
+}
+
+func waitAll(ctx context.Context, waits ...func()) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, wait := range waits {
+			wait()
+		}
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func newPprofServer(addr string) *http.Server {

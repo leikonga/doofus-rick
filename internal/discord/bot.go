@@ -31,7 +31,7 @@ type Handlers struct {
 }
 
 type Ambient interface {
-	Check(channelID snowflake.ID)
+	Check(ctx context.Context, channelID snowflake.ID)
 }
 
 type Archive interface {
@@ -49,6 +49,7 @@ type Bot struct {
 	voiceChannels    sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 	deployReportOnce sync.Once
 	taskReportOnce   sync.Once
+	wg               sync.WaitGroup
 }
 
 func New(c *config.Config, s *store.Store) (*Bot, error) {
@@ -94,7 +95,7 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 				return
 			}
 			if h.Archive.RecordLive(ctx, e.Message, e.ChannelID) {
-				h.Ambient.Check(e.ChannelID)
+				h.Ambient.Check(ctx, e.ChannelID)
 			}
 		}),
 	)
@@ -114,28 +115,36 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 
 	h.Archive.Run(ctx)
 
-	go h.Agent.RunTasks(ctx)
+	b.wg.Go(func() { h.Agent.RunTasks(ctx) })
 
 	slog.Info("connected to discord", "appid", b.client.ApplicationID)
 	return nil
 }
 
+func (b *Bot) Close(ctx context.Context) {
+	b.client.Close(ctx)
+}
+
+func (b *Bot) Wait() {
+	b.wg.Wait()
+}
+
 func (b *Bot) reportDeployOnce(ctx context.Context) {
 	b.deployReportOnce.Do(func() {
-		go func() {
+		b.wg.Go(func() {
 			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 			b.agent.ReportDeploy(ctx)
-		}()
+		})
 	})
 }
 
 func (b *Bot) reportInterruptedTasksOnce(ctx context.Context) {
 	b.taskReportOnce.Do(func() {
-		go func() {
+		b.wg.Go(func() {
 			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
 			b.agent.ReportInterruptedTasks(ctx)
-		}()
+		})
 	})
 }

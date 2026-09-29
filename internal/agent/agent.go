@@ -65,6 +65,7 @@ type Agent struct {
 	taskWake         chan struct{}
 	taskCancels      taskCancels
 	interruptedTasks chan []store.Task
+	wg               sync.WaitGroup
 }
 
 type Deps struct {
@@ -138,6 +139,10 @@ func New(c *config.Config, d Deps) *Agent {
 		taskWake:         make(chan struct{}, 1),
 		interruptedTasks: make(chan []store.Task, 1),
 	}
+}
+
+func (a *Agent) Wait() {
+	a.wg.Wait()
 }
 
 func (a *Agent) vitals(now time.Time) string {

@@ -73,7 +73,7 @@ func (a *Agent) fireDueTasks(ctx context.Context) {
 	}
 	for _, task := range tasks {
 		labels := pprof.Labels("handler", "task", "task", strconv.FormatUint(task.ID, 10), "channel", strconv.FormatUint(task.ChannelID, 10))
-		go pprof.Do(ctx, labels, func(ctx context.Context) { a.runTask(ctx, task) })
+		a.wg.Go(func() { pprof.Do(ctx, labels, func(ctx context.Context) { a.runTask(ctx, task) }) })
 	}
 }
 

@@ -193,3 +193,41 @@ func TestRecordLive(t *testing.T) {
 		t.Errorf("archived ids after forget = %v, want [1 2]", got)
 	}
 }
+
+func TestBackfillPageDelayHonoursContext(t *testing.T) {
+	s := pgtest.Store(t)
+	pages := []discord.Message{
+		testMessage(101, humanUser, "one"),
+		testMessage(102, humanUser, "two"),
+		testMessage(103, humanUser, "three"),
+	}
+	fake := &fakeREST{
+		channels: []discord.GuildChannel{textChannel(t, 10), textChannel(t, 20)},
+		messages: map[snowflake.ID][]discord.Message{10: pages, 20: pages},
+	}
+	i := newTestIngest(s, fake, IngestConfig{
+		ArchiveEnabled:  true,
+		BackfillEnabled: true,
+		GuildID:         "1",
+		BackfillDelay:   time.Hour,
+		BackfillBatch:   2,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	defer cancel()
+
+	start := time.Now()
+	i.runBackfillWorker(ctx)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("worker took %v to stop, want well under 1s", elapsed)
+	}
+
+	state, err := s.GetBackfillState(context.Background())
+	if err != nil {
+		t.Fatalf("GetBackfillState: %v", err)
+	}
+	if state.Status != "failed" || state.LastError == nil || *state.LastError != "interrupted" {
+		t.Errorf("state = %q / %v, want failed / interrupted", state.Status, state.LastError)
+	}
+}

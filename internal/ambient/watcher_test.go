@@ -223,9 +223,36 @@ func TestWatcherCheckDisabled(t *testing.T) {
 	r := &fakeResponder{}
 	w := NewWatcher(WatcherConfig{Enabled: false, Window: time.Hour}, nil, nil, c, r, func() snowflake.ID { return testRickID })
 
-	w.Check(testChannel)
+	w.Check(context.Background(), testChannel)
+	w.Wait()
 
 	if len(c.calls) != 0 || len(r.calls) != 0 {
 		t.Errorf("disabled watcher did work: classifier=%d responder=%d", len(c.calls), len(r.calls))
+	}
+}
+
+func TestWatcherCheckWaitJoinsCheck(t *testing.T) {
+	e := newWatcherEnv(t)
+	e.seedBurst(t)
+
+	e.w.Check(context.Background(), testChannel)
+	e.w.Wait()
+
+	if len(e.classifier.calls) != 1 {
+		t.Errorf("classifier called %d times after Wait, want 1", len(e.classifier.calls))
+	}
+}
+
+func TestWatcherCheckCancelledContextSkipsClassifier(t *testing.T) {
+	e := newWatcherEnv(t)
+	e.seedBurst(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	e.w.Check(ctx, testChannel)
+	e.w.Wait()
+
+	if len(e.classifier.calls) != 0 || len(e.responder.calls) != 0 {
+		t.Errorf("cancelled check did work: classifier=%d responder=%d", len(e.classifier.calls), len(e.responder.calls))
 	}
 }

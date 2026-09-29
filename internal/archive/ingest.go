@@ -47,6 +47,7 @@ type Ingest struct {
 	scorer        ChunkScorer
 	filter        filter
 	backfillMutex sync.Mutex
+	wg            sync.WaitGroup
 }
 
 func NewIngest(cfg IngestConfig, s *store.Store, client discordREST, selfID func() snowflake.ID, chunker *Chunker, embedder *Embedder, scorer ChunkScorer) *Ingest {
@@ -65,13 +66,17 @@ func NewIngest(cfg IngestConfig, s *store.Store, client discordREST, selfID func
 // Run starts the background workers and does not block.
 func (i *Ingest) Run(ctx context.Context) {
 	if i.config.BackfillEnabled {
-		go i.runBackfillWorker(ctx)
+		i.wg.Go(func() { i.runBackfillWorker(ctx) })
 	}
 
 	if i.config.ArchiveEnabled {
-		go i.runChunkingLoop(ctx)
-		go i.runEmbeddingLoop(ctx)
+		i.wg.Go(func() { i.runChunkingLoop(ctx) })
+		i.wg.Go(func() { i.runEmbeddingLoop(ctx) })
 	}
+}
+
+func (i *Ingest) Wait() {
+	i.wg.Wait()
 }
 
 // RecordLive archives a live message and reports whether it came from someone other than Rick.
@@ -96,13 +101,14 @@ func (i *Ingest) RecordLive(ctx context.Context, msg discord.Message, channelID 
 
 	stored := toStoredMessage(msg, channelID)
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	i.wg.Go(func() {
+		// The message was already received, so the write must survive shutdown cancellation.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if err := i.store.CreateMessage(ctx, stored); err != nil {
 			slog.Warn("failed to archive message", "error", err)
 		}
-	}()
+	})
 
 	return !isRick
 }
@@ -171,13 +177,13 @@ func (i *Ingest) chunkChannel(ctx context.Context, channelID uint64) {
 		}
 
 		if i.scorer != nil {
-			go func(c Chunk) {
-				scoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			i.wg.Go(func() {
+				scoreCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				defer cancel()
 				if err := i.scorer.ScoreChunk(scoreCtx, c, botID); err != nil {
 					slog.Warn("affinity scoring failed", "channel", channelID, "error", err)
 				}
-			}(c)
+			})
 		}
 	}
 }
@@ -279,7 +285,9 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 		}
 		state.FinishedAt = &[]time.Time{time.Now()}[0]
 		state.UpdatedAt = time.Now()
-		if err := i.store.UpdateBackfillState(context.Background(), state); err != nil {
+		finalCtx, cancelFinal := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelFinal()
+		if err := i.store.UpdateBackfillState(finalCtx, state); err != nil {
 			slog.Warn("failed to finalize backfill state", "error", err)
 		}
 		slog.Info("backfill worker finished", "status", state.Status, "channels_total", state.ChannelsTotal, "channels_done", state.ChannelsDone)
@@ -316,9 +324,11 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 			errMsg := "interrupted"
 			state.LastError = &errMsg
 			state.UpdatedAt = time.Now()
-			if err := i.store.UpdateBackfillState(context.Background(), state); err != nil {
+			interruptCtx, cancelInterrupt := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if err := i.store.UpdateBackfillState(interruptCtx, state); err != nil {
 				slog.Warn("failed to record backfill interruption", "error", err)
 			}
+			cancelInterrupt()
 			return
 		default:
 		}
@@ -479,7 +489,11 @@ func (i *Ingest) backfillChannel(ctx context.Context, channelID uint64, delay ti
 			break
 		}
 
-		time.Sleep(delay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 
 	return nil

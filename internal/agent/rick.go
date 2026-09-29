@@ -43,7 +43,7 @@ func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 
 	labels := pprof.Labels("handler", "mention", "channel", event.ChannelID.String(), "message", event.MessageID.String())
-	go pprof.Do(ctx, labels, func(ctx context.Context) { a.handleMention(ctx, event) })
+	a.wg.Go(func() { pprof.Do(ctx, labels, func(ctx context.Context) { a.handleMention(ctx, event) }) })
 }
 
 func recoverTurn(ctx context.Context, err *error) {
@@ -281,7 +281,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 	servedModel := model
 
 	rec := a.tracer.Start(req.origin.ChannelID.String(), req.origin.AuthorID.String(), req.system, req.tracePrompt)
-	defer func() { a.finishTrace(rec, retResp.Text, retResp.Decline, retErr, servedModel) }()
+	defer func() { a.finishTrace(ctx, rec, retResp.Text, retResp.Decline, retErr, servedModel) }()
 
 	tools := a.buildTools(req.origin)
 

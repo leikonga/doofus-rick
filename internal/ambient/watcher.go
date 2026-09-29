@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -31,6 +32,7 @@ type Watcher struct {
 	classifier classifier
 	responder  Responder
 	selfID     func() snowflake.ID
+	wg         sync.WaitGroup
 }
 
 func NewWatcher(cfg WatcherConfig, s *store.Store, gate *Gate, c classifier, r Responder, selfID func() snowflake.ID) *Watcher {
@@ -40,16 +42,20 @@ func NewWatcher(cfg WatcherConfig, s *store.Store, gate *Gate, c classifier, r R
 // Check evaluates the ambient gate for a channel after a human message lands,
 // and fires an unprompted response if it passes. Runs in its own goroutine so
 // it never delays message handling.
-func (w *Watcher) Check(channelID snowflake.ID) {
+func (w *Watcher) Check(ctx context.Context, channelID snowflake.ID) {
 	if !w.config.Enabled || w.gate == nil || w.classifier == nil {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	w.wg.Go(func() {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		w.check(ctx, channelID)
-	}()
+	})
+}
+
+func (w *Watcher) Wait() {
+	w.wg.Wait()
 }
 
 func (w *Watcher) check(ctx context.Context, channelID snowflake.ID) {
