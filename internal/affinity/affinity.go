@@ -29,41 +29,41 @@ type Result struct {
 	LastReason string
 }
 
-func (a *Ledger) Get(ctx context.Context, userID uint64) (*Result, error) {
-	affinity, err := a.store.GetAffinity(ctx, userID)
+func (l *Ledger) Get(ctx context.Context, userID uint64) (*Result, error) {
+	row, err := l.store.GetAffinity(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Result{
-		UserID: affinity.UserID,
-		Score:  affinity.Score,
+		UserID: row.UserID,
+		Score:  row.Score,
 		LastReason: func() string {
-			if affinity.LastReason != nil {
-				return *affinity.LastReason
+			if row.LastReason != nil {
+				return *row.LastReason
 			}
 			return ""
 		}(),
 	}, nil
 }
 
-func (a *Ledger) Update(ctx context.Context, userID uint64, reason string, delta int) error {
-	affinity, err := a.store.GetAffinity(ctx, userID)
+func (l *Ledger) Update(ctx context.Context, userID uint64, reason string, delta int) error {
+	row, err := l.store.GetAffinity(ctx, userID)
 	if err != nil {
-		affinity = &store.UserAffinity{
+		row = &store.UserAffinity{
 			UserID:     userID,
-			Score:      a.config.Baseline,
+			Score:      l.config.Baseline,
 			LastReason: &[]string{reason}[0],
 			UpdatedAt:  time.Now(),
 		}
 	}
 
-	affinity.Score += delta
-	affinity.Score = clamp(affinity.Score, -100, 100)
-	affinity.LastReason = &[]string{reason}[0]
-	affinity.UpdatedAt = time.Now()
+	row.Score += delta
+	row.Score = clamp(row.Score, -100, 100)
+	row.LastReason = &[]string{reason}[0]
+	row.UpdatedAt = time.Now()
 
-	return a.store.UpdateAffinity(ctx, affinity)
+	return l.store.UpdateAffinity(ctx, row)
 }
 
 func clamp(val, min, max int) int {

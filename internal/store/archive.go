@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -11,27 +12,37 @@ import (
 )
 
 func (s *Store) CreateMessage(ctx context.Context, msg Message) error {
-	return s.db.WithContext(ctx).Create(&msg).Error
+	if err := s.db.WithContext(ctx).Create(&msg).Error; err != nil {
+		return fmt.Errorf("create message %d: %w", msg.ID, err)
+	}
+	return nil
 }
 
 func (s *Store) IsAuthorForgotten(ctx context.Context, authorID uint64) (bool, error) {
 	var count int64
 	err := s.db.WithContext(ctx).Model(&ForgottenAuthor{}).Where("user_id = ?", authorID).Count(&count).Error
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("check author %d forgotten: %w", authorID, err)
 	}
 	return count > 0, nil
 }
 
 func (s *Store) ForgetAuthor(ctx context.Context, authorID uint64) error {
-	return s.db.WithContext(ctx).Create(&ForgottenAuthor{
+	err := s.db.WithContext(ctx).Create(&ForgottenAuthor{
 		UserID:    authorID,
 		CreatedAt: time.Now(),
 	}).Error
+	if err != nil {
+		return fmt.Errorf("forget author %d: %w", authorID, err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteMessage(ctx context.Context, id uint64) error {
-	return s.db.WithContext(ctx).Delete(&Message{}, id).Error
+	if err := s.db.WithContext(ctx).Delete(&Message{}, id).Error; err != nil {
+		return fmt.Errorf("delete message %d: %w", id, err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteQuotesByAuthor(ctx context.Context, authorID string) error {
@@ -42,7 +53,7 @@ func (s *Store) GetBackfillState(ctx context.Context) (*BackfillState, error) {
 	var state BackfillState
 	err := s.db.WithContext(ctx).Where("id = 1").First(&state).Error
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, fmt.Errorf("get backfill state: %w", mapNotFound(err))
 	}
 	return &state, nil
 }
@@ -60,7 +71,7 @@ func (s *Store) GetOrCreateBackfillState(ctx context.Context) (*BackfillState, e
 
 	state = &BackfillState{ID: 1, Status: "idle", UpdatedAt: time.Now()}
 	if err := s.db.WithContext(ctx).Create(state).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create backfill state: %w", err)
 	}
 	return state, nil
 }
@@ -80,13 +91,16 @@ func (s *Store) SeedBackfillChannels(ctx context.Context, channelIDs []uint64) (
 
 	tx := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&rows)
 	if tx.Error != nil {
-		return 0, tx.Error
+		return 0, fmt.Errorf("seed backfill channels: %w", tx.Error)
 	}
 	return int(tx.RowsAffected), nil
 }
 
 func (s *Store) UpdateBackfillState(ctx context.Context, state *BackfillState) error {
-	return s.db.WithContext(ctx).Save(state).Error
+	if err := s.db.WithContext(ctx).Save(state).Error; err != nil {
+		return fmt.Errorf("update backfill state: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) GetBackfillChannels(ctx context.Context, limit int) ([]BackfillChannel, error) {
@@ -98,19 +112,31 @@ func (s *Store) GetBackfillChannels(ctx context.Context, limit int) ([]BackfillC
 func (s *Store) GetBackfillChannel(ctx context.Context, channelID uint64) (*BackfillChannel, error) {
 	var channel BackfillChannel
 	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&channel).Error
-	return &channel, mapNotFound(err)
+	if err != nil {
+		return &channel, fmt.Errorf("get backfill channel %d: %w", channelID, mapNotFound(err))
+	}
+	return &channel, nil
 }
 
 func (s *Store) SaveBackfillChannel(ctx context.Context, channel *BackfillChannel) error {
-	return s.db.WithContext(ctx).Save(channel).Error
+	if err := s.db.WithContext(ctx).Save(channel).Error; err != nil {
+		return fmt.Errorf("save backfill channel %d: %w", channel.ChannelID, err)
+	}
+	return nil
 }
 
 func (s *Store) CreateChunk(ctx context.Context, chunk Chunk) error {
-	return s.db.WithContext(ctx).Create(&chunk).Error
+	if err := s.db.WithContext(ctx).Create(&chunk).Error; err != nil {
+		return fmt.Errorf("create chunk: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) SaveChunkEmbedding(ctx context.Context, embedding ChunkEmbedding) error {
-	return s.db.WithContext(ctx).Create(&embedding).Error
+	if err := s.db.WithContext(ctx).Create(&embedding).Error; err != nil {
+		return fmt.Errorf("save chunk embedding: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) GetChunksWithoutEmbedding(ctx context.Context, model string, limit int) ([]Chunk, error) {
@@ -124,7 +150,10 @@ func (s *Store) GetChunksWithoutEmbedding(ctx context.Context, model string, lim
 func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
 	var chunk Chunk
 	err := s.db.WithContext(ctx).Where("id = ?", id).First(&chunk).Error
-	return &chunk, mapNotFound(err)
+	if err != nil {
+		return &chunk, fmt.Errorf("get chunk %d: %w", id, mapNotFound(err))
+	}
+	return &chunk, nil
 }
 
 // GetNeighborChunks returns the chunks adjacent to chunkID in the same channel, in chronological order.
@@ -133,14 +162,14 @@ func (s *Store) GetNeighborChunks(ctx context.Context, channelID, chunkID uint64
 	if before > 0 {
 		if err := s.db.WithContext(ctx).Where("channel_id = ? AND id < ?", channelID, chunkID).
 			Order("id desc").Limit(before).Find(&prev).Error; err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get chunks before %d: %w", chunkID, err)
 		}
 		slices.Reverse(prev)
 	}
 	if after > 0 {
 		if err := s.db.WithContext(ctx).Where("channel_id = ? AND id > ?", channelID, chunkID).
 			Order("id asc").Limit(after).Find(&next).Error; err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get chunks after %d: %w", chunkID, err)
 		}
 	}
 	return append(prev, next...), nil
@@ -222,30 +251,39 @@ func (s *Store) GetAffinity(ctx context.Context, userID uint64) (*UserAffinity, 
 	var affinity UserAffinity
 	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&affinity).Error
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, fmt.Errorf("get affinity %d: %w", userID, mapNotFound(err))
 	}
 	return &affinity, nil
 }
 
 func (s *Store) UpdateAffinity(ctx context.Context, affinity *UserAffinity) error {
-	return s.db.WithContext(ctx).Save(affinity).Error
+	if err := s.db.WithContext(ctx).Save(affinity).Error; err != nil {
+		return fmt.Errorf("update affinity %d: %w", affinity.UserID, err)
+	}
+	return nil
 }
 
 func (s *Store) LogAmbientFire(ctx context.Context, log AmbientLog) error {
-	return s.db.WithContext(ctx).Create(&log).Error
+	if err := s.db.WithContext(ctx).Create(&log).Error; err != nil {
+		return fmt.Errorf("log ambient fire: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) GetAmbientState(ctx context.Context, channelID uint64) (*AmbientState, error) {
 	var state AmbientState
 	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).First(&state).Error
 	if err != nil {
-		return nil, mapNotFound(err)
+		return nil, fmt.Errorf("get ambient state %d: %w", channelID, mapNotFound(err))
 	}
 	return &state, nil
 }
 
 func (s *Store) UpdateAmbientState(ctx context.Context, state *AmbientState) error {
-	return s.db.WithContext(ctx).Save(state).Error
+	if err := s.db.WithContext(ctx).Save(state).Error; err != nil {
+		return fmt.Errorf("update ambient state %d: %w", state.ChannelID, err)
+	}
+	return nil
 }
 
 func (s *Store) IncrementAmbientFiresToday(ctx context.Context, channelID uint64) error {

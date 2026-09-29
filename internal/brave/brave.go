@@ -65,7 +65,7 @@ func (c *Client) Search(ctx context.Context, query, freshness string) (string, e
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.search.brave.com/res/v1/llm/context?"+params.Encode(), nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build brave search request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", c.apiKey)
@@ -73,7 +73,7 @@ func (c *Client) Search(ctx context.Context, query, freshness string) (string, e
 	slog.Info("brave search request", "endpoint", "llm/context", "query", query)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("brave search: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -83,7 +83,7 @@ func (c *Client) Search(ctx context.Context, query, freshness string) (string, e
 
 	var br braveContextResponse
 	if err := json.NewDecoder(resp.Body).Decode(&br); err != nil {
-		return "", err
+		return "", fmt.Errorf("decode brave search response: %w", err)
 	}
 
 	if len(br.Grounding.Generic) == 0 {
@@ -106,14 +106,14 @@ func (c *Client) Search(ctx context.Context, query, freshness string) (string, e
 func (c *Client) FetchPage(ctx context.Context, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build page request: %w", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; doofus-rick)")
 	req.Header.Set("Accept", "text/html,text/plain")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("fetch page: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -124,7 +124,7 @@ func (c *Client) FetchPage(ctx context.Context, rawURL string) (string, error) {
 	const maxBytes = 128 * 1024
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read page body: %w", err)
 	}
 
 	text := string(body)
@@ -175,7 +175,7 @@ func (c *Client) SearchImage(ctx context.Context, query string) (string, error) 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.search.brave.com/res/v1/images/search?"+params.Encode(), nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build brave image request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", c.apiKey)
@@ -183,7 +183,7 @@ func (c *Client) SearchImage(ctx context.Context, query string) (string, error) 
 	slog.Info("brave search request", "endpoint", "images/search", "query", query)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("brave image search: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -193,7 +193,7 @@ func (c *Client) SearchImage(ctx context.Context, query string) (string, error) 
 
 	var br braveImageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&br); err != nil {
-		return "", err
+		return "", fmt.Errorf("decode brave image response: %w", err)
 	}
 
 	if len(br.Results) == 0 {

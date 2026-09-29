@@ -40,11 +40,19 @@ type CrashReport struct {
 
 // Problems returns the entries it could read even when err is non-nil.
 func (h *Home) Problems(since time.Time) ([]LogEntry, error) {
-	return readProblems(h.logsDir, since, time.Now())
+	entries, err := readProblems(h.logsDir, since, time.Now())
+	if err != nil {
+		return entries, fmt.Errorf("read problem logs: %w", err)
+	}
+	return entries, nil
 }
 
 func (h *Home) CrashReports() ([]CrashReport, error) {
-	return listCrashReports(h.crashDir)
+	reports, err := listCrashReports(h.crashDir)
+	if err != nil {
+		return reports, fmt.Errorf("list crash reports: %w", err)
+	}
+	return reports, nil
 }
 
 func readProblems(logsDir string, since, now time.Time) ([]LogEntry, error) {

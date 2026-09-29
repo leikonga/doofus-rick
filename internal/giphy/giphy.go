@@ -38,12 +38,12 @@ func (c *Client) Search(ctx context.Context, query string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.giphy.com/v1/gifs/search?"+params.Encode(), nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build giphy request: %w", err)
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("giphy search: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -53,7 +53,7 @@ func (c *Client) Search(ctx context.Context, query string) (string, error) {
 
 	var gr giphyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return "", err
+		return "", fmt.Errorf("decode giphy response: %w", err)
 	}
 
 	if len(gr.Data) == 0 {

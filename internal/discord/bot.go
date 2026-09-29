@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -59,7 +60,7 @@ func New(c *config.Config, s *store.Store) (*Bot, error) {
 		),
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create disgo client: %w", err)
 	}
 	return &Bot{store: s, config: c, client: client}, nil
 }
@@ -110,7 +111,7 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 	}
 
 	if err := b.client.OpenGateway(ctx); err != nil {
-		return err
+		return fmt.Errorf("open gateway: %w", err)
 	}
 
 	h.Archive.Run(ctx)

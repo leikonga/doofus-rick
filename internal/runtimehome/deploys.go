@@ -35,7 +35,7 @@ type DeployRecord struct {
 func AppendDeploy(path string, r DeployRecord) error {
 	line, err := json.Marshal(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode deploy record: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -54,7 +54,7 @@ func ReadDeploys(path string) ([]DeployRecord, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open deploy journal: %w", err)
 	}
 	defer f.Close()
 

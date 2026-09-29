@@ -90,7 +90,7 @@ func (b *Bot) ensureCache() error {
 	if b.cache.members == nil {
 		fetched, err := b.client.Rest.GetMembers(snowflake.MustParse(b.config.DiscordGuild), 1000, 0)
 		if err != nil {
-			return err
+			return fmt.Errorf("fetch guild members: %w", err)
 		}
 		b.cache.members = fetched
 	}

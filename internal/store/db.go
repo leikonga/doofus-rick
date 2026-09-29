@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -79,7 +78,7 @@ func RunMigrationsDSN(ctx context.Context, dsn string) error {
 	}
 	sqlDB, err := gdb.DB()
 	if err != nil {
-		return err
+		return fmt.Errorf("get sql db: %w", err)
 	}
 	defer func() { _ = sqlDB.Close() }()
 	return RunMigrations(ctx, sqlDB)
@@ -91,9 +90,4 @@ type slogLogger struct {
 
 func (l *slogLogger) Printf(format string, v ...any) {
 	l.Info(fmt.Sprintf(format, v...))
-}
-
-func (l *slogLogger) Fatalf(format string, v ...any) {
-	l.Error(fmt.Sprintf(format, v...))
-	os.Exit(1)
 }

@@ -15,7 +15,7 @@ const missingUser = "rick-test-no-such-user"
 
 func TestShellFallsBackWhenUserMissing(t *testing.T) {
 	if _, err := Credential(missingUser); err == nil {
-		t.Fatalf("ShellCredential(%q) succeeded, want error", missingUser)
+		t.Fatalf("Credential(%q) succeeded, want error", missingUser)
 	}
 	s := New(t.TempDir(), 5*time.Second, missingUser)
 	if s.cred != nil {

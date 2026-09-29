@@ -44,21 +44,23 @@ var (
 
 func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	t.Status = TaskPending
-	err := s.db.WithContext(ctx).Create(&t).Error
-	return t, err
+	if err := s.db.WithContext(ctx).Create(&t).Error; err != nil {
+		return t, fmt.Errorf("create task: %w", err)
+	}
+	return t, nil
 }
 
 func (s *Store) ListTasks(ctx context.Context, recentFinished int) ([]Task, error) {
 	active := []TaskStatus{TaskPending, TaskRunning}
 	var tasks []Task
 	if err := s.db.WithContext(ctx).Where("status IN ?", active).Order("fire_at, id").Find(&tasks).Error; err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list active tasks: %w", err)
 	}
 	var finished []Task
 	err := s.db.WithContext(ctx).Where("status NOT IN ?", active).
 		Order("finished_at DESC NULLS LAST, id DESC").Limit(recentFinished).Find(&finished).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list finished tasks: %w", err)
 	}
 	return append(tasks, finished...), nil
 }
@@ -78,7 +80,10 @@ func (s *Store) CancelTask(ctx context.Context, id uint64) (Task, error) {
 		}
 		return tx.Exec(`UPDATE tasks SET status = ?, finished_at = now() WHERE id = ?`, TaskCancelled, id).Error
 	})
-	return before, err
+	if err != nil {
+		return before, fmt.Errorf("cancel task %d: %w", id, err)
+	}
+	return before, nil
 }
 
 func (s *Store) ClaimDueTasks(ctx context.Context, now time.Time) ([]Task, error) {
@@ -95,8 +100,12 @@ func (s *Store) ClaimDueTasks(ctx context.Context, now time.Time) ([]Task, error
 
 // FinishTask only touches running tasks, so a cancellation that raced the turn stays cancelled.
 func (s *Store) FinishTask(ctx context.Context, id uint64, status TaskStatus, result string) error {
-	return s.db.WithContext(ctx).Exec(`UPDATE tasks SET status = ?, result = ?, finished_at = now() WHERE id = ? AND status = ?`,
+	err := s.db.WithContext(ctx).Exec(`UPDATE tasks SET status = ?, result = ?, finished_at = now() WHERE id = ? AND status = ?`,
 		status, result, id, TaskRunning).Error
+	if err != nil {
+		return fmt.Errorf("finish task %d: %w", id, err)
+	}
+	return nil
 }
 
 func (s *Store) InterruptRunningTasks(ctx context.Context) ([]Task, error) {

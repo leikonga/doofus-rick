@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ func (s *Store) SearchChunks(ctx context.Context, q ChunkSearch) ([]ScoredChunk,
 		sql.Named("model", q.Model),
 	).Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hybrid search chunks: %w", err)
 	}
 	chunks := make([]ScoredChunk, len(rows))
 	for i, r := range rows {
