@@ -10,14 +10,16 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/archive"
-	"github.com/leikonga/doofus-rick/internal/client"
+	"github.com/leikonga/doofus-rick/internal/brave"
 	"github.com/leikonga/doofus-rick/internal/codeedit"
 	"github.com/leikonga/doofus-rick/internal/config"
+	"github.com/leikonga/doofus-rick/internal/giphy"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/sandbox"
 	"github.com/leikonga/doofus-rick/internal/selbst"
 	"github.com/leikonga/doofus-rick/internal/selfcode"
+	"github.com/leikonga/doofus-rick/internal/shell"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
@@ -40,9 +42,9 @@ type Agent struct {
 	llm              *llm.Client
 	discord          DiscordState
 	discordClient    *disgobot.Client
-	brave            *client.BraveClient
-	giphy            *client.GiphyClient
-	shell            *client.Shell
+	brave            *brave.Client
+	giphy            *giphy.Client
+	shell            *shell.Runner
 	shellDesc        string
 	selbstBlock      string
 	runtimeLogs      runtimeLogs
@@ -103,9 +105,9 @@ func New(s *store.Store, c *config.Config, ds DiscordState, dc *disgobot.Client,
 		llm:           llmClient,
 		discord:       ds,
 		discordClient: dc,
-		brave:         client.NewBrave(httpClient, c.BraveAPIKey),
-		giphy:         client.NewGiphy(httpClient, c.GiphyAPIKey),
-		shell:         client.NewShell(c.WorkDir, c.ShellTimeout, c.ShellUser),
+		brave:         brave.New(httpClient, c.BraveAPIKey),
+		giphy:         giphy.New(httpClient, c.GiphyAPIKey),
+		shell:         shell.New(c.WorkDir, c.ShellTimeout, c.ShellUser),
 		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
 		selbstBlock:   self.Block(),
 		tracer:        tr,

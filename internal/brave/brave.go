@@ -1,4 +1,4 @@
-package client
+package brave
 
 import (
 	"context"
@@ -44,16 +44,16 @@ type braveImageResponse struct {
 	} `json:"results"`
 }
 
-type BraveClient struct {
+type Client struct {
 	http   *http.Client
 	apiKey string
 }
 
-func NewBrave(http *http.Client, apiKey string) *BraveClient {
-	return &BraveClient{http: http, apiKey: apiKey}
+func New(http *http.Client, apiKey string) *Client {
+	return &Client{http: http, apiKey: apiKey}
 }
 
-func (c *BraveClient) Search(ctx context.Context, query, freshness string) (string, error) {
+func (c *Client) Search(ctx context.Context, query, freshness string) (string, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("maximum_number_of_tokens", "4000")
@@ -103,7 +103,7 @@ func (c *BraveClient) Search(ctx context.Context, query, freshness string) (stri
 	return sb.String(), nil
 }
 
-func (c *BraveClient) FetchPage(ctx context.Context, rawURL string) (string, error) {
+func (c *Client) FetchPage(ctx context.Context, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
@@ -167,7 +167,7 @@ func (c *BraveClient) FetchPage(ctx context.Context, rawURL string) (string, err
 	return text, nil
 }
 
-func (c *BraveClient) SearchImage(ctx context.Context, query string) (string, error) {
+func (c *Client) SearchImage(ctx context.Context, query string) (string, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("count", "10")

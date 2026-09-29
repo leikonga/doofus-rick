@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/sandbox"
+	"github.com/leikonga/doofus-rick/internal/shell"
 )
 
 type fakeRuntimeLogs struct {
@@ -111,8 +111,8 @@ func TestLogReportStaysWithinOutputLimit(t *testing.T) {
 	}
 	a := &Agent{runtimeLogs: &fakeRuntimeLogs{entries: entries}}
 	got := a.logReport(24, time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC))
-	if len(got) > client.DefaultOutputLimit {
-		t.Fatalf("len = %d, exceeds %d", len(got), client.DefaultOutputLimit)
+	if len(got) > shell.DefaultOutputLimit {
+		t.Fatalf("len = %d, exceeds %d", len(got), shell.DefaultOutputLimit)
 	}
 	if !strings.Contains(got, "(older entries omitted)") || !strings.Contains(got, "m49 ") || strings.Contains(got, "m00 ") {
 		t.Fatalf("expected newest entries kept and omission noted:\n%s", got)

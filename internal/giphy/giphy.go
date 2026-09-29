@@ -1,4 +1,4 @@
-package client
+package giphy
 
 import (
 	"context"
@@ -19,16 +19,16 @@ type giphyResponse struct {
 	} `json:"data"`
 }
 
-type GiphyClient struct {
+type Client struct {
 	http   *http.Client
 	apiKey string
 }
 
-func NewGiphy(http *http.Client, apiKey string) *GiphyClient {
-	return &GiphyClient{http: http, apiKey: apiKey}
+func New(http *http.Client, apiKey string) *Client {
+	return &Client{http: http, apiKey: apiKey}
 }
 
-func (c *GiphyClient) Search(ctx context.Context, query string) (string, error) {
+func (c *Client) Search(ctx context.Context, query string) (string, error) {
 	params := url.Values{}
 	params.Set("api_key", c.apiKey)
 	params.Set("q", query)

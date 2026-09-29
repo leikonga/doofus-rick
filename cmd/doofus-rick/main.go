@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selbst"
+	"github.com/leikonga/doofus-rick/internal/shell"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 	"github.com/leikonga/doofus-rick/internal/web"
@@ -72,7 +72,7 @@ func main() {
 	}
 
 	if os.Getenv("APP_ENV") == envProduction {
-		if _, err := client.ShellCredential(c.ShellUser); err != nil {
+		if _, err := shell.Credential(c.ShellUser); err != nil {
 			slog.Error("sys_shell cannot run as its own user", "user", c.ShellUser, "error", err)
 			os.Exit(1)
 		}

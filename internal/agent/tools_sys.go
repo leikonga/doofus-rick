@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/leikonga/doofus-rick/internal/client"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/sandbox"
 	"github.com/leikonga/doofus-rick/internal/selbst"
+	"github.com/leikonga/doofus-rick/internal/shell"
 )
 
 type shellExecIn struct {
@@ -22,7 +22,7 @@ type shellExecIn struct {
 func (a *Agent) shellExecTool() llm.Tool {
 	return llm.NewTool("sys_shell", a.shellDesc,
 		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
-			return llm.Result{Content: a.shell.Exec(ctx, in.Command, client.DefaultOutputLimit)}, nil
+			return llm.Result{Content: a.shell.Exec(ctx, in.Command, shell.DefaultOutputLimit)}, nil
 		})
 }
 
@@ -113,7 +113,7 @@ func (a *Agent) logReport(hours int, now time.Time) string {
 		header = fmt.Sprintf("no warnings or errors in the last %dh\n", hours)
 	}
 	const omittedNote = "(older entries omitted)\n"
-	budget := client.DefaultOutputLimit - len(header) - len(omittedNote) - tail.Len()
+	budget := shell.DefaultOutputLimit - len(header) - len(omittedNote) - tail.Len()
 	lines := make([]string, 0, len(entries))
 	for _, entrie := range slices.Backward(entries) {
 		line := formatLogEntry(entrie)

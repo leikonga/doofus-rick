@@ -1,4 +1,4 @@
-package client
+package shell
 
 import (
 	"bytes"
@@ -15,23 +15,23 @@ import (
 
 const DefaultOutputLimit = 4000
 
-type Shell struct {
+type Runner struct {
 	workDir string
 	timeout time.Duration
 	cred    *syscall.Credential
 }
 
-// NewShell runs commands as username; if that user cannot be used it warns and runs as the current user.
-func NewShell(workDir string, timeout time.Duration, username string) *Shell {
-	cred, err := ShellCredential(username)
+// New runs commands as username; if that user cannot be used it warns and runs as the current user.
+func New(workDir string, timeout time.Duration, username string) *Runner {
+	cred, err := Credential(username)
 	if err != nil {
 		slog.Warn("shell user unavailable, sys_shell runs as the bot user", "user", username, "error", err)
 	}
-	return &Shell{workDir: workDir, timeout: timeout, cred: cred}
+	return &Runner{workDir: workDir, timeout: timeout, cred: cred}
 }
 
-// ShellCredential resolves username and proves this process can start children as that user.
-func ShellCredential(username string) (*syscall.Credential, error) {
+// Credential resolves username and proves this process can start children as that user.
+func Credential(username string) (*syscall.Credential, error) {
 	cred, err := lookupCredential(username)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func lookupCredential(username string) (*syscall.Credential, error) {
 	return &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), Groups: groups}, nil
 }
 
-func (s *Shell) Exec(ctx context.Context, command string, outputLimit int) string {
+func (s *Runner) Exec(ctx context.Context, command string, outputLimit int) string {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
