@@ -378,7 +378,7 @@ func (i *Ingest) seedBackfillChannels(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	channels, err := i.rest.GetGuildChannels(guildID)
+	channels, err := i.rest.GetGuildChannels(guildID, rest.WithCtx(ctx))
 	if err != nil {
 		return 0, err
 	}
@@ -397,7 +397,7 @@ func (i *Ingest) backfillChannel(ctx context.Context, channelID uint64, delay ti
 	botID := i.selfID()
 	channelStart := time.Now()
 
-	newestMsg, err := i.rest.GetMessages(snowflake.ID(channelID), 0, 0, 0, 1)
+	newestMsg, err := i.rest.GetMessages(snowflake.ID(channelID), 0, 0, 0, 1, rest.WithCtx(ctx))
 	if err != nil {
 		return err
 	}
@@ -436,7 +436,7 @@ func (i *Ingest) backfillChannel(ctx context.Context, channelID uint64, delay ti
 			before = oldestFetched
 		}
 
-		msgs, err := i.rest.GetMessages(snowflake.ID(channelID), snowflake.ID(before), 0, 0, i.config.BackfillBatch)
+		msgs, err := i.rest.GetMessages(snowflake.ID(channelID), snowflake.ID(before), 0, 0, i.config.BackfillBatch, rest.WithCtx(ctx))
 		if err != nil {
 			return err
 		}

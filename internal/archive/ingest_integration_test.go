@@ -22,16 +22,29 @@ const (
 )
 
 type fakeREST struct {
-	mu       sync.Mutex
-	channels []discord.GuildChannel
-	messages map[snowflake.ID][]discord.Message
+	mu            sync.Mutex
+	channels      []discord.GuildChannel
+	messages      map[snowflake.ID][]discord.Message
+	calls         int
+	callsWithOpts int
 }
 
-func (f *fakeREST) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+func (f *fakeREST) record(opts []rest.RequestOpt) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if len(opts) > 0 {
+		f.callsWithOpts++
+	}
+}
+
+func (f *fakeREST) GetGuildChannels(_ snowflake.ID, opts ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	f.record(opts)
 	return f.channels, nil
 }
 
-func (f *fakeREST) GetMessages(channelID snowflake.ID, around, before, _ snowflake.ID, limit int, _ ...rest.RequestOpt) ([]discord.Message, error) {
+func (f *fakeREST) GetMessages(channelID snowflake.ID, around, before, _ snowflake.ID, limit int, opts ...rest.RequestOpt) ([]discord.Message, error) {
+	f.record(opts)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// backfillChannel passes its paging cursor as `around`; the fake pages on either.
@@ -133,6 +146,13 @@ func TestBackfillWorker(t *testing.T) {
 		if ch.LastError != nil {
 			t.Errorf("channel %d last error = %q", id, *ch.LastError)
 		}
+	}
+
+	fake.mu.Lock()
+	calls, callsWithOpts := fake.calls, fake.callsWithOpts
+	fake.mu.Unlock()
+	if calls == 0 || callsWithOpts != calls {
+		t.Errorf("REST calls with request opts = %d of %d, want all", callsWithOpts, calls)
 	}
 
 	state, err := s.GetBackfillState(ctx)

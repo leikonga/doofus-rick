@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -93,7 +94,7 @@ func (a *Agent) runTask(ctx context.Context, task store.Task) {
 	status, result := store.TaskDone, text
 	if err == nil && text != "" {
 		msg := discord.NewMessageCreate().WithContent(taskMessage(snowflake.ID(task.RequesterID), text))
-		_, err = a.discordClient.Rest.CreateMessage(snowflake.ID(task.ChannelID), msg)
+		_, err = a.discordClient.Rest.CreateMessage(snowflake.ID(task.ChannelID), msg, rest.WithCtx(ctx))
 	}
 	if err != nil {
 		slog.Warn("task failed", "task", task.ID, "error", err)
@@ -140,7 +141,7 @@ func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err er
 
 	channelID := snowflake.ID(task.ChannelID)
 	requesterID := snowflake.ID(task.RequesterID)
-	msgs, err := a.discordClient.Rest.GetMessages(channelID, 0, 0, 0, historyLimit)
+	msgs, err := a.discordClient.Rest.GetMessages(channelID, 0, 0, 0, historyLimit, rest.WithCtx(ctx))
 	if err != nil {
 		return "", fmt.Errorf("fetch channel history: %w", err)
 	}
@@ -149,10 +150,10 @@ func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err er
 
 	triggerLabel := taskTriggerLabel(task, a.userName(requesterID))
 
-	channel := a.channelInfo(channelID)
+	channel := a.channelInfo(ctx, channelID)
 	recallCh := make(chan string, 1)
 	go func() {
-		recallCh <- a.buildRecallBlock(ctx, task.Prompt, a.visibleChannelIDs(requesterID))
+		recallCh <- a.buildRecallBlock(ctx, task.Prompt, a.visibleChannelIDs(ctx, requesterID))
 	}()
 	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
 	recall := <-recallCh

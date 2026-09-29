@@ -16,6 +16,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
@@ -95,7 +96,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	}
 
 	botID := event.Client().ID()
-	msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit)
+	msgs, err := event.Client().Rest.GetMessages(event.ChannelID, 0, 0, 0, historyLimit, rest.WithCtx(ctx))
 	if err != nil {
 		slog.Warn("failed to fetch channel history", "error", err)
 		return
@@ -106,7 +107,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	var replyTo string
 	if ref := event.Message.MessageReference; ref != nil && ref.Type == discord.MessageReferenceTypeDefault && ref.MessageID != nil {
-		if refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID); err == nil {
+		if refMsg, err := event.Client().Rest.GetMessage(event.ChannelID, *ref.MessageID, rest.WithCtx(ctx)); err == nil {
 			replyTo = fmt.Sprintf(", antwortet auf %s %s: %q", authorLabel(botID, refMsg.Author, a.memberName),
 				refMsg.CreatedAt.Format("15:04"), truncate(a.resolveMentions(refMsg.Content)))
 		}
@@ -138,11 +139,11 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	triggerLabel := fmt.Sprintf("[%s %s%s]: %s", event.Message.CreatedAt.Format("15:04"),
 		a.memberName(event.Message.Author), replyTo, triggerText)
 
-	channel := a.channelInfo(event.ChannelID)
+	channel := a.channelInfo(ctx, event.ChannelID)
 
 	recallCh := make(chan string, 1)
 	go func() {
-		recallCh <- a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(event.Message.Author.ID))
+		recallCh <- a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(ctx, event.Message.Author.ID))
 	}()
 
 	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
@@ -176,7 +177,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 
 	if resp.Decline {
 		if resp.Emoji != "" {
-			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.Emoji); err != nil {
+			if err := event.Client().Rest.AddReaction(event.ChannelID, event.MessageID, resp.Emoji, rest.WithCtx(ctx)); err != nil {
 				slog.Warn("failed to add reaction", "error", err)
 			}
 		}
@@ -188,7 +189,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		return
 	}
 	msg := discord.NewMessageCreate().WithMessageReferenceByID(event.MessageID).WithContent(sanitizedResponse)
-	if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg); err != nil {
+	if _, err = event.Client().Rest.CreateMessage(event.ChannelID, msg, rest.WithCtx(ctx)); err != nil {
 		slog.Warn("failed to send rick response", "error", err)
 	}
 }
@@ -473,7 +474,7 @@ func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 	ticker := time.NewTicker(8 * time.Second)
 	defer ticker.Stop()
 	for {
-		if err := event.Client().Rest.SendTyping(event.ChannelID); err != nil {
+		if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
 			slog.Warn("failed to send typing indicator", "error", err)
 		}
 		select {
@@ -494,7 +495,7 @@ func (a *Agent) runTypingTheatre(ctx context.Context, event *events.MessageCreat
 		defer close(done)
 		for i, d := range sequence {
 			if i%2 == 0 {
-				if err := event.Client().Rest.SendTyping(event.ChannelID); err != nil {
+				if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
 					slog.Warn("failed to send typing indicator", "error", err)
 				}
 			}
@@ -534,8 +535,8 @@ type channelInfo struct {
 	overwrites discord.PermissionOverwrites
 }
 
-func (a *Agent) channelInfo(channelID snowflake.ID) channelInfo {
-	ch, err := a.discordClient.Rest.GetChannel(channelID)
+func (a *Agent) channelInfo(ctx context.Context, channelID snowflake.ID) channelInfo {
+	ch, err := a.discordClient.Rest.GetChannel(channelID, rest.WithCtx(ctx))
 	if err != nil {
 		return channelInfo{id: channelID}
 	}
@@ -592,12 +593,12 @@ func (a *Agent) buildRecallBlock(ctx context.Context, query string, channelIDs [
 // see, so recall retrieval isn't scoped to just the channel a mention
 // happened to land in and doesn't leak content from channels the asking
 // user can't access.
-func (a *Agent) visibleChannelIDs(requesterID snowflake.ID) []uint64 {
+func (a *Agent) visibleChannelIDs(ctx context.Context, requesterID snowflake.ID) []uint64 {
 	guildID, err := snowflake.Parse(a.config.DiscordGuild)
 	if err != nil {
 		return nil
 	}
-	channels, err := a.discordClient.Rest.GetGuildChannels(guildID)
+	channels, err := a.discordClient.Rest.GetGuildChannels(guildID, rest.WithCtx(ctx))
 	if err != nil {
 		slog.Warn("failed to list guild channels for recall scope", "error", err)
 		return nil

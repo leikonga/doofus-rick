@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -46,7 +47,7 @@ func (a *Agent) saveQuoteTool(origin turnOrigin) llm.Tool {
 			if origin.MessageID != 0 {
 				msg = msg.WithMessageReferenceByID(origin.MessageID)
 			}
-			if _, sendErr := a.discordClient.Rest.CreateMessage(origin.ChannelID, msg); sendErr != nil {
+			if _, sendErr := a.discordClient.Rest.CreateMessage(origin.ChannelID, msg, rest.WithCtx(ctx)); sendErr != nil {
 				slog.Warn("failed to send quote embed", "error", sendErr)
 			}
 
@@ -113,7 +114,7 @@ func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 				}
 				return llm.Result{Content: sb.String()}, nil
 			case "messages", "":
-				channelIDs := a.visibleChannelIDs(origin.AuthorID)
+				channelIDs := a.visibleChannelIDs(ctx, origin.AuthorID)
 				if len(channelIDs) == 0 {
 					return llm.Result{Content: "no channels to search"}, nil
 				}

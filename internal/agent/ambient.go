@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
@@ -106,14 +107,14 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 	}
 
 	botID := a.discordClient.ID()
-	msgs, err := a.discordClient.Rest.GetMessages(channelID, 0, 0, 0, historyLimit)
+	msgs, err := a.discordClient.Rest.GetMessages(channelID, 0, 0, 0, historyLimit, rest.WithCtx(ctx))
 	if err != nil {
 		return 0, err
 	}
 	slices.Reverse(msgs)
 	history := buildHistory(botID, 0, msgs, a.memberName)
 
-	channel := a.channelInfo(channelID)
+	channel := a.channelInfo(ctx, channelID)
 	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
 	recall := a.buildRecallBlock(ctx, note.recallQuery, []uint64{uint64(channelID)})
 	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic)
@@ -158,7 +159,7 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 		if content == "" {
 			continue
 		}
-		sent, err := a.discordClient.Rest.CreateMessage(channelID, discord.NewMessageCreate().WithContent(content))
+		sent, err := a.discordClient.Rest.CreateMessage(channelID, discord.NewMessageCreate().WithContent(content), rest.WithCtx(ctx))
 		if err != nil {
 			return firstID, err
 		}

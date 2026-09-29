@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
@@ -29,12 +30,12 @@ type sendMessageIn struct {
 
 func (a *Agent) sendMessageTool() llm.Tool {
 	return llm.NewTool("discord_send_message", "Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in.",
-		func(_ context.Context, in sendMessageIn) (llm.Result, error) {
+		func(ctx context.Context, in sendMessageIn) (llm.Result, error) {
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
 				return llm.Result{}, err
 			}
-			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content)); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content), rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
 			return llm.Result{Content: "message sent", Done: true}, nil
@@ -51,7 +52,7 @@ type createPollIn struct {
 
 func (a *Agent) createPollTool() llm.Tool {
 	return llm.NewTool("discord_create_poll", "Create a Discord poll in a channel.",
-		func(_ context.Context, in createPollIn) (llm.Result, error) {
+		func(ctx context.Context, in createPollIn) (llm.Result, error) {
 			chID, err := snowflake.Parse(in.ChannelID)
 			if err != nil {
 				return llm.Result{}, err
@@ -61,7 +62,7 @@ func (a *Agent) createPollTool() llm.Tool {
 				poll = poll.AddAnswer(ans, nil)
 			}
 			poll = poll.WithDuration(in.DurationHours).WithAllowMultiselect(in.AllowMultiselect)
-			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll)); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll), rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
 			return llm.Result{Content: "poll created", Done: true}, nil
@@ -78,7 +79,7 @@ func (a *Agent) sendFileTool() llm.Tool {
 	return llm.NewTool("discord_send_file",
 		"Attach and send a file from the work directory (/rick/work) to any channel. "+
 			"Use after sys_shell writes output to a file when the content is too long for a message.",
-		func(_ context.Context, in sendFileIn) (llm.Result, error) {
+		func(ctx context.Context, in sendFileIn) (llm.Result, error) {
 			clean := filepath.Clean(in.Path)
 			if !strings.HasPrefix(clean, a.config.WorkDir) {
 				slog.Warn("send_file rejected path outside workdir", "path", clean, "workdir", a.config.WorkDir)
@@ -104,7 +105,7 @@ func (a *Agent) sendFileTool() llm.Tool {
 			if err != nil {
 				return llm.Result{}, err
 			}
-			if _, err := a.discordClient.Rest.CreateMessage(chID, msg); err != nil {
+			if _, err := a.discordClient.Rest.CreateMessage(chID, msg, rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
 			return llm.Result{Content: "file sent", Done: true}, nil
@@ -119,12 +120,12 @@ var errNoMessageToReact = errors.New("no message to react to in a task")
 
 func (a *Agent) reactTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("discord_react", "Add one or more emoji reactions to the message you are replying to. Can be used alongside a text response.",
-		func(_ context.Context, in reactIn) (llm.Result, error) {
+		func(ctx context.Context, in reactIn) (llm.Result, error) {
 			if origin.MessageID == 0 {
 				return llm.Result{}, errNoMessageToReact
 			}
 			for _, emoji := range in.Emojis {
-				if err := a.discordClient.Rest.AddReaction(origin.ChannelID, origin.MessageID, emoji); err != nil {
+				if err := a.discordClient.Rest.AddReaction(origin.ChannelID, origin.MessageID, emoji, rest.WithCtx(ctx)); err != nil {
 					slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
 				}
 			}
