@@ -34,6 +34,7 @@ type Config struct {
 	RickModel           string
 	RickFallbackModels  []string
 	RickMaxTokens       int64
+	RickMaxToolIter     int
 	RickReasoningEffort string
 	CodeReasoningEffort string
 	RickTurnTimeout     time.Duration
@@ -129,6 +130,7 @@ func LoadConfig() *Config {
 		RickModel:           getEnv("RICK_MODEL", "anthropic/claude-sonnet-5"),
 		RickFallbackModels:  getEnvList("RICK_FALLBACK_MODELS", []string{"z-ai/glm-5.2"}),
 		RickMaxTokens:       getEnvInt64("RICK_MAX_TOKENS", 16000),
+		RickMaxToolIter:     getEnvInt("RICK_MAX_TOOL_ITER", 8),
 		RickReasoningEffort: getEnv("RICK_REASONING_EFFORT", "medium"),
 		CodeReasoningEffort: getEnv("CODE_REASONING_EFFORT", "high"),
 		RickTurnTimeout:     getEnvDuration("RICK_TURN_TIMEOUT", 10*time.Minute),

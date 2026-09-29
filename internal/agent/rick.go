@@ -30,7 +30,6 @@ const (
 	maxContextLen = 500
 	historyLimit  = 10
 	rickLabel     = "rick (du)"
-	normalMaxIter = 8
 )
 
 func (a *Agent) HandleMention(ctx context.Context, event *events.MessageCreate) {
@@ -290,7 +289,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 
 	var pendingText string
 	var escalated bool
-	maxIter := normalMaxIter
+	maxIter := a.config.RickMaxToolIter
 	// maxIter is re-read each iteration, so escalation mid-turn extends the loop; do not convert to `for range`.
 	for iter := 0; iter < maxIter; iter++ {
 		if msgsJSON, err := json.Marshal(messages); err == nil {
