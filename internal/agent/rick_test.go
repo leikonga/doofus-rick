@@ -175,12 +175,12 @@ func TestMessageText(t *testing.T) {
 
 func TestBuildCachedPrefix(t *testing.T) {
 	roster := "<leit>\nsnowflake=1 name=hans affinity=-20\n</leit>"
-	got := buildCachedPrefix("<selbst>\ncommit=0123456\n</selbst>", roster, "general", "chat")
+	got := buildCachedPrefix("<selbst>\ncommit=0123456\n</selbst>", roster, "999", "general", "chat")
 	if !strings.HasPrefix(got, "<selbst>\ncommit=0123456\n</selbst>\n\n<leit>") {
 		t.Errorf("expected <selbst> first, then <leit>:\n%s", got)
 	}
-	if !strings.Contains(got, "# channel: general") {
-		t.Error("expected channel in cached prefix")
+	if !strings.Contains(got, "# channel: general (id: 999)") {
+		t.Error("expected channel and id in cached prefix")
 	}
 	if !strings.Contains(got, "# topic: chat") {
 		t.Error("expected topic in cached prefix")
@@ -197,11 +197,11 @@ func TestBuildCachedPrefix_SkipsEmptyBlocks(t *testing.T) {
 		{"all empty", "", "", "", ""},
 		{"selbst only", "<selbst></selbst>", "", "", "<selbst></selbst>"},
 		{"roster only", "", "<leit></leit>", "", "<leit></leit>"},
-		{"selbst and channel", "<selbst></selbst>", "", "general", "<selbst></selbst>\n\n# channel: general"},
+		{"selbst and channel", "<selbst></selbst>", "", "general", "<selbst></selbst>\n\n# channel: general (id: )"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := buildCachedPrefix(tc.selbst, tc.roster, tc.channel, ""); got != tc.want {
+			if got := buildCachedPrefix(tc.selbst, tc.roster, "", tc.channel, ""); got != tc.want {
 				t.Errorf("buildCachedPrefix() = %q, want %q", got, tc.want)
 			}
 		})

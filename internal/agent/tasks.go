@@ -159,7 +159,7 @@ func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err er
 
 	now := time.Now()
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.name, channel.topic),
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic),
 		messages:    []llm.Message{llm.NewUserMessage(llm.TextPart(buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, triggerLabel)))},
 		tracePrompt: triggerLabel,
 		origin:      turnOrigin{ChannelID: channelID, AuthorID: requesterID, TaskID: task.ID},

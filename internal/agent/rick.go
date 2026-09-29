@@ -157,7 +157,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	turnParts = append(turnParts, attachments.fileParts...)
 
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.name, channel.topic),
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic),
 		messages:    []llm.Message{llm.NewUserMessage(turnParts...)},
 		tracePrompt: triggerLabel,
 		origin:      turnOrigin{ChannelID: event.ChannelID, AuthorID: event.Message.Author.ID, MessageID: event.MessageID},
@@ -538,6 +538,7 @@ func (a *Agent) resolveMentions(content string) string {
 }
 
 type channelInfo struct {
+	id         snowflake.ID
 	name       string
 	topic      string
 	overwrites discord.PermissionOverwrites
@@ -546,9 +547,9 @@ type channelInfo struct {
 func (a *Agent) channelInfo(channelID snowflake.ID) channelInfo {
 	ch, err := a.discordClient.Rest.GetChannel(channelID)
 	if err != nil {
-		return channelInfo{}
+		return channelInfo{id: channelID}
 	}
-	info := channelInfo{name: ch.Name()}
+	info := channelInfo{id: channelID, name: ch.Name()}
 	if gmc, ok := ch.(discord.GuildMessageChannel); ok {
 		if gmc.Topic() != nil {
 			info.topic = *gmc.Topic()
@@ -558,7 +559,7 @@ func (a *Agent) channelInfo(channelID snowflake.ID) channelInfo {
 	return info
 }
 
-func buildCachedPrefix(selbstBlock, roster, channelName, channelTopic string) string {
+func buildCachedPrefix(selbstBlock, roster, channelID, channelName, channelTopic string) string {
 	var sb strings.Builder
 	for _, block := range []string{selbstBlock, roster} {
 		if block == "" {
@@ -573,7 +574,7 @@ func buildCachedPrefix(selbstBlock, roster, channelName, channelTopic string) st
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
-		fmt.Fprintf(&sb, "# channel: %s", channelName)
+		fmt.Fprintf(&sb, "# channel: %s (id: %s)", channelName, channelID)
 		if channelTopic != "" {
 			fmt.Fprintf(&sb, "\n# topic: %s", channelTopic)
 		}
