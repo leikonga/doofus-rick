@@ -16,7 +16,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	displayQuotes := make([]QuoteDisplay, len(quotes))
 
 	for i, quote := range quotes {
-		creator, err := s.bot.GetUsernameForID(quote.Creator)
+		creator, err := s.members.GetUsernameForID(quote.Creator)
 		if err != nil {
 			creator = quote.Creator
 		}
@@ -49,7 +49,7 @@ func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creator, err := s.bot.GetUsernameForID(quote.Creator)
+	creator, err := s.members.GetUsernameForID(quote.Creator)
 	if err != nil {
 		creator = quote.Creator
 	}
@@ -72,7 +72,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var displayQuotes []QuoteDisplay
 
 	for _, quote := range quotes {
-		creator, err := s.bot.GetUsernameForID(quote.Creator)
+		creator, err := s.members.GetUsernameForID(quote.Creator)
 		if err != nil {
 			creator = quote.Creator
 		}
@@ -92,7 +92,7 @@ func (s *Server) getParticipants(q store.Quote) (participants []string) {
 	}
 	participants = make([]string, len(*q.Participants))
 	for j, id := range *q.Participants {
-		name, err := s.bot.GetUsernameForID(id)
+		name, err := s.members.GetUsernameForID(id)
 		if err != nil {
 			name = id
 		}

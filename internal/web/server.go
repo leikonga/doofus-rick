@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/sessions"
 	"github.com/leikonga/doofus-rick/internal/config"
-	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/store"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 	"golang.org/x/oauth2"
@@ -20,9 +19,14 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
+type members interface {
+	GetUsernameForID(id string) (string, error)
+	IsGuildMember(id string) (bool, error)
+}
+
 type Server struct {
 	store       *store.Store
-	bot         *discordpkg.Bot
+	members     members
 	config      *config.Config
 	tracer      *tracer.Tracer
 	session     *sessions.CookieStore
@@ -30,7 +34,7 @@ type Server struct {
 	authEnabled bool
 }
 
-func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot, tr *tracer.Tracer) *Server {
+func NewServer(s *store.Store, c *config.Config, m members, tr *tracer.Tracer) *Server {
 	if c.SessionSecret == "" {
 		slog.Warn("session secret is not set, sessions will not be persisted")
 	}
@@ -54,7 +58,7 @@ func NewServer(s *store.Store, c *config.Config, b *discordpkg.Bot, tr *tracer.T
 
 	return &Server{
 		store:       s,
-		bot:         b,
+		members:     m,
 		config:      c,
 		tracer:      tr,
 		session:     sessions.NewCookieStore([]byte(c.SessionSecret)),

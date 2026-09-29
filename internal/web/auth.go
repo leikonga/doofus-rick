@@ -96,7 +96,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if ok, err := s.bot.IsGuildMember(user.ID); err != nil || !ok {
+	if ok, err := s.members.IsGuildMember(user.ID); err != nil || !ok {
 		http.Error(w, "You do not have access to this website", http.StatusForbidden)
 		return
 	}
