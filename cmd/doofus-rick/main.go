@@ -78,7 +78,11 @@ func main() {
 		}
 	}
 
-	db := store.MustInit(c)
+	db, err := store.Open(ctx, c.DSN())
+	if err != nil {
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
 	if os.Getenv("APP_ENV") != envProduction {
 		db.MaybeSeed(ctx)
 	}
@@ -189,7 +193,11 @@ func handleForget() {
 	}
 
 	c := config.LoadConfig()
-	db := store.MustInit(c)
+	db, err := store.Open(context.Background(), c.DSN())
+	if err != nil {
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
 
 	if flagMessage != "" {
 		id, err := strconv.ParseUint(flagMessage, 10, 64)

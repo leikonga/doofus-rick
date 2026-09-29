@@ -14,7 +14,7 @@ func TestSaveTokenUsageSkipsZeroCounts(t *testing.T) {
 	if err := s.SaveTokenUsage(context.Background(), store.TokenUsage{ChannelID: "c", UserID: "u", ModelName: "m"}); err != nil {
 		t.Fatalf("SaveTokenUsage: %v", err)
 	}
-	rows := pgtest.Query[store.TokenUsage](t, s, "SELECT * FROM token_usages")
+	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
 	if len(rows) != 0 {
 		t.Errorf("rows = %d, want 0", len(rows))
 	}
@@ -26,7 +26,7 @@ func TestSaveTokenUsageWritesRow(t *testing.T) {
 	if err := s.SaveTokenUsage(context.Background(), in); err != nil {
 		t.Fatalf("SaveTokenUsage: %v", err)
 	}
-	rows := pgtest.Query[store.TokenUsage](t, s, "SELECT * FROM token_usages")
+	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}

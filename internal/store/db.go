@@ -1,14 +1,15 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"time"
 
-	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -22,17 +23,7 @@ type Store struct {
 	db *gorm.DB
 }
 
-func MustInit(c *config.Config) *Store {
-	s, err := Init(c)
-	if err != nil {
-		panic(err)
-	}
-	return s
-}
-
-func Init(c *config.Config) (*Store, error) {
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
-		c.DBHost, c.DBUser, c.DBPass, c.DBName, c.DBPort)
+func Open(ctx context.Context, dsn string) (*Store, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.New(&slogLogger{slog.Default()}, logger.Config{
 			SlowThreshold:             200 * time.Millisecond,
@@ -41,50 +32,47 @@ func Init(c *config.Config) (*Store, error) {
 		}),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 	s := &Store{db: db}
 
-	if err := runMigrations(s.db); err != nil {
-		return nil, err
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if err := s.db.AutoMigrate(&Quote{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
-		return nil, err
+	if err := RunMigrations(ctx, sqlDB); err != nil {
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+	if err := db.WithContext(ctx).AutoMigrate(&Quote{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
+		return nil, fmt.Errorf("automigrate: %w", err)
 	}
 
 	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
-	s.db.Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
+	db.WithContext(ctx).Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
 
 	return s, nil
 }
 
-func (s *Store) DB() *gorm.DB {
-	return s.db
-}
-
-func runMigrations(db *gorm.DB) error {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return err
-	}
-	return RunMigrations(sqlDB)
-}
-
 // RunMigrations applies the embedded goose migrations to db. Exported for
 // internal/selfcode to verify a pending migration against a scratch database.
-func RunMigrations(db *sql.DB) error {
-	if err := goose.SetDialect("postgres"); err != nil {
-		return err
+func RunMigrations(ctx context.Context, db *sql.DB) error {
+	fsys, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("sub migrations fs: %w", err)
 	}
-	goose.SetLogger(&slogLogger{slog.Default()})
-	goose.SetBaseFS(migrationsFS)
-	defer goose.SetBaseFS(nil)
-	return goose.Up(db, "migrations")
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, fsys, goose.WithSlog(slog.Default()))
+	if err != nil {
+		return fmt.Errorf("new goose provider: %w", err)
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		return fmt.Errorf("goose up: %w", err)
+	}
+	return nil
 }
 
 // RunMigrationsDSN opens a postgres connection to dsn and applies the
 // embedded migrations to it, closing the connection afterward.
-func RunMigrationsDSN(dsn string) error {
+func RunMigrationsDSN(ctx context.Context, dsn string) error {
 	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
@@ -94,7 +82,7 @@ func RunMigrationsDSN(dsn string) error {
 		return err
 	}
 	defer func() { _ = sqlDB.Close() }()
-	return RunMigrations(sqlDB)
+	return RunMigrations(ctx, sqlDB)
 }
 
 type slogLogger struct {

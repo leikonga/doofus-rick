@@ -43,7 +43,7 @@ type Selfcode struct {
 	backupsDir string
 	db         DBConfig
 	now        func() time.Time
-	migrate    func(dsn string) error
+	migrate    func(ctx context.Context, dsn string) error
 }
 
 func New(runner Runner, repoDir, backupsDir string, db DBConfig) *Selfcode {
@@ -170,7 +170,7 @@ func (s *Selfcode) VerifyMigrations(ctx context.Context, snapshotPath string) er
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 		s.db.Host, s.db.User, s.db.Pass, scratch, s.db.Port)
-	if err := s.migrate(dsn); err != nil {
+	if err := s.migrate(ctx, dsn); err != nil {
 		return fmt.Errorf("run migrations against %s: %w", scratch, err)
 	}
 

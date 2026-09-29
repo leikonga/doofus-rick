@@ -2,7 +2,6 @@ package archive
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -70,48 +69,13 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	if len(embedResp.Embeddings) == 0 {
 		return nil, fmt.Errorf("archive: empty query embedding")
 	}
-	queryVector := vectorLiteral(truncateTo1024(embedResp.Embeddings[0]))
-
-	var chunks []struct {
-		ID             uint64  `gorm:"column:id"`
-		ChannelID      uint64  `gorm:"column:channel_id"`
-		Content        string  `gorm:"column:content"`
-		Score          float64 `gorm:"column:score"`
-		LastActive     time.Time
-		ChannelVisible bool
-	}
-
-	querySQL := `
-		with vec as (
-			select c.id, row_number() over (order by e.embedding <=> (@vec)::halfvec) as rank
-			from chunks c join chunk_embeddings e on e.chunk_id = c.id
-			where e.model = @model and c.channel_id in (@channels)
-			order by e.embedding <=> (@vec)::halfvec limit 50
-		),
-		lex as (
-			select c.id, row_number() over (order by ts_rank_cd(tsv, q) desc) as rank
-			from chunks c, plainto_tsquery('simple', @query) q
-			where tsv @@ q and c.channel_id in (@channels)
-			order by ts_rank_cd(tsv, q) desc limit 50
-		)
-		select c.id, c.channel_id, c.content,
-		       coalesce(1.0/(60 + vec.rank), 0) + coalesce(1.0/(60 + lex.rank), 0) as score,
-		       c.ended_at as last_active
-		from chunks c
-		left join vec on vec.id = c.id
-		left join lex on lex.id = c.id
-		where vec.id is not null or lex.id is not null
-		order by score desc
-		limit @topk;
-	`
-
-	err = r.store.DB().WithContext(ctx).Raw(querySQL,
-		sql.Named("vec", queryVector),
-		sql.Named("channels", channelIDs),
-		sql.Named("query", query),
-		sql.Named("topk", r.config.TopK),
-		sql.Named("model", r.config.EmbedModel),
-	).Scan(&chunks).Error
+	chunks, err := r.store.SearchChunks(ctx, store.ChunkSearch{
+		Vector:     truncateTo1024(embedResp.Embeddings[0]),
+		Query:      query,
+		ChannelIDs: channelIDs,
+		Model:      r.config.EmbedModel,
+		TopK:       r.config.TopK,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -169,16 +133,6 @@ func (r *Retriever) expandWithNeighbors(ctx context.Context, channelID, chunkID 
 		sb.WriteString(content)
 	}
 	return sb.String(), nil
-}
-
-// vectorLiteral renders a vector in pgvector's text input format, e.g.
-// "[0.1,0.2,0.3]", for binding against a halfvec column in a raw query.
-func vectorLiteral(vec []float32) string {
-	parts := make([]string, len(vec))
-	for i, v := range vec {
-		parts[i] = strconv.FormatFloat(float64(v), 'f', -1, 32)
-	}
-	return "[" + strings.Join(parts, ",") + "]"
 }
 
 func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {

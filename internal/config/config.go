@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -89,6 +90,11 @@ type Config struct {
 	TypingTheatre  bool
 	TypingMaxDelay string
 	TypingChance   float64
+}
+
+func (c *Config) DSN() string {
+	return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		c.DBHost, c.DBUser, c.DBPass, c.DBName, c.DBPort)
 }
 
 func LoadConfig() *Config {

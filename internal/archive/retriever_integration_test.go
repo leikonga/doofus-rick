@@ -41,7 +41,7 @@ func seedChunk(t *testing.T, s *store.Store, channelID uint64, content string, a
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Second)
-	id := pgtest.Query[uint64](t, s, "SELECT COALESCE(MAX(id), 0) + 1 FROM chunks")[0]
+	id := pgtest.Query[uint64](t, "SELECT COALESCE(MAX(id), 0) + 1 FROM chunks")[0]
 	chunk := store.Chunk{ID: id, ChannelID: channelID, Content: content, StartedAt: now, EndedAt: now, MessageCount: 1, FirstMessageID: id, LastMessageID: id}
 	if err := s.CreateChunk(ctx, chunk); err != nil {
 		t.Fatalf("CreateChunk: %v", err)
@@ -205,7 +205,7 @@ func TestRetrieveRecordsTokenUsage(t *testing.T) {
 	if _, err := r.Retrieve(context.Background(), "zebra", []uint64{9, 10}); err != nil {
 		t.Fatal(err)
 	}
-	rows := pgtest.Query[store.TokenUsage](t, s, "SELECT * FROM token_usages")
+	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
 	if len(rows) != 1 {
 		t.Fatalf("token_usages rows = %d, want 1", len(rows))
 	}
@@ -222,7 +222,7 @@ func TestRetrieveEmptyChannelIDs(t *testing.T) {
 	if err != nil || len(got) != 0 {
 		t.Errorf("got %v, %v; want no results and no error", got, err)
 	}
-	rows := pgtest.Query[store.TokenUsage](t, s, "SELECT * FROM token_usages")
+	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
 	if len(rows) != 1 || rows[0].ChannelID != "0" {
 		t.Errorf("rows = %+v, want one row with channel 0", rows)
 	}

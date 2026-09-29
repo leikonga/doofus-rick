@@ -22,7 +22,7 @@ func createTask(t *testing.T, s *store.Store, prompt string, fireAt time.Time) s
 
 func taskByID(t *testing.T, s *store.Store, id uint64) store.Task {
 	t.Helper()
-	rows := pgtest.Query[store.Task](t, s, "SELECT * FROM tasks WHERE id = ?", id)
+	rows := pgtest.Query[store.Task](t, "SELECT * FROM tasks WHERE id = ?", id)
 	if len(rows) != 1 {
 		t.Fatalf("load task %d: %d rows", id, len(rows))
 	}
@@ -259,14 +259,14 @@ func TestTaskListRecentFinished(t *testing.T) {
 	createTask(t, s, "pending-late", base.Add(3*time.Hour))
 	createTask(t, s, "pending-early", base.Add(time.Hour))
 	runningTask := createTask(t, s, "running", base.Add(2*time.Hour))
-	pgtest.Exec(t, s, "UPDATE tasks SET status = 'running' WHERE id = ?", runningTask.ID)
+	pgtest.Exec(t, "UPDATE tasks SET status = 'running' WHERE id = ?", runningTask.ID)
 
 	for i, name := range []string{"fin-oldest", "fin-mid", "fin-newest"} {
 		task := createTask(t, s, name, base)
-		pgtest.Exec(t, s, "UPDATE tasks SET status = 'done', finished_at = ? WHERE id = ?", base.Add(time.Duration(i+1)*time.Minute), task.ID)
+		pgtest.Exec(t, "UPDATE tasks SET status = 'done', finished_at = ? WHERE id = ?", base.Add(time.Duration(i+1)*time.Minute), task.ID)
 	}
 	nullFinished := createTask(t, s, "fin-null", base)
-	pgtest.Exec(t, s, "UPDATE tasks SET status = 'failed' WHERE id = ?", nullFinished.ID)
+	pgtest.Exec(t, "UPDATE tasks SET status = 'failed' WHERE id = ?", nullFinished.ID)
 
 	tests := []struct {
 		name   string

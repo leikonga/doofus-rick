@@ -38,7 +38,7 @@ func TestMessageCreate(t *testing.T) {
 	at := time.Now().Add(-time.Minute).Truncate(time.Microsecond)
 	mustCreateMessages(t, s, msg(1, 5, at))
 
-	got := pgtest.Query[store.Message](t, s, "SELECT * FROM messages WHERE channel_id = ? AND id > ? ORDER BY id", 5, 0)
+	got := pgtest.Query[store.Message](t, "SELECT * FROM messages WHERE channel_id = ? AND id > ? ORDER BY id", 5, 0)
 	if len(got) != 1 || got[0].ID != 1 || got[0].Content != "c" || got[0].AuthorName != "a" || !got[0].CreatedAt.Equal(at) {
 		t.Errorf("unexpected: %+v", got)
 	}
@@ -217,7 +217,7 @@ func TestBackfillState(t *testing.T) {
 	if second.ID != 1 || second.Status != "idle" || !second.UpdatedAt.Equal(first.UpdatedAt.Truncate(time.Microsecond)) {
 		t.Errorf("second = %+v, first = %+v", second, first)
 	}
-	if count := pgtest.Query[int64](t, s, "SELECT count(*) FROM backfill_states")[0]; count != 1 {
+	if count := pgtest.Query[int64](t, "SELECT count(*) FROM backfill_states")[0]; count != 1 {
 		t.Errorf("rows = %d, want 1", count)
 	}
 }
@@ -247,7 +247,7 @@ func TestSeedBackfillChannels(t *testing.T) {
 	if err != nil || n != 4 {
 		t.Fatalf("overlapping seed count = %d (batch size, not inserted count), err %v", n, err)
 	}
-	if rows := pgtest.Query[int64](t, s, "SELECT count(*) FROM backfill_channels")[0]; rows != 5 {
+	if rows := pgtest.Query[int64](t, "SELECT count(*) FROM backfill_channels")[0]; rows != 5 {
 		t.Fatalf("rows = %d, want 5", rows)
 	}
 	n, err = s.SeedBackfillChannels(ctx, []uint64{1, 5})

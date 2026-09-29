@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/leikonga/doofus-rick/internal/pgtest"
@@ -8,8 +9,8 @@ import (
 )
 
 func TestRunMigrationsIdempotent(t *testing.T) {
-	s := pgtest.Store(t)
-	sqlDB := pgtest.SQLDB(t, s)
+	pgtest.Store(t)
+	sqlDB := pgtest.SQLDB(t)
 	countVersions := func() int {
 		var n int
 		if err := sqlDB.QueryRow("SELECT count(*) FROM goose_db_version").Scan(&n); err != nil {
@@ -22,7 +23,7 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	if before == 0 {
 		t.Fatal("no goose versions recorded")
 	}
-	if err := store.RunMigrations(sqlDB); err != nil {
+	if err := store.RunMigrations(context.Background(), sqlDB); err != nil {
 		t.Fatalf("second RunMigrations: %v", err)
 	}
 	if after := countVersions(); after != before {

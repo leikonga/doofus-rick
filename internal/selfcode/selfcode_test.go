@@ -62,7 +62,7 @@ func testSelfcode(runner Runner, repoDir, backupsDir string) *Selfcode {
 		backupsDir: backupsDir,
 		db:         DBConfig{Host: "h", Port: "5432", User: "u", Pass: "secret-pw", Name: "d"},
 		now:        time.Now,
-		migrate:    func(string) error { return nil },
+		migrate:    func(context.Context, string) error { return nil },
 	}
 }
 
@@ -292,7 +292,7 @@ func TestVerifyMigrationsDropsScratchDBOnRestoreFailure(t *testing.T) {
 func TestVerifyMigrationsDropsScratchDBOnMigrateFailure(t *testing.T) {
 	runner := newFakeRunner()
 	sc := testSelfcode(runner, "/repo", t.TempDir())
-	sc.migrate = func(string) error { return errors.New("goose failed") }
+	sc.migrate = func(context.Context, string) error { return errors.New("goose failed") }
 
 	err := sc.VerifyMigrations(context.Background(), "/backups/snap.sql")
 	if err == nil {

@@ -213,7 +213,7 @@ func TestUpdateState(t *testing.T) {
 }
 
 func TestLogFire(t *testing.T) {
-	g, s := integrationGate(t)
+	g, _ := integrationGate(t)
 	ctx := context.Background()
 
 	if err := g.LogFire(ctx, testChannel, 91, "a hook"); err != nil {
@@ -222,7 +222,7 @@ func TestLogFire(t *testing.T) {
 	if err := g.LogFire(ctx, snowflake.ID(501), 50, "other"); err != nil {
 		t.Fatal(err)
 	}
-	logs := pgtest.Query[store.AmbientLog](t, s, "SELECT * FROM ambient_logs WHERE channel_id = ? ORDER BY fired_at DESC", uint64(testChannel))
+	logs := pgtest.Query[store.AmbientLog](t, "SELECT * FROM ambient_logs WHERE channel_id = ? ORDER BY fired_at DESC", uint64(testChannel))
 	if len(logs) != 1 {
 		t.Fatalf("logs = %d, want 1", len(logs))
 	}
@@ -230,7 +230,7 @@ func TestLogFire(t *testing.T) {
 	if got.ChannelID != uint64(testChannel) || got.Score != 91 || got.Hook == nil || *got.Hook != "a hook" || time.Since(got.FiredAt) > time.Minute {
 		t.Errorf("unexpected log: %+v", got)
 	}
-	if n := pgtest.Query[int64](t, s, "SELECT count(*) FROM ambient_logs")[0]; n != 2 {
+	if n := pgtest.Query[int64](t, "SELECT count(*) FROM ambient_logs")[0]; n != 2 {
 		t.Errorf("ambient_logs rows = %d, want 2", n)
 	}
 }
