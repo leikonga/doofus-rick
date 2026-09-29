@@ -303,6 +303,36 @@
     }
   },
   {
+    "name": "github_issue",
+    "description": "List, comment on or close issues of Rick's own GitHub repo (leikonga/doofus-rick). Uses the push token internally.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "description": "list shows open issues; comment adds a comment; close closes an issue (optionally with a comment).",
+          "enum": [
+            "list",
+            "comment",
+            "close"
+          ],
+          "type": "string"
+        },
+        "comment": {
+          "description": "Comment text. Required for comment; optional for close.",
+          "type": "string"
+        },
+        "number": {
+          "description": "Issue number. Required for comment and close.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "discord_send_message",
     "description": "Send a message to any channel by ID. Use this to post in a different channel than the one you were mentioned in.",
     "schema": {
