@@ -141,15 +141,3 @@ func TestQuoteGetByParticipant(t *testing.T) {
 		})
 	}
 }
-
-func TestQuoteGetTopQuotes(t *testing.T) {
-	s := pgtest.Store(t)
-	seedQuotes(t, s)
-	pgtest.Exec(t, s, "UPDATE quotes SET votes = ? WHERE content = ?", 5, "Delta")
-	pgtest.Exec(t, s, "UPDATE quotes SET votes = ? WHERE content = ?", 2, "Alpha Bravo")
-	got := contents(s.GetTopQuotes(context.Background(), 2))
-	want := []string{"Delta", "Alpha Bravo"}
-	if !slices.Equal(got, want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}

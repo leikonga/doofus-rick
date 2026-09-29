@@ -39,10 +39,7 @@ func TestMessageCreate(t *testing.T) {
 	at := time.Now().Add(-time.Minute).Truncate(time.Microsecond)
 	mustCreateMessages(t, s, msg(1, 5, at))
 
-	got, err := s.GetMessagesSince(ctx, 5, 0, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := pgtest.Query[store.Message](t, s, "SELECT * FROM messages WHERE channel_id = ? AND id > ? ORDER BY id", 5, 0)
 	if len(got) != 1 || got[0].ID != 1 || got[0].Content != "c" || got[0].AuthorName != "a" || !got[0].CreatedAt.Equal(at) {
 		t.Errorf("unexpected: %+v", got)
 	}

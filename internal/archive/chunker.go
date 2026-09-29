@@ -1,7 +1,6 @@
 package archive
 
 import (
-	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -30,11 +29,10 @@ type UsernameResolver interface {
 
 type Chunker struct {
 	config   ChunkConfig
-	store    *store.Store
 	resolver UsernameResolver
 }
 
-func NewChunker(config ChunkConfig, s *store.Store, resolver UsernameResolver) *Chunker {
+func NewChunker(config ChunkConfig, resolver UsernameResolver) *Chunker {
 	if config.ChunkGap == 0 {
 		config.ChunkGap = DefaultChunkGap
 	}
@@ -44,7 +42,7 @@ func NewChunker(config ChunkConfig, s *store.Store, resolver UsernameResolver) *
 	if config.ChunkMaxChars == 0 {
 		config.ChunkMaxChars = DefaultChunkMaxChars
 	}
-	return &Chunker{config: config, store: s, resolver: resolver}
+	return &Chunker{config: config, resolver: resolver}
 }
 
 type Chunk struct {
@@ -125,32 +123,4 @@ func (c *Chunker) displayName(msg store.Message) string {
 		return msg.AuthorName
 	}
 	return name
-}
-
-func (c *Chunker) ChunkAndSave(ctx context.Context, messages []store.Message) error {
-	chunks := c.ChunkMessages(messages)
-	for _, chunk := range chunks {
-		chunk.Content = c.BuildChunkContent(chunk)
-		storedChunk := store.Chunk{
-			ChannelID:      chunk.ChannelID,
-			Content:        chunk.Content,
-			StartedAt:      chunk.StartedAt,
-			EndedAt:        chunk.EndedAt,
-			MessageCount:   len(chunk.Messages),
-			FirstMessageID: chunk.FirstMessageID,
-			LastMessageID:  chunk.LastMessageID,
-		}
-		if err := c.store.CreateChunk(ctx, storedChunk); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *Chunker) ChunkMessagesIncremental(ctx context.Context, messages []store.Message) error {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	return c.ChunkAndSave(ctx, messages)
 }

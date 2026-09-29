@@ -72,20 +72,6 @@ func (a *Affinity) Update(ctx context.Context, userID uint64, reason string, del
 	return a.store.UpdateAffinity(ctx, affinity)
 }
 
-func (a *Affinity) Decay(ctx context.Context, userID uint64, days float64) error {
-	affinity, err := a.store.GetAffinity(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	decay := int(float64(a.config.Baseline-affinity.Score) * a.config.DecayPerDay * days)
-	affinity.Score += decay
-	affinity.Score = clamp(affinity.Score, -100, 100)
-	affinity.UpdatedAt = time.Now()
-
-	return a.store.UpdateAffinity(ctx, affinity)
-}
-
 func clamp(val, min, max int) int {
 	if val < min {
 		return min

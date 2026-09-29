@@ -23,8 +23,7 @@ const (
 )
 
 type Client struct {
-	sdk    *openrouter.OpenRouter
-	apiKey string
+	sdk *openrouter.OpenRouter
 }
 
 // appTitle and appReferer identify this app in the OpenRouter dashboard
@@ -36,7 +35,7 @@ const (
 
 func NewClient(apiKey string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithXTitle(appTitle),
-		openrouter.WithHTTPReferer(appReferer)), apiKey: apiKey}
+		openrouter.WithHTTPReferer(appReferer))}
 }
 
 // NewClientWithServerURL points the SDK at an arbitrary base URL, for tests
@@ -44,7 +43,7 @@ func NewClient(apiKey string) *Client {
 // API instead of calling the real service.
 func NewClientWithServerURL(apiKey, serverURL string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL),
-		openrouter.WithXTitle(appTitle), openrouter.WithHTTPReferer(appReferer)), apiKey: apiKey}
+		openrouter.WithXTitle(appTitle), openrouter.WithHTTPReferer(appReferer))}
 }
 
 type CompletionRequest struct {

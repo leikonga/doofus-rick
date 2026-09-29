@@ -41,9 +41,3 @@ func (s *Store) SearchQuotes(ctx context.Context, query string) []Quote {
 	q.Find(&quotes)
 	return quotes
 }
-
-func (s *Store) GetTopQuotes(ctx context.Context, limit int) []Quote {
-	var quotes []Quote
-	s.db.WithContext(ctx).Order("votes desc").Limit(limit).Find(&quotes)
-	return quotes
-}

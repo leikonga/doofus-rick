@@ -34,10 +34,6 @@ func (s *Store) DeleteMessage(ctx context.Context, id uint64) error {
 	return s.db.WithContext(ctx).Delete(&Message{}, id).Error
 }
 
-func (s *Store) DeleteMessagesByAuthor(ctx context.Context, authorID uint64) error {
-	return s.db.WithContext(ctx).Where("author_id = ?", authorID).Delete(&Message{}).Error
-}
-
 func (s *Store) DeleteQuotesByAuthor(ctx context.Context, authorID string) error {
 	return s.db.WithContext(ctx).Where("creator = ? OR participants LIKE ?", authorID, "%"+authorID+"%").Delete(&Quote{}).Error
 }
@@ -107,27 +103,6 @@ func (s *Store) GetBackfillChannel(ctx context.Context, channelID uint64) (*Back
 
 func (s *Store) SaveBackfillChannel(ctx context.Context, channel *BackfillChannel) error {
 	return s.db.WithContext(ctx).Save(channel).Error
-}
-
-func (s *Store) GetOldestFetchedMessage(ctx context.Context, channelID uint64) (*Message, error) {
-	var msg Message
-	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("id desc").First(&msg).Error
-	if err != nil {
-		return nil, err
-	}
-	return &msg, nil
-}
-
-func (s *Store) GetMessagesBefore(ctx context.Context, channelID uint64, beforeID uint64, limit int) ([]Message, error) {
-	var msgs []Message
-	err := s.db.WithContext(ctx).Where("channel_id = ? AND id < ?", channelID, beforeID).Order("id desc").Limit(limit).Find(&msgs).Error
-	return msgs, err
-}
-
-func (s *Store) GetMessagesSince(ctx context.Context, channelID uint64, sinceID uint64, limit int) ([]Message, error) {
-	var msgs []Message
-	err := s.db.WithContext(ctx).Where("channel_id = ? AND id > ?", channelID, sinceID).Order("id asc").Limit(limit).Find(&msgs).Error
-	return msgs, err
 }
 
 func (s *Store) CreateChunk(ctx context.Context, chunk Chunk) error {
@@ -256,12 +231,6 @@ func (s *Store) UpdateAffinity(ctx context.Context, affinity *UserAffinity) erro
 	return s.db.WithContext(ctx).Save(affinity).Error
 }
 
-func (s *Store) GetAmbientLog(ctx context.Context, channelID uint64, limit int) ([]AmbientLog, error) {
-	var logs []AmbientLog
-	err := s.db.WithContext(ctx).Where("channel_id = ?", channelID).Order("fired_at desc").Limit(limit).Find(&logs).Error
-	return logs, err
-}
-
 func (s *Store) LogAmbientFire(ctx context.Context, log AmbientLog) error {
 	return s.db.WithContext(ctx).Create(&log).Error
 }
@@ -283,10 +252,4 @@ func (s *Store) IncrementAmbientFiresToday(ctx context.Context, channelID uint64
 	return s.db.WithContext(ctx).Model(&AmbientState{}).
 		Where("channel_id = ?", channelID).
 		UpdateColumn("fires_today", gorm.Expr("fires_today + 1")).Error
-}
-
-func (s *Store) ResetAmbientFiresToday(ctx context.Context, channelID uint64) error {
-	return s.db.WithContext(ctx).Model(&AmbientState{}).
-		Where("channel_id = ?", channelID).
-		UpdateColumn("fires_today", 0).Error
 }

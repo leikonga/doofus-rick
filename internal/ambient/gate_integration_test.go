@@ -222,10 +222,7 @@ func TestLogFire(t *testing.T) {
 	if err := g.LogFire(ctx, snowflake.ID(501), 50, "other"); err != nil {
 		t.Fatal(err)
 	}
-	logs, err := s.GetAmbientLog(ctx, uint64(testChannel), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	logs := pgtest.Query[store.AmbientLog](t, s, "SELECT * FROM ambient_logs WHERE channel_id = ? ORDER BY fired_at DESC", uint64(testChannel))
 	if len(logs) != 1 {
 		t.Fatalf("logs = %d, want 1", len(logs))
 	}

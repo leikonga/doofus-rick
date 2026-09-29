@@ -52,19 +52,3 @@ func (s *Store) GetFailureTraceByTraceID(ctx context.Context, id string) (Failur
 	err := s.db.WithContext(ctx).Where("trace_id = ?", id).First(&ft).Error
 	return ft, err
 }
-
-type TokenLeaderboardEntry struct {
-	UserID       string
-	InputTokens  int64
-	OutputTokens int64
-}
-
-func (s *Store) GetTokenLeaderboard(ctx context.Context) ([]TokenLeaderboardEntry, error) {
-	var results []TokenLeaderboardEntry
-	err := s.db.WithContext(ctx).Model(&TokenUsage{}).
-		Select("user_id, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens").
-		Group("user_id").
-		Order("input_tokens + output_tokens desc").
-		Scan(&results).Error
-	return results, err
-}
