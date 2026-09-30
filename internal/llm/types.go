@@ -15,8 +15,16 @@ const (
 	RoleTool      Role = "tool"
 )
 
+type PartType string
+
+const (
+	PartText     PartType = "text"
+	PartImageURL PartType = "image_url"
+	PartFile     PartType = "file"
+)
+
 type ContentPart struct {
-	Type     string // "text" | "image_url" | "file"
+	Type     PartType
 	Text     string
 	ImageURL string
 	File     *FilePart
@@ -41,7 +49,7 @@ type Message struct {
 func (m Message) Text() string {
 	var sb strings.Builder
 	for _, p := range m.Parts {
-		if p.Type == "text" {
+		if p.Type == PartText {
 			sb.WriteString(p.Text)
 		}
 	}
@@ -55,15 +63,15 @@ type ToolCall struct {
 }
 
 func TextPart(text string) ContentPart {
-	return ContentPart{Type: "text", Text: text}
+	return ContentPart{Type: PartText, Text: text}
 }
 
 func ImagePart(url string) ContentPart {
-	return ContentPart{Type: "image_url", ImageURL: url}
+	return ContentPart{Type: PartImageURL, ImageURL: url}
 }
 
 func FileContentPart(filename, data string) ContentPart {
-	return ContentPart{Type: "file", File: &FilePart{Filename: filename, Data: data}}
+	return ContentPart{Type: PartFile, File: &FilePart{Filename: filename, Data: data}}
 }
 
 func NewUserMessage(parts ...ContentPart) Message {
@@ -86,11 +94,9 @@ type RickResponse struct {
 type Result struct {
 	Content  string
 	Done     bool          // terminal, decline without text
-	Response *RickResponse // terminal, tool produced the reply itself
+	Response *RickResponse // terminal, tool sent the reply itself
 }
 
-// Tool is a vendor-neutral tool definition. Schema is derived from a Go
-// struct by NewTool; definitions built this way carry no vendor types.
 type Tool struct {
 	Name        string
 	Description string

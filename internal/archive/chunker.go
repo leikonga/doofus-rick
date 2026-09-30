@@ -20,9 +20,6 @@ type ChunkConfig struct {
 	ChunkMaxChars int
 }
 
-// UsernameResolver resolves a Discord user ID to its current display name
-// (nickname/global name), so archived chunks read naturally instead of
-// showing the stale raw username captured at message ingestion time.
 type UsernameResolver interface {
 	GetUsernameForID(id string) (string, error)
 }
@@ -111,9 +108,6 @@ func (c *Chunker) BuildChunkContent(chunk Chunk) string {
 	return content.String()
 }
 
-// displayName prefers the author's current nickname/global name over the
-// raw username baked into msg.AuthorName at ingestion time, since chats
-// referring to someone by their old handle read as wrong once they rename.
 func (c *Chunker) displayName(msg store.Message) string {
 	if c.resolver == nil {
 		return msg.AuthorName

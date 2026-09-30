@@ -78,9 +78,9 @@ func multiMatchError(path string, lines []string, matches []lineMatch) error {
 	return errors.New(sb.String())
 }
 
-// Replace substitutes old with new in path: exact match first, falling
+// Replace substitutes old with replacement in path: exact match first, falling
 // back to a per-line whitespace-insensitive match.
-func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
+func (e *Editor) Replace(path, old, replacement string, replaceAll bool) (int, error) {
 	if old == "" {
 		return 0, fmt.Errorf("replace %q: old string is empty", path)
 	}
@@ -99,10 +99,10 @@ func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
 			return 0, multiMatchError(path, splitLines(content), offsetsToLineMatches(content, old, offsets))
 		}
 		n := 1
-		newContent := strings.Replace(content, old, new, 1)
+		newContent := strings.Replace(content, old, replacement, 1)
 		if replaceAll {
 			n = len(offsets)
-			newContent = strings.ReplaceAll(content, old, new)
+			newContent = strings.ReplaceAll(content, old, replacement)
 		}
 		if err := os.WriteFile(resolved, []byte(newContent), 0o664); err != nil {
 			return 0, fmt.Errorf("replace %q: %w", path, err)
@@ -120,7 +120,7 @@ func (e *Editor) Replace(path, old, new string, replaceAll bool) (int, error) {
 		return 0, multiMatchError(path, lines, matches)
 	}
 
-	newLines := splitLines(new)
+	newLines := splitLines(replacement)
 	var out []string
 	n := 0
 	if replaceAll {

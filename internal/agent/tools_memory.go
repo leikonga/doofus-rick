@@ -92,10 +92,6 @@ type searchHistoryIn struct {
 	Scope string `json:"scope" jsonschema:"required,enum=messages,enum=quotes,description=messages searches archived chat history via hybrid retrieval; quotes searches the quote book."`
 }
 
-// searchHistoryTool is the deliberate counterpart to the automatic recall
-// pre-fetch injected into every prompt: nothing depends on Rick calling
-// this, it's for digging on purpose when the automatic context missed
-// something. Folds the old search_quotes tool in via the scope param.
 func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("memory_search", "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
 		func(ctx context.Context, in searchHistoryIn) (llm.Result, error) {

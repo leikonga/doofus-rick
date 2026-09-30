@@ -21,7 +21,7 @@ type Runner struct {
 	cred    *syscall.Credential
 }
 
-// New runs commands as username; if that user cannot be used it warns and runs as the current user.
+// New falls back to running as the current user, with a warning, when username is unusable.
 func New(workDir string, timeout time.Duration, username string) *Runner {
 	cred, err := Credential(username)
 	if err != nil {
@@ -30,13 +30,12 @@ func New(workDir string, timeout time.Duration, username string) *Runner {
 	return &Runner{workDir: workDir, timeout: timeout, cred: cred}
 }
 
-// Credential resolves username and proves this process can start children as that user.
 func Credential(username string) (*syscall.Credential, error) {
 	cred, err := lookupCredential(username)
 	if err != nil {
 		return nil, err
 	}
-	probe := exec.Command("true")
+	probe := exec.Command("true") //nolint:noctx // exits immediately
 	probe.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
 	if err := probe.Run(); err != nil {
 		return nil, fmt.Errorf("start process as %q: %w", username, err)

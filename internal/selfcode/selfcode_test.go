@@ -82,7 +82,6 @@ func TestSnapshotPrunesToFiveNewest(t *testing.T) {
 			t.Fatalf("WriteFile: %v", err)
 		}
 	}
-	// unrelated file must survive pruning untouched.
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -385,7 +384,7 @@ func assertMinimalPGEnv(t *testing.T, args, env []string, password string) {
 }
 
 func containsArgPair(args []string, flag, value string) bool {
-	for i := 0; i < len(args)-1; i++ {
+	for i := range len(args) - 1 {
 		if args[i] == flag && args[i+1] == value {
 			return true
 		}

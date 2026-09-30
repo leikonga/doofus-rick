@@ -68,9 +68,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	ctx, cancel := context.WithTimeout(ctx, a.turnTimeout)
 	defer cancel()
 
-	// Typing starts immediately, in parallel with history/roster/recall
-	// fetches below, so the indicator isn't gated behind the (sometimes
-	// multi-second) embedding call recall retrieval makes.
+	// Typing starts before the history/recall fetches so the embedding call never delays the indicator.
 	var theatreDone <-chan struct{}
 	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
 		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
@@ -474,10 +472,6 @@ func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
 	}
 }
 
-// runTypingTheatre plays a scripted [type, silent, type] sequence instead of
-// a continuous typing indicator, and returns a channel closed once it's
-// done, so the caller can hold the response back until the sequence plays
-// out rather than sending as soon as the model responds.
 func (a *Agent) runTypingTheatre(ctx context.Context, event *events.MessageCreate, sequence []time.Duration) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
@@ -562,10 +556,6 @@ func buildCachedPrefix(selbstBlock, roster, channelID, channelName, channelTopic
 	return sb.String()
 }
 
-// buildRecallBlock runs the hybrid retrieval pre-fetch for the triggering
-// message and renders it for the uncached tail, or "" if recall is off, the
-// query is empty, no channels are visible, or nothing clears
-// RECALL_MIN_SCORE. Never blocks the persona call on failure.
 func (a *Agent) buildRecallBlock(ctx context.Context, query string, channelIDs []uint64) string {
 	if !a.config.RecallEnabled || a.retriever == nil || query == "" || len(channelIDs) == 0 {
 		return ""
@@ -578,10 +568,7 @@ func (a *Agent) buildRecallBlock(ctx context.Context, query string, channelIDs [
 	return a.retriever.BuildRecallBlock(chunks)
 }
 
-// visibleChannelIDs lists the guild message channels the given member can
-// see, so recall retrieval isn't scoped to just the channel a mention
-// happened to land in and doesn't leak content from channels the asking
-// user can't access.
+// visibleChannelIDs scopes recall to channels the requester can see, so it never leaks content.
 func (a *Agent) visibleChannelIDs(ctx context.Context, requesterID snowflake.ID) []uint64 {
 	guildID, err := snowflake.Parse(a.config.DiscordGuild)
 	if err != nil {

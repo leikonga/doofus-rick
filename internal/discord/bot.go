@@ -47,7 +47,7 @@ type Bot struct {
 	agent            Agent
 	cache            UserCache
 	presences        sync.Map // snowflake.ID -> UserPresence
-	voiceChannels    sync.Map // snowflake.ID -> string (channel name, empty if unknown)
+	voiceChannels    sync.Map // snowflake.ID -> channel name, empty if unknown
 	deployReportOnce sync.Once
 	taskReportOnce   sync.Once
 	ready            chan struct{}

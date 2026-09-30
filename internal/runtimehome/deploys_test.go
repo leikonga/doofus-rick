@@ -21,7 +21,7 @@ func TestReadDeploysSkipsMalformedLines(t *testing.T) {
 	if _, err := f.WriteString("not json\n{\"commit\":\"no kind\"}\n\n{\"kind\":\"boot\",\"at\":\"garbage\"}\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	boot := DeployRecord{Kind: DeployBoot, Commit: "abc", CrashFile: "/c/boot-1.txt", At: at.Add(time.Minute)}
 	if err := AppendDeploy(path, boot); err != nil {
 		t.Fatalf("AppendDeploy: %v", err)

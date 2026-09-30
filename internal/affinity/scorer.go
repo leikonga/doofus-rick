@@ -18,11 +18,7 @@ type ScorerConfig struct {
 	MaxTokens int64
 }
 
-// Scorer judges a closed chunk Rick participated in and nudges each
-// other participant's affinity score. Personality-free by design, like the
-// ambient classifier: this is a neutral judgment call about how an exchange
-// reflects on the relationship, not something Rick's own persona should be
-// deciding about itself.
+// Scorer is persona-free by design: Rick's persona must never judge its own relationships.
 type Scorer struct {
 	config   ScorerConfig
 	client   *llm.Client
@@ -49,8 +45,6 @@ type affinityScoreResult struct {
 
 const affinityScorerSystemPrompt = "You are a neutral relationship scorer. Output only JSON with a \"users\" array."
 
-// ScoreChunk scores every non-bot participant other than rick in the chunk.
-// A no-op if rick isn't one of the chunk's authors, or if nobody else is.
 func (s *Scorer) ScoreChunk(ctx context.Context, chunk archive.Chunk, rickID uint64) error {
 	rickSpoke := false
 	participants := make(map[uint64]struct{})
@@ -100,7 +94,7 @@ Conversation:
 
 	var text strings.Builder
 	for _, p := range resp.Message.Parts {
-		if p.Type == "text" {
+		if p.Type == llm.PartText {
 			text.WriteString(p.Text)
 		}
 	}

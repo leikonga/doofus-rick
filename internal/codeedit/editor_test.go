@@ -203,7 +203,6 @@ func TestReplaceWhitespaceDrift(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	// old has different indentation than the file, exact match fails, whitespace-trimmed match succeeds.
 	n, err := ed.Replace("f.txt", "  return 1", "  return 2", false)
 	if err != nil {
 		t.Fatalf("Replace: %v", err)

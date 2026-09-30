@@ -22,8 +22,6 @@ func TestTypingTheatre_ShouldType_ChanceOneAlwaysTrue(t *testing.T) {
 }
 
 func TestTypingTheatre_GetTypingSequence_ScalesToMaxDelay(t *testing.T) {
-	// Regression test: MaxDelay was configured but silently ignored in favor
-	// of a hardcoded 5s/12s/3s sequence.
 	tt := newTypingTheatre(typingTheatreConfig{Enabled: true, Chance: 1.0, MaxDelay: 40 * time.Second})
 	seq := tt.GetTypingSequence()
 	if len(seq) != 3 {

@@ -85,7 +85,12 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := s.oauthConfig.Client(r.Context(), token)
-	resp, err := client.Get("https://discord.com/api/users/@me")
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://discord.com/api/users/@me", nil)
+	if err != nil {
+		httpFail(w, http.StatusInternalServerError, "build discord user request", err)
+		return
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		httpFail(w, http.StatusBadGateway, "fetch discord user", err)
 		return

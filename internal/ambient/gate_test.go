@@ -43,8 +43,6 @@ func TestCheckGate_NotEnoughAuthors(t *testing.T) {
 }
 
 func TestCheckGate_RickAlreadySpokeInBurst(t *testing.T) {
-	// Regression test: rickID was previously accepted but never read, so
-	// this condition (documented in the plan's gate checklist) never fired.
 	g := &Gate{config: GateConfig{Enabled: true, MinMsgs: 2, MinAuthors: 2}}
 	rickID := snowflake.ID(999)
 	msgs := []store.Message{humanMsg(1), humanMsg(2), botMsg(uint64(rickID))}
@@ -58,10 +56,7 @@ func TestCheckGate_RickAlreadySpokeInBurst(t *testing.T) {
 }
 
 func TestCheckGate_OtherBotsDoNotCountAsRickSpeaking(t *testing.T) {
-	// MinAuthors is set unreachably high so the gate fails on the author
-	// count (never touching the store, which is nil in this test) rather
-	// than proceeding - the only thing under test is that a different bot's
-	// message isn't mistaken for rick having spoken.
+	// MinAuthors is unreachable so the gate rejects before touching the nil store.
 	g := &Gate{config: GateConfig{Enabled: true, MinMsgs: 3, MinAuthors: 99}}
 	rickID := snowflake.ID(999)
 	otherBotID := uint64(111)

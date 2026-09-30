@@ -80,7 +80,7 @@ func readProblemsFile(path string, since time.Time) ([]LogEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var entries []LogEntry
 	sc := bufio.NewScanner(f)

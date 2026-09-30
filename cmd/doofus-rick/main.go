@@ -75,7 +75,7 @@ func run() error {
 	sink := stdoutHandler
 	home, homeErr := runtimehome.Open(c.WorkDir, time.Now())
 	if homeErr == nil {
-		defer home.Close()
+		defer func() { _ = home.Close() }()
 		sink = slog.NewMultiHandler(stdoutHandler, home.Handler())
 	}
 	slog.SetDefault(slog.New(sink))

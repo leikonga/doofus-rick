@@ -47,8 +47,6 @@ func isTextAttachment(att discord.Attachment) bool {
 	return textAttachmentExts[strings.ToLower(filepath.Ext(att.Filename))]
 }
 
-// unsupportedLabel is the inline placeholder shown to the model for an
-// attachment that was not turned into an image or file part.
 func unsupportedLabel(att discord.Attachment) string {
 	return "(sent: " + att.Filename + ")"
 }
@@ -73,16 +71,12 @@ func fetchAttachmentText(ctx context.Context, url string, maxBytes int64) (strin
 	return string(data), nil
 }
 
-// attachmentResult is the outcome of sorting a message's attachments into
-// what the model can directly consume versus what only gets a text placeholder.
 type attachmentResult struct {
 	imageURLs   []string
 	fileParts   []llm.ContentPart
 	unsupported []string
 }
 
-// classifyAttachments sorts attachments into image URLs, file parts, and
-// unsupported placeholders, capping each category per message.
 func classifyAttachments(ctx context.Context, atts []discord.Attachment) attachmentResult {
 	var res attachmentResult
 	for _, att := range atts {

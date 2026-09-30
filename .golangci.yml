@@ -1,0 +1,27 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - gocritic
+    - intrange
+    - modernize
+    - nilerr
+    - nilnil
+    - noctx
+    - predeclared
+    - sloglint
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - nilnil
+          - noctx
+          - unparam

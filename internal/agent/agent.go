@@ -25,7 +25,6 @@ import (
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
-// DiscordState is the subset of discord.Bot state the agent reads.
 type DiscordState interface {
 	GetMemberForID(id string) (*discord.Member, error)
 	GetUsernameForID(id string) (string, error)
@@ -55,7 +54,7 @@ type Agent struct {
 	retriever        *archive.Retriever
 	affinity         *affinity.Ledger
 	typingTheatre    *typingTheatre
-	typingChannels   sync.Map // snowflake.ID -> struct{} (channels with active typing indicator)
+	typingChannels   sync.Map // snowflake.ID -> struct{}
 	codeedit         *codeedit.Editor
 	turnTimeout      time.Duration
 	repoMu           sync.RWMutex

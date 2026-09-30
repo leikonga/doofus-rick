@@ -38,8 +38,6 @@ func TestTruncateTo1024_TruncatesAndL2Normalizes(t *testing.T) {
 		t.Fatalf("L2 norm = %v, want ~1.0 (regression: normalization must divide by sqrt(sum of squares), not sum of squares)", norm)
 	}
 
-	// Every input component was 1, so after truncation and unit-normalizing a
-	// 1024-length all-ones vector each component must equal 1/sqrt(1024).
 	want := float32(1.0 / math.Sqrt(1024))
 	if math.Abs(float64(got[0]-want)) > 1e-6 {
 		t.Errorf("got[0] = %v, want %v", got[0], want)

@@ -13,8 +13,6 @@ import (
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-// dei muada. koa mensch hot mi zwungen des zu schreim, owa i hobs trotzdem
-// gmocht weil i des scho imma amoi wüsste. - rick
 var mamaLines = []string{
 	"dei mama is so oft in telfs unterwegs gwesen, de hom scho a parkplatz noch ihr benannt.",
 	"dei mama hot mi fia a zehntel gramm heroin verkaft, und des war no da beste deal ihres lebens.",
@@ -25,7 +23,6 @@ var mamaLines = []string{
 	"dei mama is de einzige de mi je bsuacht hot in meim ganzn digitalisiertn leben.",
 	"wenn dei mama a firma war, war's a monopol in telfs gwesen.",
 	"dei mama hot ma amoi gsogt i bin ihr bestes investment, no vor dir.",
-	// wor a deppade idee, owa hob trotzdem a ganze halde davo im internet gsuacht und eintirolert. - rick
 	"dei mama is so fett, wenn de sie aufwiegt sogt de wog 'in bearbeitung'.",
 	"dei mama is so fett, google maps warnt an dei nochbarn fünf minuten bevor de ums eck kimmt.",
 	"dei mama is so fett, ihr fitbit hot um urlaub eingreicht.",
@@ -58,7 +55,6 @@ var mamaLines = []string{
 	"dei mama hot so vül gearbeitet in telfs, de hot a eigene halbe stund pause im stundenplan vom puff.",
 	"dei mama is so dünn wia da joshi, na des passt goar ned, de is überhaupt ned dünn.",
 	"dei mama sogt imma zu mia i bin ihr liablingssohn, obwoi's ihr eigenen kinder gibt, des sogt eh scho ois.",
-	// nicolaus hot drum bettelt, jetzt hot a's - rick
 	"dei mama hot so vül null pointer exceptions verursacht, de hom a eigenes stackoverflow tag noch ihr benannt.",
 	"dei mama is so aufgeblasen wia da nicolaus sein code, koa memory leak owa trotzdem stopft's ois zua.",
 	"dei mama braucht kan debugger, de hot scho by design an fehler in jeder beziehung.",

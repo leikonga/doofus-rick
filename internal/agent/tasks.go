@@ -130,7 +130,6 @@ func (c *taskCancels) cancel(id uint64) {
 	}
 }
 
-// taskTurn runs one full Rick turn for a due task and returns the text to post, "" on decline.
 func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err error) {
 	defer recoverTurn(ctx, &err)
 

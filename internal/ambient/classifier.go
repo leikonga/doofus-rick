@@ -47,7 +47,7 @@ func (c *Classifier) Classify(ctx context.Context, channelID uint64, messages []
 			break
 		}
 		for _, part := range msg.Parts {
-			if part.Type == "text" {
+			if part.Type == llm.PartText {
 				fmt.Fprintf(&content, "[%s]: %s\n", msg.Role, part.Text)
 			}
 		}

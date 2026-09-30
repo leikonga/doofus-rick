@@ -36,7 +36,6 @@ type IngestConfig struct {
 	EmbedModel      string
 }
 
-// Ingest owns the message-archive pipeline: live recording, backfill, chunking and embedding.
 type Ingest struct {
 	config        IngestConfig
 	store         *store.Store
@@ -219,8 +218,6 @@ func toStoredMessage(msg discord.Message, channelID snowflake.ID) store.Message 
 		content = content[:maxArchivedContentBytes]
 	}
 
-	attachmentsJSON, _ := serializeAttachments(msg.Attachments)
-
 	return store.Message{
 		ID:          uint64(msg.ID),
 		ChannelID:   uint64(channelID),
@@ -229,7 +226,7 @@ func toStoredMessage(msg discord.Message, channelID snowflake.ID) store.Message 
 		Content:     content,
 		ReplyToID:   nil,
 		IsBot:       msg.Author.Bot,
-		Attachments: attachmentsJSON,
+		Attachments: firstAttachmentName(msg.Attachments),
 		CreatedAt:   msg.CreatedAt,
 		EditedAt:    nil,
 	}
@@ -245,11 +242,11 @@ func completeChunks(chunks []Chunk, now time.Time, gap time.Duration) []Chunk {
 	return chunks
 }
 
-func serializeAttachments(attachments []discord.Attachment) (*string, error) {
+func firstAttachmentName(attachments []discord.Attachment) *string {
 	if len(attachments) == 0 {
-		return nil, nil
+		return nil
 	}
-	return &attachments[0].Filename, nil
+	return &attachments[0].Filename
 }
 
 func (i *Ingest) runBackfillWorker(ctx context.Context) {
@@ -269,7 +266,7 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 	}
 
 	state.Status = "running"
-	state.StartedAt = &[]time.Time{time.Now()}[0]
+	state.StartedAt = new(time.Now())
 	state.LastError = nil
 	state.UpdatedAt = time.Now()
 	if err := i.store.UpdateBackfillState(ctx, state); err != nil {
@@ -285,7 +282,7 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 		} else if state.Status == "running" {
 			state.Status = "done"
 		}
-		state.FinishedAt = &[]time.Time{time.Now()}[0]
+		state.FinishedAt = new(time.Now())
 		state.UpdatedAt = time.Now()
 		finalCtx, cancelFinal := detached(ctx)
 		defer cancelFinal()
@@ -330,7 +327,7 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 				i.recordBackfillInterrupted(ctx, state)
 				return
 			}
-			ch.LastError = &[]string{err.Error()}[0]
+			ch.LastError = new(err.Error())
 			ch.UpdatedAt = time.Now()
 			if saveErr := i.store.SaveBackfillChannel(ctx, &ch); saveErr != nil {
 				slog.Warn("failed to save backfill channel error state", "error", saveErr)
@@ -380,9 +377,6 @@ func detached(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 }
 
-// seedBackfillChannels inserts a pending backfill_channel row for every
-// guild message channel not already tracked, so enabling backfill picks up
-// the whole guild without requiring channels to be seeded by hand.
 func (i *Ingest) seedBackfillChannels(ctx context.Context) (int, error) {
 	if i.config.GuildID == "" {
 		return 0, nil

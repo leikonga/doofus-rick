@@ -98,7 +98,7 @@ func (a *Agent) githubDo(ctx context.Context, method, url string, body any) ([]b
 	if err != nil {
 		return nil, fmt.Errorf("github request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read github response: %w", err)

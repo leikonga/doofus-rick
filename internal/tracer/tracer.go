@@ -139,7 +139,7 @@ func (t *Tracer) RecentSuccesses() []*Entry {
 	}
 	out := make([]*Entry, t.count)
 	start := t.pos - t.count
-	for i := 0; i < t.count; i++ {
+	for i := range t.count {
 		out[i] = t.entries[(start+i)%maxEntries]
 	}
 	return out
@@ -150,7 +150,7 @@ func (t *Tracer) FindByID(id string) *Entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	start := t.pos - t.count
-	for i := 0; i < t.count; i++ {
+	for i := range t.count {
 		e := t.entries[(start+i)%maxEntries]
 		if e != nil && e.ID == id {
 			return e

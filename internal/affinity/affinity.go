@@ -58,18 +58,12 @@ func (l *Ledger) Update(ctx context.Context, userID uint64, reason string, delta
 
 	row.Score += delta
 	row.Score = clamp(row.Score, -100, 100)
-	row.LastReason = &[]string{reason}[0]
+	row.LastReason = new(reason)
 	row.UpdatedAt = time.Now()
 
 	return l.store.UpdateAffinity(ctx, row)
 }
 
-func clamp(val, min, max int) int {
-	if val < min {
-		return min
-	}
-	if val > max {
-		return max
-	}
-	return val
+func clamp(val, lo, hi int) int {
+	return min(max(val, lo), hi)
 }

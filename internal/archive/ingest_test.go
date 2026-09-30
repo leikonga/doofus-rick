@@ -97,7 +97,7 @@ func TestToStoredMessage(t *testing.T) {
 			content:        "x",
 			attachments:    []discord.Attachment{{Filename: "a.png"}, {Filename: "b.png"}},
 			wantContentLen: 1,
-			wantAttachment: ptr("a.png"),
+			wantAttachment: new("a.png"),
 		},
 	}
 	for _, tt := range tests {
@@ -141,10 +141,6 @@ func TestToStoredMessageUsesGivenChannel(t *testing.T) {
 	if got := toStoredMessage(msg, 99); got.ChannelID != 99 {
 		t.Errorf("ChannelID = %d, want 99", got.ChannelID)
 	}
-}
-
-func ptr(s string) *string {
-	return &s
 }
 
 func TestCompleteChunks(t *testing.T) {

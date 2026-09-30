@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"slices"
 	"strings"
@@ -61,7 +60,7 @@ func calls(names ...string) []llm.ToolCall {
 
 func silenceLogs(t *testing.T) {
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	slog.SetDefault(slog.New(slog.DiscardHandler))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 }
 

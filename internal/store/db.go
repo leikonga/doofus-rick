@@ -49,8 +49,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	return s, nil
 }
 
-// RunMigrations applies the embedded goose migrations to db. Exported for
-// internal/selfcode to verify a pending migration against a scratch database.
 func RunMigrations(ctx context.Context, db *sql.DB) error {
 	fsys, err := fs.Sub(migrationsFS, "migrations")
 	if err != nil {
@@ -66,8 +64,6 @@ func RunMigrations(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// RunMigrationsDSN opens a postgres connection to dsn and applies the
-// embedded migrations to it, closing the connection afterward.
 func RunMigrationsDSN(ctx context.Context, dsn string) error {
 	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {

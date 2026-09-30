@@ -39,9 +39,6 @@ func NewWatcher(cfg WatcherConfig, s *store.Store, gate *Gate, c classifier, r R
 	return &Watcher{config: cfg, store: s, gate: gate, classifier: c, responder: r, selfID: selfID}
 }
 
-// Check evaluates the ambient gate for a channel after a human message lands,
-// and fires an unprompted response if it passes. Runs in its own goroutine so
-// it never delays message handling.
 func (w *Watcher) Check(ctx context.Context, channelID snowflake.ID) {
 	if !w.config.Enabled || w.gate == nil || w.classifier == nil {
 		return

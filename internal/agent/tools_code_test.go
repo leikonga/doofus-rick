@@ -65,7 +65,6 @@ func (f *fakeCmdRunner) callFor(stage string) (recordedCall, bool) {
 	return recordedCall{}, false
 }
 
-// stageOf names a call by what it represents, so tests can target a gate stage without exact argv matching.
 func stageOf(name string, args []string) string {
 	switch name {
 	case "go":

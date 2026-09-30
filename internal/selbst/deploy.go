@@ -133,7 +133,7 @@ func ReadCrashExcerpt(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	head, err := io.ReadAll(io.LimitReader(f, crashHeadBytes))
 	if err != nil {
 		return "", err

@@ -21,14 +21,10 @@ const (
 	migrationsPrefix  = "internal/store/migrations/"
 )
 
-// Runner executes a single external command. The real implementation
-// wraps os/exec; tests substitute a fake.
 type Runner interface {
 	Run(ctx context.Context, name string, args []string, env []string) (string, error)
 }
 
-// DBConfig is the connection information needed by the postgres client
-// tools (pg_dump, psql, createdb, dropdb).
 type DBConfig struct {
 	Host string
 	Port string
@@ -57,8 +53,6 @@ func New(runner Runner, repoDir, backupsDir string, db DBConfig) *Selfcode {
 	}
 }
 
-// Snapshot pg_dumps the configured database into the backups directory
-// with a timestamped filename, then prunes to the newest 5 snapshots.
 func (s *Selfcode) Snapshot(ctx context.Context) (string, error) {
 	if err := os.MkdirAll(s.backupsDir, 0o775); err != nil {
 		return "", fmt.Errorf("create backups dir %q: %w", s.backupsDir, err)
@@ -142,8 +136,6 @@ func unquotePath(p string) string {
 	return strings.Trim(p, `"`)
 }
 
-// VerifyMigrations restores snapshotPath into a scratch database and runs
-// the embedded migrations against it, dropping the scratch db even on failure.
 func (s *Selfcode) VerifyMigrations(ctx context.Context, snapshotPath string) error {
 	scratch := fmt.Sprintf("rick_verify_%d", s.now().UnixNano())
 	env := s.pgEnv()
@@ -181,8 +173,6 @@ func (s *Selfcode) pgEnv() []string {
 	return withEnv([]string{"PATH=" + os.Getenv("PATH")}, map[string]string{"PGPASSWORD": s.db.Pass})
 }
 
-// withEnv returns base with the given overrides applied, replacing any
-// existing entries for the same keys rather than appending duplicates.
 func withEnv(base []string, overrides map[string]string) []string {
 	out := make([]string, 0, len(base)+len(overrides))
 	for _, e := range base {

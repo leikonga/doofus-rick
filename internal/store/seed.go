@@ -5,7 +5,6 @@ import (
 	"log/slog"
 )
 
-// MaybeSeed inserts example quotes if the quotes table is empty.
 func (s *Store) MaybeSeed(ctx context.Context) {
 	var count int64
 	s.db.WithContext(ctx).Model(&Quote{}).Count(&count)

@@ -94,9 +94,7 @@ func QuoteResults(quotes []QuoteDisplay) g.Node {
 		return P(g.Text("No quotes found."))
 	}
 
-	return g.Map(quotes, func(q QuoteDisplay) g.Node {
-		return QuoteCard(q)
-	})
+	return g.Map(quotes, QuoteCard)
 }
 
 func renderMarkdown(src string) g.Node {

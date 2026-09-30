@@ -46,10 +46,6 @@ func saveState(t *testing.T, s *store.Store, state store.AmbientState) {
 	}
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func TestCheckGateAgainstStore(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
@@ -67,17 +63,17 @@ func TestCheckGateAgainstStore(t *testing.T) {
 		},
 		{
 			name:       "ignored wins over cooldown",
-			state:      &store.AmbientState{LastUnpromptedIgnored: true, LastFire: ptr(now.Add(-time.Minute))},
+			state:      &store.AmbientState{LastUnpromptedIgnored: true, LastFire: new(now.Add(-time.Minute))},
 			wantReason: "last unprompted message was ignored",
 		},
 		{
 			name:       "inside cooldown",
-			state:      &store.AmbientState{LastFire: ptr(now.Add(-30 * time.Minute))},
+			state:      &store.AmbientState{LastFire: new(now.Add(-30 * time.Minute))},
 			wantReason: "in cooldown",
 		},
 		{
 			name:       "outside cooldown",
-			state:      &store.AmbientState{LastFire: ptr(now.Add(-2 * time.Hour))},
+			state:      &store.AmbientState{LastFire: new(now.Add(-2 * time.Hour))},
 			wantPassed: true,
 		},
 		{
@@ -107,7 +103,7 @@ func TestCheckGateAgainstStore(t *testing.T) {
 		},
 		{
 			name:       "cooldown wins over cap and debounce",
-			state:      &store.AmbientState{LastFire: ptr(now.Add(-time.Minute)), FiresToday: 5, LastEval: now},
+			state:      &store.AmbientState{LastFire: new(now.Add(-time.Minute)), FiresToday: 5, LastEval: now},
 			wantReason: "in cooldown",
 		},
 		{
@@ -193,7 +189,7 @@ func TestUpdateState(t *testing.T) {
 		t.Errorf("check after fire = %+v, want in cooldown", r)
 	}
 
-	saveState(t, s, store.AmbientState{LastFire: state.LastFire, FiresToday: 1, LastUnpromptedID: ptr(uint64(4242)), LastUnpromptedIgnored: true})
+	saveState(t, s, store.AmbientState{LastFire: state.LastFire, FiresToday: 1, LastUnpromptedID: new(uint64(4242)), LastUnpromptedIgnored: true})
 	if err := g.UpdateState(ctx, testChannel, 0); err != nil {
 		t.Fatal(err)
 	}

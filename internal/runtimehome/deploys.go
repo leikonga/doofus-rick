@@ -42,7 +42,7 @@ func AppendDeploy(path string, r DeployRecord) error {
 		return fmt.Errorf("open deploy journal: %w", err)
 	}
 	if _, err := f.Write(append(line, '\n')); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("append deploy journal: %w", err)
 	}
 	return f.Close()
@@ -56,7 +56,7 @@ func ReadDeploys(path string) ([]DeployRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open deploy journal: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var records []DeployRecord
 	sc := bufio.NewScanner(f)

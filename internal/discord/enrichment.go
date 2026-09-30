@@ -14,7 +14,6 @@ type UserCache struct {
 	members []discord.Member
 }
 
-// UserPresence holds the last-known gateway presence for a guild member.
 type UserPresence struct {
 	Status     discord.OnlineStatus
 	Activities []discord.Activity

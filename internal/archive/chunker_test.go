@@ -52,7 +52,7 @@ func TestChunkMessages_SplitsOnGap(t *testing.T) {
 	msgs := []store.Message{
 		msgAt(1, base, "a"),
 		msgAt(2, base.Add(time.Minute), "b"),
-		msgAt(3, base.Add(20*time.Minute), "c"), // gap > 10m, new chunk
+		msgAt(3, base.Add(20*time.Minute), "c"),
 		msgAt(4, base.Add(21*time.Minute), "d"),
 	}
 
@@ -91,8 +91,8 @@ func TestChunkMessages_SplitsOnMaxChars(t *testing.T) {
 	base := time.Now()
 	msgs := []store.Message{
 		msgAt(1, base, "12345"),
-		msgAt(2, base.Add(time.Second), "12345"),   // 5+5=10, still fits
-		msgAt(3, base.Add(2*time.Second), "12345"), // 10+5=15 > 10, new chunk
+		msgAt(2, base.Add(time.Second), "12345"),
+		msgAt(3, base.Add(2*time.Second), "12345"),
 	}
 
 	chunks := c.ChunkMessages(msgs)
@@ -108,8 +108,6 @@ func TestChunkMessages_SplitsOnMaxChars(t *testing.T) {
 }
 
 func TestChunkMessages_AccumulatesCharsAcrossMessages(t *testing.T) {
-	// Regression test: char accounting must track the running total of the
-	// current chunk, not just the length of the incoming message.
 	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 12}, nil)
 	base := time.Now()
 	msgs := []store.Message{
@@ -124,8 +122,6 @@ func TestChunkMessages_AccumulatesCharsAcrossMessages(t *testing.T) {
 }
 
 func TestChunkMessages_MessageCountMatchesMessages(t *testing.T) {
-	// Regression test: an internal counter previously never incremented,
-	// leaving ChunkMessages unable to close or emit any chunk at all.
 	c := NewChunker(ChunkConfig{ChunkGap: time.Hour, ChunkMaxMsgs: 100, ChunkMaxChars: 10000}, nil)
 	base := time.Now()
 	msgs := []store.Message{

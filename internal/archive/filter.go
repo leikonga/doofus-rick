@@ -19,7 +19,6 @@ func (f filter) keepLive(msg discord.Message, channelID snowflake.ID, selfID sno
 	return f.keepContent(msg, channelID)
 }
 
-// keepBackfill archives other bots but never Rick.
 func (f filter) keepBackfill(msg discord.Message, channelID snowflake.ID, selfID snowflake.ID) bool {
 	if msg.Author.ID == selfID {
 		return false

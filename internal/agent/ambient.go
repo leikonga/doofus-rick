@@ -18,11 +18,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/selbst"
 )
 
-// HandleAmbient runs an unprompted, reduced persona call for a burst the
-// ambient classifier flagged, and posts it as a plain (non-reply) message.
-// Per the plan, an ambient interjection is a one-liner, not the start of an
-// agentic tool loop, so unlike handleMention this makes a single completion
-// call with no tools. Returns the sent message's ID (0 if nothing was sent).
+// HandleAmbient returns the sent message ID, 0 if nothing was sent.
 func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook string) (sentID snowflake.ID, err error) {
 	labels := pprof.Labels("handler", "ambient", "channel", channelID.String())
 	pprof.Do(ctx, labels, func(ctx context.Context) {

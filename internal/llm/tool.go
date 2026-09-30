@@ -19,8 +19,6 @@ var reflector = &jsonschema.Reflector{
 	RequiredFromJSONSchemaTags: true,
 }
 
-// NewTool derives a JSON Schema from In's struct tags, so each tool declares
-// its input shape exactly once.
 func NewTool[In any](name, description string, fn func(context.Context, In) (Result, error)) Tool {
 	schema := schemaFor[In]()
 	params := schemaPropertyNames(schema)

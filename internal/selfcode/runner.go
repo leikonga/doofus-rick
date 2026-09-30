@@ -7,8 +7,6 @@ import (
 	"os/exec"
 )
 
-// ExecRunner runs commands via os/exec. If env is nil the child process
-// inherits the current process environment, matching os/exec semantics.
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, name string, args []string, env []string) (string, error) {

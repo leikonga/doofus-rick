@@ -34,7 +34,7 @@ func TestEnsureLayoutIsIdempotent(t *testing.T) {
 func TestDailyHandlerSwitchesFileOnDateChange(t *testing.T) {
 	dir := t.TempDir()
 	logs := &dailyLog{dir: dir}
-	t.Cleanup(func() { logs.close() })
+	t.Cleanup(func() { _ = logs.close() })
 	logger := slog.New(newDailyHandler(logs)).With("component", "test")
 
 	day1 := time.Date(2026, 9, 27, 23, 59, 0, 0, time.UTC)
@@ -77,7 +77,7 @@ func readMessages(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var msgs []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

@@ -19,10 +19,6 @@ type rosterEntry struct {
 	reason   string
 }
 
-// buildUserRoster returns the cached <leit> block (members ranked by archive
-// activity, with affinity) and the uncached <grad do> block (live status for
-// members of <leit> only). Both are scoped to members the requester can see
-// in the channel.
 func (a *Agent) buildUserRoster(ctx context.Context, overwrites discord.PermissionOverwrites) (leit string, gradDo string) {
 	since := time.Now().Add(-rosterActivityWindow)
 	actives, err := a.store.GetActiveAuthors(ctx, since, 200)

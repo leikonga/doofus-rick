@@ -115,7 +115,7 @@ func setCrashOutput(crashDir string, now time.Time) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open crash file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
 		return "", fmt.Errorf("set crash output: %w", err)
 	}
@@ -205,7 +205,7 @@ func (d *dailyLog) rotate(t time.Time) error {
 		return fmt.Errorf("open log file: %w", err)
 	}
 	if d.file != nil {
-		d.file.Close()
+		_ = d.file.Close()
 	}
 	d.file, d.name = f, name
 	return nil

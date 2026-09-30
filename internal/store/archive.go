@@ -58,8 +58,6 @@ func (s *Store) GetBackfillState(ctx context.Context) (*BackfillState, error) {
 	return &state, nil
 }
 
-// GetOrCreateBackfillState returns the singleton backfill state row,
-// creating it as idle if this is the first time backfill has ever run.
 func (s *Store) GetOrCreateBackfillState(ctx context.Context) (*BackfillState, error) {
 	state, err := s.GetBackfillState(ctx)
 	if err == nil {
@@ -76,8 +74,6 @@ func (s *Store) GetOrCreateBackfillState(ctx context.Context) (*BackfillState, e
 	return state, nil
 }
 
-// SeedBackfillChannels inserts a pending row per channel ID not already
-// tracked, so newly enabled backfill picks up every channel in the guild.
 // Existing rows (including completed ones) are left untouched.
 func (s *Store) SeedBackfillChannels(ctx context.Context, channelIDs []uint64) (int, error) {
 	if len(channelIDs) == 0 {
@@ -158,7 +154,7 @@ func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {
 	return &chunk, nil
 }
 
-// GetNeighborChunks returns the chunks adjacent to chunkID in the same channel, in chronological order.
+// GetNeighborChunks returns chunks in chronological order.
 func (s *Store) GetNeighborChunks(ctx context.Context, channelID, chunkID uint64, before, after int) ([]Chunk, error) {
 	var prev, next []Chunk
 	if before > 0 {
@@ -177,7 +173,6 @@ func (s *Store) GetNeighborChunks(ctx context.Context, channelID, chunkID uint64
 	return append(prev, next...), nil
 }
 
-// GetChannelsWithUnchunkedMessages returns channel IDs with messages past their last chunked point.
 func (s *Store) GetChannelsWithUnchunkedMessages(ctx context.Context, limit int) ([]uint64, error) {
 	var ids []uint64
 	err := s.db.WithContext(ctx).Raw(`
@@ -191,7 +186,6 @@ func (s *Store) GetChannelsWithUnchunkedMessages(ctx context.Context, limit int)
 	return ids, err
 }
 
-// GetUnchunkedMessages returns the channel's messages newer than its newest chunk, oldest first.
 func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, limit int) ([]Message, error) {
 	var msgs []Message
 	err := s.db.WithContext(ctx).
@@ -200,8 +194,7 @@ func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, limi
 	return msgs, err
 }
 
-// GetRecentMessagesSince returns a channel's messages, bots included,
-// created after the given time, oldest first.
+// GetRecentMessagesSince includes bot messages; ambient.Gate relies on them to detect Rick having spoken.
 func (s *Store) GetRecentMessagesSince(ctx context.Context, channelID uint64, since time.Time, limit int) ([]Message, error) {
 	var msgs []Message
 	err := s.db.WithContext(ctx).
@@ -210,17 +203,13 @@ func (s *Store) GetRecentMessagesSince(ctx context.Context, channelID uint64, si
 	return msgs, err
 }
 
-// ActiveAuthor is one row of the archive-activity leaderboard used to build
-// the roster: an author's most recent display name and how much they've
-// posted in the lookback window.
 type ActiveAuthor struct {
 	AuthorID   uint64 `gorm:"column:author_id"`
 	AuthorName string `gorm:"column:author_name"`
 	MsgCount   int64  `gorm:"column:msg_count"`
 }
 
-// GetActiveAuthors ranks non-bot authors by message volume since the given
-// time, most active first, using each author's most recent display name.
+// GetActiveAuthors excludes bots, ranks most active first and uses each author's latest display name.
 func (s *Store) GetActiveAuthors(ctx context.Context, since time.Time, limit int) ([]ActiveAuthor, error) {
 	var authors []ActiveAuthor
 	err := s.db.WithContext(ctx).Raw(`

@@ -106,8 +106,6 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 	return results, nil
 }
 
-// expandWithNeighbors splices in neighboring chunks, since the chunk
-// boundary often cuts off the setup or payoff of the hit's conversation.
 func (r *Retriever) expandWithNeighbors(ctx context.Context, channelID, chunkID uint64, content string) (string, error) {
 	if r.config.NeighborChunks <= 0 {
 		return content, nil

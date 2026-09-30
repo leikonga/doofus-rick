@@ -25,8 +25,6 @@ type Client struct {
 	sdk *openrouter.OpenRouter
 }
 
-// appTitle and appReferer identify this app in the OpenRouter dashboard
-// (activity/rankings pages), set via the X-Title and HTTP-Referer headers.
 const (
 	appTitle   = "doofus-rick"
 	appReferer = "https://github.com/leikonga/doofus-rick"
@@ -37,9 +35,6 @@ func NewClient(apiKey string) *Client {
 		openrouter.WithHTTPReferer(appReferer))}
 }
 
-// NewClientWithServerURL points the SDK at an arbitrary base URL, for tests
-// (in this package or others) that stand up a local fake of the OpenRouter
-// API instead of calling the real service.
 func NewClientWithServerURL(apiKey, serverURL string) *Client {
 	return &Client{sdk: openrouter.New(openrouter.WithSecurity(apiKey), openrouter.WithServerURL(serverURL),
 		openrouter.WithXTitle(appTitle), openrouter.WithHTTPReferer(appReferer))}
@@ -270,7 +265,7 @@ func toSDKToolCalls(calls []ToolCall) []components.ChatToolCall {
 }
 
 func toSDKUserContent(parts []ContentPart) components.ChatUserMessageContent {
-	if len(parts) == 1 && parts[0].Type == "text" {
+	if len(parts) == 1 && parts[0].Type == PartText {
 		return components.CreateChatUserMessageContentStr(parts[0].Text)
 	}
 	items := make([]components.ChatContentItems, 0, len(parts))
@@ -292,13 +287,13 @@ func toSDKAssistantContent(text string) optionalnullable.OptionalNullable[compon
 
 func toSDKContentItem(p ContentPart) (components.ChatContentItems, bool) {
 	switch p.Type {
-	case "text":
+	case PartText:
 		return components.CreateChatContentItemsText(components.ChatContentText{Text: p.Text}), true
-	case "image_url":
+	case PartImageURL:
 		return components.CreateChatContentItemsImageURL(components.ChatContentImage{
 			ImageURL: components.ChatContentImageImageURL{URL: p.ImageURL},
 		}), true
-	case "file":
+	case PartFile:
 		if p.File == nil {
 			return components.ChatContentItems{}, false
 		}

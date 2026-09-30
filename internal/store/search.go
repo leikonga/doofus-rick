@@ -74,8 +74,6 @@ func (s *Store) SearchChunks(ctx context.Context, q ChunkSearch) ([]ScoredChunk,
 	return chunks, nil
 }
 
-// vectorLiteral renders a vector in pgvector's text input format, e.g.
-// "[0.1,0.2,0.3]", for binding against a halfvec column in a raw query.
 func vectorLiteral(vec []float32) string {
 	parts := make([]string, len(vec))
 	for i, v := range vec {

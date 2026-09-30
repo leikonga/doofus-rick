@@ -9,7 +9,6 @@ import (
 
 const noOutput = "(no output)"
 
-// Editor reads and edits files inside a jailed directory tree.
 type Editor struct {
 	root string
 }

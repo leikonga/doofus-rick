@@ -37,10 +37,6 @@ func newTestAgent(users map[string]string) *Agent {
 	return &Agent{discord: &mockDiscord{users: users}}
 }
 
-func assistantMsg() llm.Message {
-	return llm.Message{Role: llm.RoleAssistant, Parts: []llm.ContentPart{llm.TextPart("response")}}
-}
-
 func TestBuildHistory(t *testing.T) {
 	msgs := []discord.Message{
 		{ID: 1, Author: discord.User{ID: 100, Username: "alice"}, Content: "trigger", CreatedAt: time.Now()},

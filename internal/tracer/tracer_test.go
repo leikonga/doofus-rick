@@ -76,7 +76,7 @@ func TestFinishDeadlineExceededPersists(t *testing.T) {
 
 func TestRingKeepsNewest50InOrder(t *testing.T) {
 	tr, _ := newTracer()
-	for i := 0; i < maxEntries+10; i++ {
+	for i := range maxEntries + 10 {
 		tr.Start("c", "u", "sys", "p").Finish(fmt.Sprint(i), false, nil)
 	}
 	got := tr.RecentSuccesses()

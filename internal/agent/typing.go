@@ -32,10 +32,7 @@ func (t *typingTheatre) ShouldType() bool {
 	return t.config.Chance >= 1.0 || rand.Float64() <= t.config.Chance
 }
 
-// GetTypingSequence returns [type, silent, type] durations proportioned
-// 25/60/15 of MaxDelay - the ratio behind the plan's reference sequence
-// (5s/12s/3s against the 20s default) - or nil if the theatre doesn't fire
-// this time.
+// GetTypingSequence returns [type, silent, type] durations proportioned 25/60/15 of MaxDelay, or nil if the theatre does not fire.
 func (t *typingTheatre) GetTypingSequence() []time.Duration {
 	if !t.ShouldType() {
 		return nil

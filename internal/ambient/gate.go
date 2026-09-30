@@ -83,7 +83,6 @@ func (g *Gate) CheckGate(ctx context.Context, channelID snowflake.ID, rickID sno
 		if !errors.Is(err, store.ErrNotFound) {
 			return GateResult{Passed: false, Reason: "failed to get state"}
 		}
-		// No state row yet means ambient has never fired in this channel.
 		state = &store.AmbientState{ChannelID: uint64(channelID)}
 	}
 
@@ -115,7 +114,7 @@ func (g *Gate) LogFire(ctx context.Context, channelID snowflake.ID, score int, h
 		ChannelID: uint64(channelID),
 		FiredAt:   time.Now(),
 		Score:     score,
-		Hook:      &[]string{hook}[0],
+		Hook:      new(hook),
 	}
 	return g.store.LogAmbientFire(ctx, log)
 }
@@ -133,7 +132,7 @@ func (g *Gate) UpdateState(ctx context.Context, channelID snowflake.ID, unprompt
 	}
 
 	state.LastEval = time.Now()
-	state.LastFire = &[]time.Time{time.Now()}[0]
+	state.LastFire = new(time.Now())
 	state.LastUnpromptedIgnored = false
 	if unpromptedMsgID != 0 {
 		state.LastUnpromptedID = &unpromptedMsgID

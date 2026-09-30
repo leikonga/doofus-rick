@@ -25,8 +25,6 @@ func NewEmbedder(config EmbeddingConfig, s *store.Store, c *llm.Client) *Embedde
 	return &Embedder{config: config, store: s, llm: c}
 }
 
-// maxEmbedBatchSize caps how many chunk contents go into a single OpenRouter
-// embeddings request, avoiding provider-side batch limits.
 const maxEmbedBatchSize = 20
 
 func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
