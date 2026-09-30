@@ -157,7 +157,7 @@ func TestBuildChunkContent(t *testing.T) {
 
 type mockResolver map[string]string
 
-func (m mockResolver) GetUsernameForID(id string) (string, error) {
+func (m mockResolver) GetDisplayNameForID(id string) (string, error) {
 	if name, ok := m[id]; ok {
 		return name, nil
 	}

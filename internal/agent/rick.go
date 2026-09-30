@@ -443,7 +443,7 @@ func escalateForCode(alreadyEscalated bool, calls []llm.ToolCall) bool {
 }
 
 func (a *Agent) memberName(user discord.User) string {
-	name, err := a.discord.GetUsernameForID(user.ID.String())
+	name, err := a.discord.GetDisplayNameForID(user.ID.String())
 	if err != nil || name == "" {
 		return user.Username
 	}
@@ -453,7 +453,7 @@ func (a *Agent) memberName(user discord.User) string {
 func (a *Agent) resolveMentions(content string) string {
 	return userMentionRe.ReplaceAllStringFunc(content, func(match string) string {
 		id := userMentionRe.FindStringSubmatch(match)[1]
-		name, err := a.discord.GetUsernameForID(id)
+		name, err := a.discord.GetDisplayNameForID(id)
 		if err != nil || name == "" {
 			return "@unknown-user"
 		}

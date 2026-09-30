@@ -93,7 +93,7 @@ func taskMessage(requester snowflake.ID, text string) string {
 func (a *Agent) ReportInterruptedTasks(ctx context.Context) {
 	var tasks []store.Task
 	select {
-	case tasks = <-a.tasks.interrupted:
+	case tasks = <-a.tasks.interruptedTasks():
 	case <-ctx.Done():
 		return
 	}
@@ -124,7 +124,7 @@ func interruptedNotes(tasks []store.Task) []personaNote {
 }
 
 func (a *Agent) userName(id snowflake.ID) string {
-	name, err := a.discord.GetUsernameForID(id.String())
+	name, err := a.discord.GetDisplayNameForID(id.String())
 	if err != nil || name == "" {
 		return id.String()
 	}

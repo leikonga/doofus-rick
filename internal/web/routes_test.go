@@ -19,7 +19,7 @@ type fakeMembers struct {
 	guildErr error
 }
 
-func (f fakeMembers) GetUsernameForID(id string) (string, error) {
+func (f fakeMembers) GetDisplayNameForID(id string) (string, error) {
 	if f.nameErr != nil {
 		return "", f.nameErr
 	}

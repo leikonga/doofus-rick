@@ -20,7 +20,7 @@ import (
 var staticFS embed.FS
 
 type members interface {
-	GetUsernameForID(id string) (string, error)
+	GetDisplayNameForID(id string) (string, error)
 	IsGuildMember(id string) (bool, error)
 }
 

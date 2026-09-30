@@ -19,7 +19,7 @@ type UserPresence struct {
 	Activities []discord.Activity
 }
 
-func (b *Bot) GetUsernameForID(id string) (string, error) {
+func (b *Bot) GetDisplayNameForID(id string) (string, error) {
 	user, err := b.GetMemberForID(id)
 	if err != nil {
 		return "", err

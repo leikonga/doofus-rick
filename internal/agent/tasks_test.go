@@ -17,6 +17,13 @@ type fakeTaskStore struct {
 	mu          sync.Mutex
 	tasks       []store.Task
 	interrupted []store.Task
+	finished    []finishedTask
+}
+
+type finishedTask struct {
+	id     uint64
+	status store.TaskStatus
+	result string
 }
 
 func (f *fakeTaskStore) CreateTask(_ context.Context, t store.Task) (store.Task, error) {
@@ -54,7 +61,10 @@ func (f *fakeTaskStore) ClaimDueTasks(context.Context, time.Time) ([]store.Task,
 	return nil, nil
 }
 
-func (f *fakeTaskStore) FinishTask(context.Context, uint64, store.TaskStatus, string) error {
+func (f *fakeTaskStore) FinishTask(_ context.Context, id uint64, status store.TaskStatus, result string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finished = append(f.finished, finishedTask{id: id, status: status, result: result})
 	return nil
 }
 

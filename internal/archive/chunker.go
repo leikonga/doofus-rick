@@ -21,7 +21,7 @@ type ChunkConfig struct {
 }
 
 type DisplayNameResolver interface {
-	GetUsernameForID(id string) (string, error)
+	GetDisplayNameForID(id string) (string, error)
 }
 
 type Chunker struct {
@@ -112,7 +112,7 @@ func (c *Chunker) displayName(msg store.Message) string {
 	if c.resolver == nil {
 		return msg.AuthorName
 	}
-	name, err := c.resolver.GetUsernameForID(strconv.FormatUint(msg.AuthorID, 10))
+	name, err := c.resolver.GetDisplayNameForID(strconv.FormatUint(msg.AuthorID, 10))
 	if err != nil || name == "" {
 		return msg.AuthorName
 	}

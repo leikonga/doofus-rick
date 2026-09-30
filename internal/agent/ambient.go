@@ -33,22 +33,22 @@ func (a *Agent) HandleAmbient(ctx context.Context, channelID snowflake.ID, hook 
 }
 
 func (a *Agent) ReportDeploy(ctx context.Context) {
-	if a.deploys == nil {
+	if a.self.deploys == nil {
 		slog.Debug("deploy journal unavailable, skipping deploy report")
 		return
 	}
-	records, err := a.deploys.Records()
+	records, err := a.self.deploys.Records()
 	if err != nil {
 		slog.Warn("failed to read deploy journal", "error", err)
 		return
 	}
 	var crashes []runtimehome.CrashReport
-	if a.runtimeLogs != nil {
-		if crashes, err = a.runtimeLogs.CrashReports(); err != nil {
+	if a.self.runtimeLogs != nil {
+		if crashes, err = a.self.runtimeLogs.CrashReports(); err != nil {
 			slog.Warn("failed to list crash reports for deploy report", "error", err)
 		}
 	}
-	ann, ok := selbst.EvaluateBoot(records, selbst.Commit(), crashes, a.crashFile)
+	ann, ok := selbst.EvaluateBoot(records, selbst.Commit(), crashes, a.self.crashFile)
 	if !ok {
 		return
 	}
@@ -64,7 +64,7 @@ func (a *Agent) ReportDeploy(ctx context.Context) {
 		}
 	}
 	// Recorded before sending so a crash while announcing cannot repeat the announcement next boot.
-	if err := a.deploys.Append(ann.Record(time.Now())); err != nil {
+	if err := a.self.deploys.Append(ann.Record(time.Now())); err != nil {
 		slog.Warn("failed to record deploy report, skipping it", "error", err)
 		return
 	}

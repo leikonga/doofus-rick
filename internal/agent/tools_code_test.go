@@ -101,7 +101,7 @@ func stageOf(name string, args []string) string {
 	return "unknown:" + name
 }
 
-func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *codeTools {
+func newShipTestTools(t *testing.T, fr *fakeCmdRunner) *codeTools {
 	t.Helper()
 	root := t.TempDir()
 	ed, err := codeedit.New(root)
@@ -128,16 +128,16 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *codeTools {
 	}
 }
 
-func codeShipTestTool(a *codeTools) (func(context.Context, json.RawMessage) (string, error), bool) {
-	return codeShipTestToolFor(a, turnOrigin{})
+func codeShipTestTool(c *codeTools) func(context.Context, json.RawMessage) (string, error) {
+	return codeShipTestToolFor(c, turnOrigin{})
 }
 
-func codeShipTestToolFor(a *codeTools, origin turnOrigin) (func(context.Context, json.RawMessage) (string, error), bool) {
-	tool := a.codeShipTool(origin)
+func codeShipTestToolFor(c *codeTools, origin turnOrigin) func(context.Context, json.RawMessage) (string, error) {
+	tool := c.codeShipTool(origin)
 	return func(ctx context.Context, in json.RawMessage) (string, error) {
 		res, err := tool.Execute(ctx, in)
 		return res.Content(), err
-	}, true
+	}
 }
 
 func TestCodeShipGateFailureAbortsAndDoesNotCommit(t *testing.T) {
@@ -146,11 +146,8 @@ func TestCodeShipGateFailureAbortsAndDoesNotCommit(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			fr := newFakeCmdRunner()
 			fr.errs[stage] = errors.New("boom")
-			a := newShipTestAgent(t, fr)
-			exec, ok := codeShipTestTool(a)
-			if !ok {
-				t.Fatal("code_ship tool not found")
-			}
+			c := newShipTestTools(t, fr)
+			exec := codeShipTestTool(c)
 			_, err := exec(context.Background(), json.RawMessage(`{"message":"m"}`))
 			if err == nil {
 				t.Fatalf("stage %s: expected error, got nil", stage)
@@ -169,11 +166,8 @@ func TestCodeShipMigrationVerificationFailureAbortsBeforeCommit(t *testing.T) {
 	fr := newFakeCmdRunner()
 	fr.results["git_status"] = " M internal/store/migrations/0001_init.sql\n"
 	fr.errs["psql"] = errors.New("restore failed")
-	a := newShipTestAgent(t, fr)
-	exec, ok := codeShipTestTool(a)
-	if !ok {
-		t.Fatal("code_ship tool not found")
-	}
+	c := newShipTestTools(t, fr)
+	exec := codeShipTestTool(c)
 	_, err := exec(context.Background(), json.RawMessage(`{"message":"m"}`))
 	if err == nil {
 		t.Fatal("expected migration verification failure to abort code_ship")
@@ -191,11 +185,8 @@ func TestCodeShipMigrationVerificationFailureAbortsBeforeCommit(t *testing.T) {
 
 func TestCodeShipSuccessPathBuildsVetsTestsCommitsAndPushesInline(t *testing.T) {
 	fr := newFakeCmdRunner()
-	a := newShipTestAgent(t, fr)
-	exec, ok := codeShipTestTool(a)
-	if !ok {
-		t.Fatal("code_ship tool not found")
-	}
+	c := newShipTestTools(t, fr)
+	exec := codeShipTestTool(c)
 
 	content, err := exec(context.Background(), json.RawMessage(`{"message":"ship it"}`))
 	if err != nil {
@@ -217,11 +208,8 @@ func TestCodeShipSuccessPathBuildsVetsTestsCommitsAndPushesInline(t *testing.T) 
 func TestCodeShipPushFailureIsSurfacedAsError(t *testing.T) {
 	fr := newFakeCmdRunner()
 	fr.errs["git_push"] = errors.New("remote rejected")
-	a := newShipTestAgent(t, fr)
-	exec, ok := codeShipTestTool(a)
-	if !ok {
-		t.Fatal("code_ship tool not found")
-	}
+	c := newShipTestTools(t, fr)
+	exec := codeShipTestTool(c)
 
 	content, err := exec(context.Background(), json.RawMessage(`{"message":"m"}`))
 	if err == nil {
@@ -237,14 +225,11 @@ func TestCodeShipPushFailureIsSurfacedAsError(t *testing.T) {
 
 func TestCodeShipMutexContentionReturnsBusyError(t *testing.T) {
 	fr := newFakeCmdRunner()
-	a := newShipTestAgent(t, fr)
-	a.repoMu.Lock()
-	defer a.repoMu.Unlock()
+	c := newShipTestTools(t, fr)
+	c.repoMu.Lock()
+	defer c.repoMu.Unlock()
 
-	exec, ok := codeShipTestTool(a)
-	if !ok {
-		t.Fatal("code_ship tool not found")
-	}
+	exec := codeShipTestTool(c)
 	_, err := exec(context.Background(), json.RawMessage(`{"message":"m"}`))
 	if !errors.Is(err, errRepoBusy) {
 		t.Fatalf("Execute() error = %v, want errRepoBusy", err)
@@ -256,11 +241,8 @@ func TestCodeShipMutexContentionReturnsBusyError(t *testing.T) {
 
 func TestCodeShipPushEnvCarriesTokenArgsDoNot(t *testing.T) {
 	fr := newFakeCmdRunner()
-	a := newShipTestAgent(t, fr)
-	exec, ok := codeShipTestTool(a)
-	if !ok {
-		t.Fatal("code_ship tool not found")
-	}
+	c := newShipTestTools(t, fr)
+	exec := codeShipTestTool(c)
 	if _, err := exec(context.Background(), json.RawMessage(`{"message":"m"}`)); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -304,18 +286,15 @@ func TestCodeShipJournalsShipOnlyAfterSuccessfulPush(t *testing.T) {
 			if tc.pushErr != nil {
 				fr.errs["git_push"] = tc.pushErr
 			}
-			a := newShipTestAgent(t, fr)
-			a.deploys = runtimehome.NewJournal(filepath.Join(t.TempDir(), "deploys.jsonl"))
-			exec, ok := codeShipTestToolFor(a, turnOrigin{ChannelID: snowflake.ID(42), AuthorID: snowflake.ID(7)})
-			if !ok {
-				t.Fatal("code_ship tool not found")
-			}
+			c := newShipTestTools(t, fr)
+			c.deploys = runtimehome.NewJournal(filepath.Join(t.TempDir(), "deploys.jsonl"))
+			exec := codeShipTestToolFor(c, turnOrigin{ChannelID: snowflake.ID(42), AuthorID: snowflake.ID(7)})
 			_, err := exec(context.Background(), json.RawMessage(`{"message":"fix the thing"}`))
 			if (err == nil) != tc.wantShip {
 				t.Fatalf("Execute() error = %v", err)
 			}
 
-			records, err := runtimehome.ReadDeploys(a.deploys.Path())
+			records, err := runtimehome.ReadDeploys(c.deploys.Path())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -18,7 +18,7 @@ type mockDiscord struct {
 }
 
 func (m *mockDiscord) GetMemberForID(_ string) (*discord.Member, error) { return nil, nil }
-func (m *mockDiscord) GetUsernameForID(id string) (string, error) {
+func (m *mockDiscord) GetDisplayNameForID(id string) (string, error) {
 	if name, ok := m.users[id]; ok {
 		return name, nil
 	}

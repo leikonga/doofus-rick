@@ -85,6 +85,10 @@ func (s *Scheduler) loop(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) interruptedTasks() <-chan []store.Task {
+	return s.interrupted
+}
+
 func (s *Scheduler) wake() {
 	select {
 	case s.wakeups <- struct{}{}:

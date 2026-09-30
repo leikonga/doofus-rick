@@ -27,7 +27,7 @@ import (
 
 type DiscordState interface {
 	GetMemberForID(id string) (*discord.Member, error)
-	GetUsernameForID(id string) (string, error)
+	GetDisplayNameForID(id string) (string, error)
 	OnlineMembers() []discord.Member
 	AllMembers() ([]discord.Member, error)
 	VoiceChannels() map[snowflake.ID]string
@@ -47,9 +47,7 @@ type Agent struct {
 	github        githubTools
 	code          codeTools
 	selbstBlock   string
-	runtimeLogs   runtimeLogs
-	deploys       *runtimehome.Journal
-	crashFile     string
+	self          selfReport
 	tracer        *tracer.Tracer
 	retriever     *archive.Retriever
 	affinity      *affinity.Ledger
@@ -57,6 +55,12 @@ type Agent struct {
 	turnTimeout   time.Duration
 	tasks         *Scheduler
 	wg            sync.WaitGroup
+}
+
+type selfReport struct {
+	runtimeLogs runtimeLogs
+	deploys     *runtimehome.Journal
+	crashFile   string
 }
 
 type Deps struct {
@@ -101,9 +105,7 @@ func New(c *config.Config, d Deps) *Agent {
 	}
 	self := selbst.Gather(c.RickModel, c.ShellUser, c.PprofAddr, paths)
 	a := &Agent{
-		runtimeLogs:   logs,
-		deploys:       deploys,
-		crashFile:     crashFile,
+		self:          selfReport{runtimeLogs: logs, deploys: deploys, crashFile: crashFile},
 		store:         d.Store,
 		config:        c,
 		llm:           d.LLM,
@@ -154,10 +156,10 @@ func (a *Agent) vitals(now time.Time) string {
 }
 
 func (a *Agent) deployStatus(now time.Time) string {
-	if a.deploys == nil {
+	if a.self.deploys == nil {
 		return "unknown"
 	}
-	records, err := a.deploys.Records()
+	records, err := a.self.deploys.Records()
 	if err != nil {
 		slog.Warn("failed to read deploy journal", "error", err)
 		return "unknown"
