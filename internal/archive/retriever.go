@@ -21,6 +21,10 @@ type RetrievalConfig struct {
 	EmbedModel     string
 	NeighborChunks int
 	RewriteModel   string
+
+	RerankModel      string
+	RerankCandidates int
+	RerankMinScore   float64
 }
 
 type Retriever struct {
@@ -29,6 +33,11 @@ type Retriever struct {
 	llm    *llm.Client
 
 	rewriter queryRewriter
+	reranker reranker
+}
+
+type reranker interface {
+	Rerank(ctx context.Context, req llm.RerankRequest) (llm.RerankResponse, error)
 }
 
 type queryRewriter interface {
@@ -43,6 +52,9 @@ func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retrie
 	if config.RewriteModel != "" {
 		r.rewriter = NewQueryRewriter(config.RewriteModel, c, s)
 	}
+	if config.RerankModel != "" {
+		r.reranker = c
+	}
 	return r
 }
 
@@ -51,6 +63,9 @@ type RetrievedChunk struct {
 	ChannelID      uint64
 	Content        string
 	Score          float64
+	Similarity     float64
+	RRF            float64
+	Reranked       bool
 	LastActive     time.Time
 	ChannelVisible bool
 }
@@ -65,7 +80,6 @@ type RetrieveRequest struct {
 }
 
 func (r *Retriever) Retrieve(ctx context.Context, req RetrieveRequest) ([]RetrievedChunk, error) {
-	var results []RetrievedChunk
 	query, channelIDs := req.Query, req.ChannelIDs
 
 	queryText := fmt.Sprintf("Instruct: Given a question, retrieve relevant chat logs\nQuery: %s", query)
@@ -87,13 +101,17 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieveRequest) ([]Retrie
 	if len(embedResp.Embeddings) == 0 {
 		return nil, fmt.Errorf("archive: empty query embedding")
 	}
-	chunks, err := r.store.SearchChunks(ctx, store.ChunkSearch{
+	fetch := r.config.TopK
+	if r.reranker != nil {
+		fetch = max(r.config.RerankCandidates, r.config.TopK)
+	}
+	candidates, err := r.store.SearchChunks(ctx, store.ChunkSearch{
 		Vector:       truncateTo1024(embedResp.Embeddings[0]),
 		Query:        query,
 		KeywordQuery: req.Keywords,
 		ChannelIDs:   channelIDs,
 		Model:        r.config.EmbedModel,
-		TopK:         r.config.TopK,
+		TopK:         fetch,
 
 		MinSimilarity: r.config.MinSimilarity,
 		AuthorID:      req.AuthorID,
@@ -104,28 +122,86 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieveRequest) ([]Retrie
 		return nil, err
 	}
 
-	for _, c := range chunks {
-		slog.Debug("archive candidate", "chunk_id", c.ID, "similarity", c.Similarity, "rrf", c.Score, "content", preview(c.Content, 80))
-		content := c.Content
-		if expanded, err := r.expandWithNeighbors(ctx, c.ChannelID, c.ID, content); err != nil {
-			slog.Warn("failed to expand chunk with neighbors", "chunk_id", c.ID, "error", err)
+	ranked := make([]RetrievedChunk, len(candidates))
+	for i, c := range candidates {
+		ranked[i] = RetrievedChunk{ID: c.ID, ChannelID: c.ChannelID, Content: c.Content, Score: c.Score, RRF: c.Score, Similarity: c.Similarity, LastActive: c.LastActive, ChannelVisible: true}
+	}
+	reranked := false
+	if r.reranker != nil && len(ranked) > 0 {
+		if out, err := r.rerank(ctx, query, channelKey, ranked); err != nil {
+			slog.Warn("rerank failed, using fused order", "model", r.config.RerankModel, "error", err)
 		} else {
-			content = expanded
+			ranked, reranked = out, true
 		}
-		results = append(results, RetrievedChunk{
-			ID:             c.ID,
-			ChannelID:      c.ChannelID,
-			Content:        content,
-			Score:          c.Score,
-			LastActive:     c.LastActive,
-			ChannelVisible: true,
-		})
+	}
+	for _, c := range ranked {
+		slog.Debug("archive candidate", "chunk_id", c.ID, "similarity", c.Similarity, "rrf", c.RRF, "rerank_score", c.Score, "reranked", c.Reranked, "content", preview(c.Content, 80))
+	}
+	if reranked && r.config.RerankMinScore > 0 {
+		ranked = slices.DeleteFunc(ranked, func(c RetrievedChunk) bool { return c.Score < r.config.RerankMinScore })
+	}
+	if len(ranked) > r.config.TopK {
+		ranked = ranked[:r.config.TopK]
 	}
 
-	slog.Info("archive retrieval", "query", query, "candidates", len(chunks), "min_similarity", r.config.MinSimilarity,
-		"author_id", formatOptional(req.AuthorID), "since", formatOptional(req.Since), "until", formatOptional(req.Until))
+	results := make([]RetrievedChunk, 0, len(ranked))
+	for _, c := range ranked {
+		if expanded, err := r.expandWithNeighbors(ctx, c.ChannelID, c.ID, c.Content); err != nil {
+			slog.Warn("failed to expand chunk with neighbors", "chunk_id", c.ID, "error", err)
+		} else {
+			c.Content = expanded
+		}
+		results = append(results, c)
+	}
+
+	logArgs := []any{"query", query, "candidates", len(candidates), "kept", len(results), "min_similarity", r.config.MinSimilarity,
+		"author_id", formatOptional(req.AuthorID), "since", formatOptional(req.Since), "until", formatOptional(req.Until)}
+	if reranked {
+		logArgs = append(logArgs, "rerank_model", r.config.RerankModel, "rerank_min_score", r.config.RerankMinScore)
+		if len(results) > 0 {
+			logArgs = append(logArgs, "top_rerank_score", results[0].Score)
+		}
+	}
+	slog.Info("archive retrieval", logArgs...)
 
 	return results, nil
+}
+
+func (r *Retriever) rerank(ctx context.Context, query, channelKey string, candidates []RetrievedChunk) ([]RetrievedChunk, error) {
+	docs := make([]string, len(candidates))
+	for i, c := range candidates {
+		docs[i] = c.Content
+	}
+	resp, err := r.reranker.Rerank(ctx, llm.RerankRequest{Model: r.config.RerankModel, Query: query, Documents: docs, TopN: len(docs)})
+	if err != nil {
+		return nil, err
+	}
+	if resp.TotalTokens > 0 {
+		usage := store.TokenUsage{ChannelID: channelKey, UserID: "reranker", ModelName: r.config.RerankModel, InputTokens: resp.TotalTokens}
+		if err := r.store.SaveTokenUsage(ctx, usage); err != nil {
+			slog.Warn("failed to save token usage", "error", err)
+		}
+	}
+
+	out := make([]RetrievedChunk, 0, len(resp.Results))
+	for _, res := range resp.Results {
+		if res.Index < 0 || res.Index >= len(candidates) {
+			return nil, fmt.Errorf("archive: rerank index %d out of range for %d documents", res.Index, len(candidates))
+		}
+		c := candidates[res.Index]
+		c.Score, c.Reranked = res.Score, true
+		out = append(out, c)
+	}
+	slices.SortStableFunc(out, func(a, b RetrievedChunk) int {
+		switch {
+		case a.Score > b.Score:
+			return -1
+		case a.Score < b.Score:
+			return 1
+		}
+		return 0
+	})
+	return out, nil
 }
 
 func preview(content string, limit int) string {

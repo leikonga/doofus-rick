@@ -68,11 +68,14 @@ type Config struct {
 
 	RickEmbedModel string
 
-	RecallEnabled        bool
-	RecallTopK           int
-	RecallMinSimilarity  float64
-	RecallNeighborChunks int
-	RecallRewriteModel   string
+	RecallEnabled          bool
+	RecallTopK             int
+	RecallMinSimilarity    float64
+	RecallNeighborChunks   int
+	RecallRewriteModel     string
+	RecallRerankModel      string
+	RecallRerankCandidates int
+	RecallRerankMinScore   float64
 
 	AmbientEnabled      bool
 	AmbientWindow       time.Duration
@@ -165,11 +168,14 @@ func LoadConfig() *Config {
 
 		RickEmbedModel: getEnv("RICK_EMBED_MODEL", "qwen/qwen3-embedding-8b"),
 
-		RecallEnabled:        getEnvBool("RECALL_ENABLED", true),
-		RecallTopK:           getEnvInt("RECALL_TOP_K", 3),
-		RecallMinSimilarity:  getEnvFloat64("RECALL_MIN_SIMILARITY", 0),
-		RecallNeighborChunks: getEnvInt("RECALL_NEIGHBOR_CHUNKS", 1),
-		RecallRewriteModel:   getEnv("RECALL_REWRITE_MODEL", ""),
+		RecallEnabled:          getEnvBool("RECALL_ENABLED", true),
+		RecallTopK:             getEnvInt("RECALL_TOP_K", 3),
+		RecallMinSimilarity:    getEnvFloat64("RECALL_MIN_SIMILARITY", 0),
+		RecallNeighborChunks:   getEnvInt("RECALL_NEIGHBOR_CHUNKS", 1),
+		RecallRewriteModel:     getEnv("RECALL_REWRITE_MODEL", ""),
+		RecallRerankModel:      getEnv("RECALL_RERANK_MODEL", ""),
+		RecallRerankCandidates: getEnvInt("RECALL_RERANK_CANDIDATES", 30),
+		RecallRerankMinScore:   getEnvFloat64("RECALL_RERANK_MIN_SCORE", 0),
 
 		AmbientEnabled:      getEnvBool("AMBIENT_ENABLED", false),
 		AmbientWindow:       getEnvDuration("AMBIENT_WINDOW", 90*time.Second),

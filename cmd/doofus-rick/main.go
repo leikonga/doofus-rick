@@ -124,11 +124,14 @@ func run() error {
 
 	llmClient := llm.NewClient(c.OpenRouterAPIKey)
 	retriever := archive.NewRetriever(archive.RetrievalConfig{
-		TopK:           c.RecallTopK,
-		MinSimilarity:  c.RecallMinSimilarity,
-		EmbedModel:     c.RickEmbedModel,
-		NeighborChunks: c.RecallNeighborChunks,
-		RewriteModel:   c.RecallRewriteModel,
+		TopK:             c.RecallTopK,
+		MinSimilarity:    c.RecallMinSimilarity,
+		EmbedModel:       c.RickEmbedModel,
+		NeighborChunks:   c.RecallNeighborChunks,
+		RewriteModel:     c.RecallRewriteModel,
+		RerankModel:      c.RecallRerankModel,
+		RerankCandidates: c.RecallRerankCandidates,
+		RerankMinScore:   c.RecallRerankMinScore,
 	}, db, llmClient)
 	aff := affinity.New(affinity.Config{Baseline: c.AffinityBaseline}, db)
 

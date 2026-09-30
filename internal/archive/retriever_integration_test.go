@@ -393,3 +393,188 @@ func TestRetrieveRewrittenAuthorFilter(t *testing.T) {
 		}
 	}
 }
+
+type fakeReranker struct {
+	scores map[string]float64
+	err    error
+	calls  int
+	last   llm.RerankRequest
+}
+
+func (f *fakeReranker) Rerank(_ context.Context, req llm.RerankRequest) (llm.RerankResponse, error) {
+	f.calls++
+	f.last = req
+	if f.err != nil {
+		return llm.RerankResponse{}, f.err
+	}
+	resp := llm.RerankResponse{TotalTokens: 11}
+	for i, d := range req.Documents {
+		resp.Results = append(resp.Results, llm.RerankResult{Index: i, Score: f.scores[d]})
+	}
+	slices.SortFunc(resp.Results, func(a, b llm.RerankResult) int {
+		switch {
+		case a.Score > b.Score:
+			return -1
+		case a.Score < b.Score:
+			return 1
+		}
+		return 0
+	})
+	return resp, nil
+}
+
+func rerankRetriever(t *testing.T, s *store.Store, cfg RetrievalConfig, rr *fakeReranker) *Retriever {
+	t.Helper()
+	cfg.EmbedModel = testEmbedModel
+	cfg.RerankModel = "test/rerank"
+	r := NewRetriever(cfg, s, fakeEmbedClient(t, unitVector(0)))
+	r.reranker = rr
+	return r
+}
+
+func TestRetrieveRerankReordersAndKeepsTopK(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	a := seedChunk(t, s, 1, "zebra a\n", 0)
+	b := seedChunk(t, s, 1, "zebra b\n", -1)
+	c := seedChunk(t, s, 1, "zebra c\n", -1)
+	rr := &fakeReranker{scores: map[string]float64{"zebra a\n": 0.1, "zebra b\n": 0.9, "zebra c\n": 0.5}}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 2, RerankCandidates: 10}, rr)
+
+	got, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(chunkIDs(got), []uint64{b, c}) {
+		t.Fatalf("ids = %v, want [%d %d] (not %d)", chunkIDs(got), b, c, a)
+	}
+	if len(rr.last.Documents) != 3 || rr.last.Query != "zebra" || rr.last.Model != "test/rerank" {
+		t.Errorf("rerank request = %+v", rr.last)
+	}
+	if got[0].Score != 0.9 || !got[0].Reranked || got[0].RRF <= 0 {
+		t.Errorf("unexpected scores: %+v", got[0])
+	}
+	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages WHERE user_id = 'reranker'")
+	if len(rows) != 1 || rows[0].InputTokens != 11 || rows[0].ModelName != "test/rerank" {
+		t.Errorf("reranker usage rows = %+v", rows)
+	}
+}
+
+func TestRetrieveRerankFetchesCandidatesBeyondTopK(t *testing.T) {
+	s := pgtest.Store(t)
+	seedChunk(t, s, 1, "zebra a\n", -1)
+	seedChunk(t, s, 1, "zebra b\n", -1)
+	seedChunk(t, s, 1, "zebra c\n", -1)
+	rr := &fakeReranker{scores: map[string]float64{}}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 1, RerankCandidates: 3}, rr)
+
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rr.last.Documents) != 3 || len(got) != 1 {
+		t.Errorf("reranked %d docs, returned %d; want 3 and 1", len(rr.last.Documents), len(got))
+	}
+}
+
+func TestRetrieveRerankMinScore(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	strong := seedChunk(t, s, 1, "zebra strong\n", -1)
+	seedChunk(t, s, 1, "zebra weak\n", -1)
+	rr := &fakeReranker{scores: map[string]float64{"zebra strong\n": 0.8, "zebra weak\n": 0.2}}
+
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 5, RerankCandidates: 10, RerankMinScore: 0.5}, rr)
+	got, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil || !slices.Equal(chunkIDs(got), []uint64{strong}) {
+		t.Errorf("got %v, %v; want only %d", chunkIDs(got), err, strong)
+	}
+
+	r = rerankRetriever(t, s, RetrievalConfig{TopK: 5, RerankCandidates: 10, RerankMinScore: 0.95}, rr)
+	got, err = r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil || len(got) != 0 {
+		t.Errorf("got %v, %v; want empty", chunkIDs(got), err)
+	}
+}
+
+func TestRetrieveRerankNeighborsOnlyForKept(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	seedChunk(t, s, 3, "before\n", -1)
+	hit := seedChunk(t, s, 3, "zebra hit\n", -1)
+	seedChunk(t, s, 3, "after\n", -1)
+	rr := &fakeReranker{scores: map[string]float64{"zebra hit\n": 0.9}}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 5, RerankCandidates: 10, RerankMinScore: 0.5, NeighborChunks: 1}, rr)
+
+	got, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != hit || got[0].Content != "before\n\nzebra hit\n\nafter\n" {
+		t.Errorf("got %+v", got)
+	}
+	for _, d := range rr.last.Documents {
+		if d != "zebra hit\n" {
+			t.Errorf("reranker received non-raw content %q", d)
+		}
+	}
+}
+
+func TestRetrieveRerankErrorFallsBackToFusedOrder(t *testing.T) {
+	s := pgtest.Store(t)
+	both := seedChunk(t, s, 1, "zebra crossing\n", 0)
+	seedChunk(t, s, 1, "zebra herd\n", -1)
+	rr := &fakeReranker{err: errors.New("boom")}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 1, RerankCandidates: 10, RerankMinScore: 0.5}, rr)
+
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil || !slices.Equal(chunkIDs(got), []uint64{both}) || got[0].Reranked {
+		t.Errorf("got %+v, %v; want fused top %d", got, err, both)
+	}
+}
+
+func TestRetrieveRerankSkippedWhenNoCandidates(t *testing.T) {
+	s := pgtest.Store(t)
+	rr := &fakeReranker{}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 3, RerankCandidates: 10}, rr)
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil || len(got) != 0 || rr.calls != 0 {
+		t.Errorf("got %v, %v, calls=%d", got, err, rr.calls)
+	}
+}
+
+func TestRetrieveRerankDisabledLeavesBehaviorUnchanged(t *testing.T) {
+	s := pgtest.Store(t)
+	both := seedChunk(t, s, 1, "zebra crossing\n", 0)
+	seedChunk(t, s, 1, "zebra herd\n", -1)
+	r := NewRetriever(RetrievalConfig{TopK: 1, EmbedModel: testEmbedModel, RerankCandidates: 30, RerankMinScore: 0.9}, s, fakeEmbedClient(t, unitVector(0)))
+	if r.reranker != nil {
+		t.Fatal("reranker set without RerankModel")
+	}
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+	if err != nil || !slices.Equal(chunkIDs(got), []uint64{both}) || got[0].Reranked {
+		t.Errorf("got %+v, %v", got, err)
+	}
+}
+
+func TestRetrieveRewrittenMergesRerankedScores(t *testing.T) {
+	s := pgtest.Store(t)
+	zebra := seedChunk(t, s, 1, "zebra crossing\n", -1)
+	giraffe := seedChunk(t, s, 1, "giraffe neck\n", -1)
+	seedChunk(t, s, 1, "giraffe tall\n", -1)
+	rr := &fakeReranker{scores: map[string]float64{"zebra crossing\n": 0.7, "giraffe neck\n": 0.9, "giraffe tall\n": 0.3}}
+	r := rerankRetriever(t, s, RetrievalConfig{TopK: 2, RerankCandidates: 10}, rr)
+	r.rewriter = &fakeRewriter{queries: []RewrittenQuery{
+		{Text: "zebras", Keywords: "zebra"},
+		{Text: "giraffes", Keywords: "giraffe"},
+		{Text: "giraffes again", Keywords: "giraffe"},
+	}}
+
+	got, err := r.RetrieveRewritten(context.Background(), "animals", []uint64{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(chunkIDs(got), []uint64{giraffe, zebra}) || got[0].Score != 0.9 || got[1].Score != 0.7 {
+		t.Errorf("got %+v", got)
+	}
+}
