@@ -45,6 +45,7 @@ type Agent struct {
 	web              webTools
 	sys              shellTools
 	github           githubTools
+	code             codeTools
 	selbstBlock      string
 	runtimeLogs      runtimeLogs
 	deploys          *runtimehome.Journal
@@ -53,11 +54,7 @@ type Agent struct {
 	retriever        *archive.Retriever
 	affinity         *affinity.Ledger
 	typist           *typist
-	codeedit         *codeedit.Editor
 	turnTimeout      time.Duration
-	repoMu           sync.RWMutex
-	selfcode         *selfcode.Selfcode
-	cmdRunner        selfcode.Runner
 	tasks            taskStore
 	taskWake         chan struct{}
 	taskCancels      taskCancels
@@ -124,7 +121,14 @@ func New(c *config.Config, d Deps) *Agent {
 			desc:        shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
 			runtimeLogs: logs,
 		},
-		github:      githubTools{config: c},
+		github: githubTools{config: c},
+		code: codeTools{
+			editor:   editor,
+			selfcode: sc,
+			runner:   cmdRunner,
+			config:   c,
+			deploys:  deploys,
+		},
 		selbstBlock: self.Block(),
 		tracer:      d.Tracer,
 		retriever:   d.Retriever,
@@ -134,10 +138,7 @@ func New(c *config.Config, d Deps) *Agent {
 			MaxDelay: c.TypingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
-		codeedit:         editor,
 		turnTimeout:      c.RickTurnTimeout,
-		selfcode:         sc,
-		cmdRunner:        cmdRunner,
 		tasks:            d.Store,
 		taskWake:         make(chan struct{}, 1),
 		interruptedTasks: make(chan []store.Task, 1),

@@ -101,7 +101,7 @@ func stageOf(name string, args []string) string {
 	return "unknown:" + name
 }
 
-func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
+func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *codeTools {
 	t.Helper()
 	root := t.TempDir()
 	ed, err := codeedit.New(root)
@@ -113,10 +113,10 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
 	if err := os.WriteFile(prompt, []byte("du bist rick"), 0o644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
-	return &Agent{
-		codeedit:  ed,
-		selfcode:  sc,
-		cmdRunner: fr,
+	return &codeTools{
+		editor:   ed,
+		selfcode: sc,
+		runner:   fr,
 		config: &config.Config{
 			RickRepoDir:      root,
 			SystemPromptFile: prompt,
@@ -128,15 +128,12 @@ func newShipTestAgent(t *testing.T, fr *fakeCmdRunner) *Agent {
 	}
 }
 
-func codeShipTestTool(a *Agent) (func(context.Context, json.RawMessage) (string, error), bool) {
+func codeShipTestTool(a *codeTools) (func(context.Context, json.RawMessage) (string, error), bool) {
 	return codeShipTestToolFor(a, turnOrigin{})
 }
 
-func codeShipTestToolFor(a *Agent, origin turnOrigin) (func(context.Context, json.RawMessage) (string, error), bool) {
-	tool, ok := a.buildTools(origin).Find("code_ship")
-	if !ok {
-		return nil, false
-	}
+func codeShipTestToolFor(a *codeTools, origin turnOrigin) (func(context.Context, json.RawMessage) (string, error), bool) {
+	tool := a.codeShipTool(origin)
 	return func(ctx context.Context, in json.RawMessage) (string, error) {
 		res, err := tool.Execute(ctx, in)
 		return res.Content(), err

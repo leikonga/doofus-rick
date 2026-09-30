@@ -7,11 +7,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/codeedit"
+	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
+	"github.com/leikonga/doofus-rick/internal/selfcode"
 )
+
+type codeTools struct {
+	editor   *codeedit.Editor
+	selfcode *selfcode.Selfcode
+	runner   selfcode.Runner
+	repoMu   sync.RWMutex
+	config   *config.Config
+	deploys  *runtimehome.Journal
+}
 
 var errRepoNotCloned = fmt.Errorf("repo not found, clone it into RICK_REPO_DIR via sys_shell first")
 
@@ -23,18 +36,18 @@ type codeReadIn struct {
 	Limit  int    `json:"limit" jsonschema:"description=Maximum number of lines to return. Omit for no limit."`
 }
 
-func (a *Agent) codeReadTool() llm.Tool {
+func (c *codeTools) codeReadTool() llm.Tool {
 	return llm.NewTool("code_read", "Read a file from Rick's own source checkout, cat -n style with line numbers.",
 		func(_ context.Context, in codeReadIn) (llm.Result, error) {
-			if a.codeedit == nil {
+			if c.editor == nil {
 				return llm.Result{}, errRepoNotCloned
 			}
-			if !a.repoMu.TryRLock() {
+			if !c.repoMu.TryRLock() {
 				return llm.Result{}, errRepoBusy
 			}
-			defer a.repoMu.RUnlock()
+			defer c.repoMu.RUnlock()
 
-			content, err := a.codeedit.Read(in.Path, in.Offset, in.Limit)
+			content, err := c.editor.Read(in.Path, in.Offset, in.Limit)
 			if err != nil {
 				return llm.Result{}, err
 			}
@@ -51,31 +64,31 @@ type codeEditIn struct {
 	InsertLine int    `json:"insert_line" jsonschema:"description=Line number after which to insert, 0 for the beginning of the file. Required for command=insert."`
 }
 
-func (a *Agent) codeEditTool() llm.Tool {
+func (c *codeTools) codeEditTool() llm.Tool {
 	return llm.NewTool("code_edit", "Edit a file in Rick's own source checkout. command=write overwrites the whole file, command=str_replace replaces one exact match, command=insert adds a new line.",
 		func(_ context.Context, in codeEditIn) (llm.Result, error) {
-			if a.codeedit == nil {
+			if c.editor == nil {
 				return llm.Result{}, errRepoNotCloned
 			}
-			if !a.repoMu.TryLock() {
+			if !c.repoMu.TryLock() {
 				return llm.Result{}, errRepoBusy
 			}
-			defer a.repoMu.Unlock()
+			defer c.repoMu.Unlock()
 
 			switch in.Command {
 			case "write":
-				if err := a.codeedit.Write(in.Path, in.FileText); err != nil {
+				if err := c.editor.Write(in.Path, in.FileText); err != nil {
 					return llm.Result{}, err
 				}
 				return llm.Continue("file written"), nil
 			case "str_replace":
-				n, err := a.codeedit.Replace(in.Path, in.OldStr, in.NewStr, false)
+				n, err := c.editor.Replace(in.Path, in.OldStr, in.NewStr, false)
 				if err != nil {
 					return llm.Result{}, err
 				}
 				return llm.Continue(fmt.Sprintf("%d replacement made", n)), nil
 			case "insert":
-				if err := a.codeedit.Insert(in.Path, in.InsertLine, in.NewStr); err != nil {
+				if err := c.editor.Insert(in.Path, in.InsertLine, in.NewStr); err != nil {
 					return llm.Result{}, err
 				}
 				return llm.Continue("line inserted"), nil
@@ -89,87 +102,87 @@ type codeShipIn struct {
 	Message string `json:"message" jsonschema:"required,description=Commit message describing the change."`
 }
 
-func (a *Agent) codeShipTool(origin turnOrigin) llm.Tool {
+func (c *codeTools) codeShipTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("code_ship", "Verify Rick's own source changes (build, vet, test, migration verification if needed), then commit and push to main. Rebuild and redeploy take several minutes after this returns.",
 		func(ctx context.Context, in codeShipIn) (llm.Result, error) {
-			if a.codeedit == nil || a.selfcode == nil {
+			if c.editor == nil || c.selfcode == nil {
 				return llm.Result{}, errRepoNotCloned
 			}
 			if in.Message == "" {
 				return llm.Result{}, fmt.Errorf("commit message is required")
 			}
-			if !a.repoMu.TryLock() {
+			if !c.repoMu.TryLock() {
 				return llm.Result{}, errRepoBusy
 			}
-			defer a.repoMu.Unlock()
+			defer c.repoMu.Unlock()
 
-			if out, err := a.runGo(ctx, "build", "./..."); err != nil {
+			if out, err := c.runGo(ctx, "build", "./..."); err != nil {
 				return llm.Result{}, fmt.Errorf("go build failed: %w\n%s", err, out)
 			}
-			if out, err := a.runGo(ctx, "vet", "./..."); err != nil {
+			if out, err := c.runGo(ctx, "vet", "./..."); err != nil {
 				return llm.Result{}, fmt.Errorf("go vet failed: %w\n%s", err, out)
 			}
-			if out, err := a.runGo(ctx, "test", "./..."); err != nil {
+			if out, err := c.runGo(ctx, "test", "./..."); err != nil {
 				return llm.Result{}, fmt.Errorf("go test failed: %w\n%s", err, out)
 			}
 
-			prompt, err := os.ReadFile(a.config.SystemPromptFile)
+			prompt, err := os.ReadFile(c.config.SystemPromptFile)
 			if err != nil {
 				return llm.Result{}, fmt.Errorf("system prompt file: %w", err)
 			}
 			if strings.TrimSpace(string(prompt)) == "" {
-				return llm.Result{}, fmt.Errorf("system prompt file %q is empty", a.config.SystemPromptFile)
+				return llm.Result{}, fmt.Errorf("system prompt file %q is empty", c.config.SystemPromptFile)
 			}
 
-			snapshot, err := a.selfcode.Snapshot(ctx)
+			snapshot, err := c.selfcode.Snapshot(ctx)
 			if err != nil {
 				return llm.Result{}, fmt.Errorf("snapshot failed: %w", err)
 			}
 
-			changed, err := a.selfcode.MigrationsChanged(ctx)
+			changed, err := c.selfcode.MigrationsChanged(ctx)
 			if err != nil {
 				return llm.Result{}, fmt.Errorf("checking for migration changes failed: %w", err)
 			}
 			if changed {
-				if err := a.selfcode.VerifyMigrations(ctx, snapshot); err != nil {
+				if err := c.selfcode.VerifyMigrations(ctx, snapshot); err != nil {
 					return llm.Result{}, fmt.Errorf("migration verification failed: %w", err)
 				}
 			}
 
-			if out, err := a.runGit(ctx, "add", "-A"); err != nil {
+			if out, err := c.runGit(ctx, "add", "-A"); err != nil {
 				return llm.Result{}, fmt.Errorf("git add failed: %w\n%s", err, out)
 			}
 			commitArgs := []string{
-				"-C", a.config.RickRepoDir,
-				"-c", "user.name=" + a.config.GitAuthorName,
-				"-c", "user.email=" + a.config.GitAuthorEmail,
+				"-C", c.config.RickRepoDir,
+				"-c", "user.name=" + c.config.GitAuthorName,
+				"-c", "user.email=" + c.config.GitAuthorEmail,
 				"commit", "-m", in.Message,
 			}
-			if out, err := a.cmdRunner.Run(ctx, "git", commitArgs, a.gitEnv()); err != nil {
+			if out, err := c.runner.Run(ctx, "git", commitArgs, c.gitEnv()); err != nil {
 				return llm.Result{}, fmt.Errorf("git commit failed: %w\n%s", err, out)
 			}
 
-			if out, err := a.gitPush(ctx); err != nil {
+			if out, err := c.gitPush(ctx); err != nil {
 				return llm.Result{}, fmt.Errorf("git push failed: %w\n%s", err, out)
 			}
-			a.recordShip(ctx, origin, in.Message)
+			c.recordShip(ctx, origin, in.Message)
 
 			return llm.Continue("built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."), nil
 		})
 }
 
-func (a *Agent) recordShip(ctx context.Context, origin turnOrigin, message string) {
-	if a.deploys == nil {
+func (c *codeTools) recordShip(ctx context.Context, origin turnOrigin, message string) {
+	if c.deploys == nil {
 		slog.Debug("deploy journal unavailable, not recording ship")
 		return
 	}
-	out, err := a.runGit(ctx, "rev-parse", "HEAD")
+	out, err := c.runGit(ctx, "rev-parse", "HEAD")
 	commit := strings.TrimSpace(out)
 	if err != nil || commit == "" {
 		slog.Warn("failed to read pushed commit, not recording ship", "output", out, "error", err)
 		return
 	}
-	err = a.deploys.Append(runtimehome.DeployRecord{
+	err = c.deploys.Append(runtimehome.DeployRecord{
 		Kind:      runtimehome.DeployShip,
 		Commit:    commit,
 		ChannelID: origin.ChannelID.String(),
@@ -182,25 +195,25 @@ func (a *Agent) recordShip(ctx context.Context, origin turnOrigin, message strin
 	}
 }
 
-func (a *Agent) runGo(ctx context.Context, args ...string) (string, error) {
-	full := append([]string{"-C", a.config.RickRepoDir}, args...)
-	return a.cmdRunner.Run(ctx, "go", full, a.goEnv())
+func (c *codeTools) runGo(ctx context.Context, args ...string) (string, error) {
+	full := append([]string{"-C", c.config.RickRepoDir}, args...)
+	return c.runner.Run(ctx, "go", full, c.goEnv())
 }
 
-func (a *Agent) runGit(ctx context.Context, args ...string) (string, error) {
-	full := append([]string{"-C", a.config.RickRepoDir}, args...)
-	return a.cmdRunner.Run(ctx, "git", full, a.gitEnv())
+func (c *codeTools) runGit(ctx context.Context, args ...string) (string, error) {
+	full := append([]string{"-C", c.config.RickRepoDir}, args...)
+	return c.runner.Run(ctx, "git", full, c.gitEnv())
 }
 
-func (a *Agent) homeDir() string {
+func (c *codeTools) homeDir() string {
 	if h := os.Getenv("HOME"); h != "" {
 		return h
 	}
-	return a.config.WorkDir
+	return c.config.WorkDir
 }
 
-func (a *Agent) goEnv() []string {
-	home := a.homeDir()
+func (c *codeTools) goEnv() []string {
+	home := c.homeDir()
 	return []string{
 		"HOME=" + home,
 		"PATH=" + os.Getenv("PATH"),
@@ -211,15 +224,15 @@ func (a *Agent) goEnv() []string {
 	}
 }
 
-func (a *Agent) gitEnv() []string {
+func (c *codeTools) gitEnv() []string {
 	return []string{
-		"HOME=" + a.homeDir(),
+		"HOME=" + c.homeDir(),
 		"PATH=" + os.Getenv("PATH"),
 	}
 }
 
 // gitPush is the only place GITHUB_TOKEN is read; it reaches git only via GIT_ASKPASS, never argv.
-func (a *Agent) gitPush(ctx context.Context) (string, error) {
+func (c *codeTools) gitPush(ctx context.Context) (string, error) {
 	askpass, cleanup, err := writeAskpassHelper()
 	if err != nil {
 		return "", fmt.Errorf("prepare askpass helper: %w", err)
@@ -227,14 +240,14 @@ func (a *Agent) gitPush(ctx context.Context) (string, error) {
 	defer cleanup()
 
 	env := []string{
-		"HOME=" + a.homeDir(),
+		"HOME=" + c.homeDir(),
 		"PATH=" + os.Getenv("PATH"),
 		"GIT_ASKPASS=" + askpass,
 		"GIT_TERMINAL_PROMPT=0",
-		"RICK_PUSH_TOKEN=" + a.config.GitHubToken,
+		"RICK_PUSH_TOKEN=" + c.config.GitHubToken,
 	}
-	args := []string{"-C", a.config.RickRepoDir, "push", "origin", "HEAD:main"}
-	return a.cmdRunner.Run(ctx, "git", args, env)
+	args := []string{"-C", c.config.RickRepoDir, "push", "origin", "HEAD:main"}
+	return c.runner.Run(ctx, "git", args, env)
 }
 
 // GitHub accepts the token as either the username or the password prompt, so echoing it for both is sufficient.

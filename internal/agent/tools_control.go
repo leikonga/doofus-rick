@@ -25,9 +25,9 @@ func (a *Agent) buildTools(origin turnOrigin) llm.Tools {
 		a.saveQuoteTool(origin),
 		a.getUserQuotesTool(),
 		a.searchHistoryTool(origin),
-		a.codeReadTool(),
-		a.codeEditTool(),
-		a.codeShipTool(origin),
+		a.code.codeReadTool(),
+		a.code.codeEditTool(),
+		a.code.codeShipTool(origin),
 		a.taskTool(origin),
 		a.github.githubIssueTool(),
 	}

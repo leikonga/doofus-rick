@@ -65,7 +65,7 @@ func TestCodeEditRejectsUnknownCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("codeedit.New: %v", err)
 	}
-	a := &Agent{codeedit: ed}
+	a := &Agent{code: codeTools{editor: ed}}
 	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("code_edit")
@@ -84,7 +84,7 @@ func TestCodeReadSurfacesJailViolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("codeedit.New: %v", err)
 	}
-	a := &Agent{codeedit: ed}
+	a := &Agent{code: codeTools{editor: ed}}
 	tools := a.buildTools(turnOrigin{})
 
 	tool, ok := tools.Find("code_read")
