@@ -77,6 +77,20 @@ func TestRewriteParsesQueries(t *testing.T) {
 	}
 }
 
+func TestRewriteSendsResponseSchema(t *testing.T) {
+	c := &fakeCompleter{reply: `{"queries":[]}`}
+	if _, err := newTestRewriter(c, &fakeRewriterStore{}).Rewrite(context.Background(), "hi", "1"); err != nil {
+		t.Fatal(err)
+	}
+	rs := c.got.ResponseSchema
+	if rs == nil || rs.Name != "recall_queries" {
+		t.Fatalf("response schema = %+v", rs)
+	}
+	if required, _ := rs.Schema["required"].([]string); !slices.Contains(required, "queries") {
+		t.Errorf("schema required = %v, want queries", rs.Schema["required"])
+	}
+}
+
 func TestRewriteZeroQueries(t *testing.T) {
 	got, err := newTestRewriter(&fakeCompleter{reply: `{"queries":[]}`}, &fakeRewriterStore{}).Rewrite(context.Background(), "hi", "1")
 	if err != nil || len(got) != 0 {

@@ -55,6 +55,14 @@ type CompletionRequest struct {
 	// SessionID groups related requests so OpenRouter pins them to one
 	// provider, maximising prompt cache hits across a conversation.
 	SessionID string
+	// ResponseSchema forces structured output; providers without
+	// response_format support are skipped via RequireParameters.
+	ResponseSchema *ResponseSchema
+}
+
+type ResponseSchema struct {
+	Name   string
+	Schema map[string]any
 }
 
 type CompletionResponse struct {
@@ -102,8 +110,22 @@ func buildChatRequest(req CompletionRequest) components.ChatRequest {
 		effort := components.ChatRequestEffort(req.ReasoningEffort)
 		reasoning = &components.ChatRequestReasoning{Effort: optionalnullable.From(&effort)}
 	}
+	var responseFormat *components.ResponseFormat
+	if req.ResponseSchema != nil {
+		strict := true
+		rf := components.CreateResponseFormatJSONSchema(components.ChatFormatJSONSchemaConfig{
+			Type: components.ChatFormatJSONSchemaConfigTypeJSONSchema,
+			JSONSchema: components.ChatJSONSchemaConfig{
+				Name:   req.ResponseSchema.Name,
+				Schema: req.ResponseSchema.Schema,
+				Strict: optionalnullable.From(&strict),
+			},
+		})
+		responseFormat = &rf
+	}
 	return components.ChatRequest{
-		SessionID: sessionID,
+		ResponseFormat: responseFormat,
+		SessionID:      sessionID,
 		// Top-level cache_control moves an automatic breakpoint to the end of
 		// the conversation, so each tool-loop iteration reuses the previous one.
 		CacheControl: &components.AnthropicCacheControlDirective{Type: components.AnthropicCacheControlDirectiveTypeEphemeral},

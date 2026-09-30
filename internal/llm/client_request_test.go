@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -70,5 +71,50 @@ func TestReasoningDetailsRoundTripUnchanged(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"data":"opaque-blob"`) || !strings.Contains(string(data), `"id":"r1"`) {
 		t.Errorf("reasoning details not sent back unchanged: %s", data)
+	}
+}
+
+func TestBuildChatRequestResponseSchema(t *testing.T) {
+	unset, err := json.Marshal(buildChatRequest(CompletionRequest{Model: "m"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(unset), "response_format") {
+		t.Errorf("unset schema should omit response_format: %s", unset)
+	}
+
+	schema := map[string]any{"type": "object", "required": []any{"a"}}
+	data, err := json.Marshal(buildChatRequest(CompletionRequest{
+		Model:          "m",
+		ResponseSchema: &ResponseSchema{Name: "thing", Schema: schema},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		ResponseFormat struct {
+			Type       string `json:"type"`
+			JSONSchema struct {
+				Name   string         `json:"name"`
+				Strict bool           `json:"strict"`
+				Schema map[string]any `json:"schema"`
+			} `json:"json_schema"`
+		} `json:"response_format"`
+		Provider struct {
+			RequireParameters bool `json:"require_parameters"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal %s: %v", data, err)
+	}
+	rf := decoded.ResponseFormat
+	if rf.Type != "json_schema" || rf.JSONSchema.Name != "thing" || !rf.JSONSchema.Strict {
+		t.Errorf("response_format = %+v", rf)
+	}
+	if !reflect.DeepEqual(rf.JSONSchema.Schema, schema) {
+		t.Errorf("schema = %v, want %v", rf.JSONSchema.Schema, schema)
+	}
+	if !decoded.Provider.RequireParameters {
+		t.Errorf("require_parameters dropped: %s", data)
 	}
 }

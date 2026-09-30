@@ -20,16 +20,41 @@ const (
 	rewriteDateLayout   = "2006-01-02"
 )
 
-const rewriteSystemPrompt = `You turn a Discord message into search queries over a chat archive. Output only JSON:
-{"queries":[{"text":"...","keywords":"...","author":"...","since":"YYYY-MM-DD","until":"YYYY-MM-DD"}]}
+const rewriteSystemPrompt = `You turn a Discord message into search queries over a chat archive.
 
 Rules:
 - Return at most 3 queries, each about a distinct person, topic or event worth looking up.
 - "text": short standalone natural language description of what to find, no instructions to the bot.
-- "keywords": 1 to 4 literal words likely to appear in the archived messages (names, rare words). Empty if none.
-- "author": display name or snowflake of the person the lookup is about, as written in the message or mapped from the known authors list. Empty if none.
-- "since" and "until": only when the message implies a time range, resolved against the current date. Empty otherwise.
-- If the message names no concrete person, topic or event to look up (chit chat, greetings, pure commands), return {"queries":[]}.`
+- "keywords": 1 to 4 literal words likely to appear in the archived messages (names, rare words). Empty string if none.
+- "author": display name or snowflake of the person the lookup is about, as written in the message or mapped from the known authors list. Empty string if none.
+- "since" and "until": only when the message implies a time range, resolved against the current date. Format YYYY-MM-DD, empty string otherwise.
+- If the message names no concrete person, topic or event to look up (chit chat, greetings, pure commands), return an empty queries array.`
+
+var rewriteResponseSchema = &llm.ResponseSchema{
+	Name: "recall_queries",
+	Schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"queries": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"text":     map[string]any{"type": "string"},
+						"keywords": map[string]any{"type": "string"},
+						"author":   map[string]any{"type": "string"},
+						"since":    map[string]any{"type": "string"},
+						"until":    map[string]any{"type": "string"},
+					},
+					"required":             []string{"text", "keywords", "author", "since", "until"},
+					"additionalProperties": false,
+				},
+			},
+		},
+		"required":             []string{"queries"},
+		"additionalProperties": false,
+	},
+}
 
 type RewrittenQuery struct {
 	Text     string `json:"text"`
@@ -78,10 +103,11 @@ func (w *QueryRewriter) Rewrite(ctx context.Context, message, channelKey string)
 	fmt.Fprintf(&prompt, "\nMessage:\n%s", message)
 
 	resp, err := w.client.Complete(ctx, llm.CompletionRequest{
-		Model:     w.model,
-		MaxTokens: rewriteMaxTokens,
-		System:    rewriteSystemPrompt,
-		Messages:  []llm.Message{llm.NewUserMessage(llm.TextPart(prompt.String()))},
+		Model:          w.model,
+		MaxTokens:      rewriteMaxTokens,
+		ResponseSchema: rewriteResponseSchema,
+		System:         rewriteSystemPrompt,
+		Messages:       []llm.Message{llm.NewUserMessage(llm.TextPart(prompt.String()))},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rewrite query: %w", err)
