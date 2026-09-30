@@ -19,11 +19,16 @@ type rosterEntry struct {
 	reason   string
 }
 
-func (a *Agent) buildUserRoster(ctx context.Context, overwrites discord.PermissionOverwrites) (leit string, gradDo string) {
+type userRoster struct {
+	Leit   string
+	GradDo string
+}
+
+func (a *Agent) buildUserRoster(ctx context.Context, overwrites discord.PermissionOverwrites) userRoster {
 	since := time.Now().Add(-rosterActivityWindow)
 	actives, err := a.store.GetActiveAuthors(ctx, since, 200)
 	if err != nil || len(actives) == 0 {
-		return "", ""
+		return userRoster{}
 	}
 
 	var entries []rosterEntry
@@ -53,10 +58,10 @@ func (a *Agent) buildUserRoster(ctx context.Context, overwrites discord.Permissi
 		entries = append(entries, rosterEntry{id: act.AuthorID, name: name, affinity: affinity, reason: reason})
 	}
 	if len(entries) == 0 {
-		return "", ""
+		return userRoster{}
 	}
 
-	return buildLeitBlock(entries), a.buildGradDoBlock(entries)
+	return userRoster{Leit: buildLeitBlock(entries), GradDo: a.buildGradDoBlock(entries)}
 }
 
 func buildLeitBlock(entries []rosterEntry) string {

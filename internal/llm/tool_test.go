@@ -17,7 +17,7 @@ type noIn struct{}
 
 func TestNewToolSchema(t *testing.T) {
 	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
-		return Result{Content: in.Query}, nil
+		return Continue(in.Query), nil
 	})
 
 	if tool.Schema["type"] != "object" {
@@ -46,21 +46,21 @@ func TestNewToolSchema(t *testing.T) {
 
 func TestNewToolExecuteUnmarshalsInput(t *testing.T) {
 	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
-		return Result{Content: in.Query + "|" + in.Freshness}, nil
+		return Continue(in.Query + "|" + in.Freshness), nil
 	})
 
 	res, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"cats","freshness":"pd"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if res.Content != "cats|pd" {
-		t.Errorf("Content = %q, want %q", res.Content, "cats|pd")
+	if res.Content() != "cats|pd" {
+		t.Errorf("Content = %q, want %q", res.Content(), "cats|pd")
 	}
 }
 
 func TestNewToolExecuteSurfacesUnmarshalError(t *testing.T) {
 	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
-		return Result{Content: in.Query}, nil
+		return Continue(in.Query), nil
 	})
 
 	_, err := tool.Execute(context.Background(), json.RawMessage(`{"query": 123}`))
@@ -74,11 +74,11 @@ func TestToolsFindDispatchesToRightExecutor(t *testing.T) {
 	tools := Tools{
 		NewTool("a", "", func(_ context.Context, _ noIn) (Result, error) {
 			called = "a"
-			return Result{Content: "a-result"}, nil
+			return Continue("a-result"), nil
 		}),
 		NewTool("b", "", func(_ context.Context, _ noIn) (Result, error) {
 			called = "b"
-			return Result{Content: "b-result"}, nil
+			return Continue("b-result"), nil
 		}),
 	}
 
@@ -93,8 +93,8 @@ func TestToolsFindDispatchesToRightExecutor(t *testing.T) {
 	if called != "b" {
 		t.Errorf("called = %q, want %q", called, "b")
 	}
-	if res.Content != "b-result" {
-		t.Errorf("Content = %q, want %q", res.Content, "b-result")
+	if res.Content() != "b-result" {
+		t.Errorf("Content = %q, want %q", res.Content(), "b-result")
 	}
 
 	if _, ok := tools.Find("missing"); ok {
@@ -115,7 +115,7 @@ func TestToolExecuteErrorPropagates(t *testing.T) {
 
 func TestNewToolRejectsUnknownParameterWithExpectedNames(t *testing.T) {
 	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
-		return Result{Content: in.Query}, nil
+		return Continue(in.Query), nil
 	})
 
 	_, err := tool.Execute(context.Background(), json.RawMessage(`{"q":"snus"}`))
@@ -143,14 +143,14 @@ func TestToolsFindFallsBackToCaseInsensitive(t *testing.T) {
 
 func TestNewToolRejectsMiscasedParameter(t *testing.T) {
 	tool := NewTool("web_search", "Search the web.", func(_ context.Context, in sampleIn) (Result, error) {
-		return Result{Content: in.Query}, nil
+		return Continue(in.Query), nil
 	})
 
 	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"Query":"snus"}`)); err == nil {
 		t.Fatal("expected error for miscased parameter")
 	}
 	got, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"snus"}`))
-	if err != nil || got.Content != "snus" {
+	if err != nil || got.Content() != "snus" {
 		t.Fatalf("valid input: got %+v, %v", got, err)
 	}
 }

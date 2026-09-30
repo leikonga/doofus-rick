@@ -51,7 +51,7 @@ func (a *Agent) githubIssueTool() llm.Tool {
 				if s == "" {
 					s = "no open issues"
 				}
-				return llm.Result{Content: s}, nil
+				return llm.Continue(s), nil
 			case "comment", "close":
 				if in.Number <= 0 {
 					return llm.Result{}, fmt.Errorf("number is required")
@@ -70,7 +70,7 @@ func (a *Agent) githubIssueTool() llm.Tool {
 						return llm.Result{}, err
 					}
 				}
-				return llm.Result{Content: fmt.Sprintf("ok: %s #%d", in.Action, in.Number)}, nil
+				return llm.Continue(fmt.Sprintf("ok: %s #%d", in.Action, in.Number)), nil
 			}
 			return llm.Result{}, fmt.Errorf("unknown action %q", in.Action)
 		})

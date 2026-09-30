@@ -20,16 +20,16 @@ type ChunkConfig struct {
 	ChunkMaxChars int
 }
 
-type UsernameResolver interface {
+type DisplayNameResolver interface {
 	GetUsernameForID(id string) (string, error)
 }
 
 type Chunker struct {
 	config   ChunkConfig
-	resolver UsernameResolver
+	resolver DisplayNameResolver
 }
 
-func NewChunker(config ChunkConfig, resolver UsernameResolver) *Chunker {
+func NewChunker(config ChunkConfig, resolver DisplayNameResolver) *Chunker {
 	if config.ChunkGap == 0 {
 		config.ChunkGap = DefaultChunkGap
 	}

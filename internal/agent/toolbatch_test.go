@@ -74,20 +74,20 @@ func TestRunToolCalls_Timing(t *testing.T) {
 	}{
 		{
 			name:     "three plain calls run concurrently",
-			tools:    llm.Tools{sleepTool("a", time.Second, llm.Result{Content: "a"}), sleepTool("b", time.Second, llm.Result{Content: "b"}), sleepTool("c", time.Second, llm.Result{Content: "c"})},
+			tools:    llm.Tools{sleepTool("a", time.Second, llm.Continue("a")), sleepTool("b", time.Second, llm.Continue("b")), sleepTool("c", time.Second, llm.Continue("c"))},
 			calls:    calls("a", "b", "c"),
 			wantTime: time.Second,
 		},
 		{
 			name:      "code calls serialize in call order",
-			tools:     llm.Tools{sleepTool("code_edit", time.Second, llm.Result{Content: "e"}), sleepTool("code_ship", time.Second, llm.Result{Content: "s"})},
+			tools:     llm.Tools{sleepTool("code_edit", time.Second, llm.Continue("e")), sleepTool("code_ship", time.Second, llm.Continue("s"))},
 			calls:     calls("code_ship", "code_edit"),
 			wantTime:  2 * time.Second,
 			wantStart: []string{"code_ship", "code_edit"},
 		},
 		{
 			name:      "plain calls run alongside code lane",
-			tools:     llm.Tools{sleepTool("code_edit", time.Second, llm.Result{Content: "e"}), sleepTool("code_ship", time.Second, llm.Result{Content: "s"}), sleepTool("web", 2*time.Second, llm.Result{Content: "w"})},
+			tools:     llm.Tools{sleepTool("code_edit", time.Second, llm.Continue("e")), sleepTool("code_ship", time.Second, llm.Continue("s")), sleepTool("web", 2*time.Second, llm.Continue("w"))},
 			calls:     calls("code_edit", "web", "code_ship"),
 			wantTime:  2 * time.Second,
 			wantStart: []string{"code_edit", "code_ship"},
@@ -119,8 +119,8 @@ func TestRunToolCalls_Timing(t *testing.T) {
 				}
 				for i, call := range tt.calls {
 					want := map[string]string{"a": "a", "b": "b", "c": "c", "code_edit": "e", "code_ship": "s", "web": "w"}[call.Name]
-					if outcomes[i].result.Content != want {
-						t.Fatalf("outcome %d = %q, want %q", i, outcomes[i].result.Content, want)
+					if outcomes[i].result.Content() != want {
+						t.Fatalf("outcome %d = %q, want %q", i, outcomes[i].result.Content(), want)
 					}
 				}
 			})
@@ -133,9 +133,9 @@ func TestRunToolCalls_PanicBecomesError(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		tools := llm.Tools{
 			{Name: "boom", Execute: func(context.Context, json.RawMessage) (llm.Result, error) { panic("kaboom") }},
-			sleepTool("ok", time.Second, llm.Result{Content: "fine"}),
+			sleepTool("ok", time.Second, llm.Continue("fine")),
 			{Name: "code_boom", Execute: func(context.Context, json.RawMessage) (llm.Result, error) { panic("lane") }},
-			sleepTool("code_ok", time.Second, llm.Result{Content: "lane fine"}),
+			sleepTool("code_ok", time.Second, llm.Continue("lane fine")),
 		}
 		outcomes := runToolCalls(t.Context(), tools, calls("boom", "ok", "code_boom", "code_ok"))
 
@@ -145,7 +145,7 @@ func TestRunToolCalls_PanicBecomesError(t *testing.T) {
 		if err := outcomes[2].err; err == nil || !strings.Contains(err.Error(), "lane") {
 			t.Fatalf("code lane panic outcome err = %v", err)
 		}
-		if outcomes[1].result.Content != "fine" || outcomes[3].result.Content != "lane fine" {
+		if outcomes[1].result.Content() != "fine" || outcomes[3].result.Content() != "lane fine" {
 			t.Fatalf("other calls did not complete: %+v", outcomes)
 		}
 	})
@@ -165,13 +165,13 @@ func TestRunToolCalls_PassesTurnContext(t *testing.T) {
 
 func TestToolBatch(t *testing.T) {
 	silenceLogs(t)
-	first := &llm.RickResponse{Text: "first"}
-	second := &llm.RickResponse{Text: "second"}
+	first := llm.RickResponse{Text: "first"}
+	second := llm.RickResponse{Text: "second"}
 	tools := llm.Tools{
-		sleepTool("slow_terminal", 2*time.Second, llm.Result{Response: first}),
-		sleepTool("fast_terminal", 0, llm.Result{Response: second}),
-		sleepTool("done", time.Second, llm.Result{Content: "bye", Done: true}),
-		sleepTool("plain", time.Second, llm.Result{Content: "out"}),
+		sleepTool("slow_terminal", 2*time.Second, llm.Reply(first)),
+		sleepTool("fast_terminal", 0, llm.Reply(second)),
+		sleepTool("done", time.Second, llm.EndTurn("bye")),
+		sleepTool("plain", time.Second, llm.Continue("out")),
 		{Name: "fails", Execute: func(context.Context, json.RawMessage) (llm.Result, error) { return llm.Result{}, errors.New("nope") }},
 	}
 	tests := []struct {
@@ -185,7 +185,7 @@ func TestToolBatch(t *testing.T) {
 		{
 			name:         "first terminal in call order wins",
 			calls:        calls("plain", "slow_terminal", "fast_terminal"),
-			wantTerminal: first,
+			wantTerminal: &first,
 			wantRecorded: []recordedTool{{"plain", "out", false}, {"slow_terminal", "(terminal)", false}},
 		},
 		{
@@ -213,7 +213,7 @@ func TestToolBatch(t *testing.T) {
 				outcomes := runToolCalls(t.Context(), tools, tt.calls)
 				terminal, msgs, done := collectToolResults(rec, tools, tt.calls, outcomes)
 
-				if terminal != tt.wantTerminal {
+				if (terminal == nil) != (tt.wantTerminal == nil) || (terminal != nil && *terminal != *tt.wantTerminal) {
 					t.Fatalf("terminal = %+v, want %+v", terminal, tt.wantTerminal)
 				}
 				if done != tt.wantDone {

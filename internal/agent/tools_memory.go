@@ -51,7 +51,7 @@ func (a *Agent) saveQuoteTool(origin turnOrigin) llm.Tool {
 				slog.Warn("failed to send quote embed", "error", sendErr)
 			}
 
-			return llm.Result{Content: "quote saved", Done: true}, nil
+			return llm.EndTurn("quote saved"), nil
 		})
 }
 
@@ -77,13 +77,13 @@ func (a *Agent) getUserQuotesTool() llm.Tool {
 				slog.Warn("failed to get quotes by participant", "user_id", in.UserID, "error", err)
 			}
 			if len(quotes) == 0 {
-				return llm.Result{Content: "no quotes found for this user"}, nil
+				return llm.Continue("no quotes found for this user"), nil
 			}
 			var sb strings.Builder
 			for _, q := range quotes {
 				fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 			}
-			return llm.Result{Content: sb.String()}, nil
+			return llm.Continue(sb.String()), nil
 		})
 }
 
@@ -102,31 +102,31 @@ func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 					slog.Warn("failed to search quotes", "query", in.Query, "error", err)
 				}
 				if len(quotes) == 0 {
-					return llm.Result{Content: "no matching quotes found"}, nil
+					return llm.Continue("no matching quotes found"), nil
 				}
 				var sb strings.Builder
 				for _, q := range quotes {
 					fmt.Fprintf(&sb, "- [%s] %s\n", q.CreatedAt.Format("2006-01-02"), q.Content)
 				}
-				return llm.Result{Content: sb.String()}, nil
+				return llm.Continue(sb.String()), nil
 			case "messages", "":
 				channelIDs := a.visibleChannelIDs(ctx, origin.AuthorID)
 				if len(channelIDs) == 0 {
-					return llm.Result{Content: "no channels to search"}, nil
+					return llm.Continue("no channels to search"), nil
 				}
 				chunks, err := a.retriever.Retrieve(ctx, in.Query, channelIDs)
 				if err != nil {
 					return llm.Result{}, err
 				}
 				if len(chunks) == 0 {
-					return llm.Result{Content: "no matching history found"}, nil
+					return llm.Continue("no matching history found"), nil
 				}
 				var sb strings.Builder
 				for _, c := range chunks {
 					sb.WriteString(c.Content)
 					sb.WriteString("\n---\n")
 				}
-				return llm.Result{Content: sb.String()}, nil
+				return llm.Continue(sb.String()), nil
 			default:
 				return llm.Result{}, fmt.Errorf("unknown scope %q, must be messages or quotes", in.Scope)
 			}

@@ -111,11 +111,11 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 	history := buildHistory(botID, 0, msgs, a.memberName)
 
 	channel := a.channelInfo(ctx, channelID)
-	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
+	roster := a.buildUserRoster(ctx, channel.overwrites)
 	recall := a.buildRecallBlock(ctx, note.recallQuery, []uint64{uint64(channelID)})
-	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic)
+	system := string(systemPrompt) + buildCachedPrefix(a.selbstBlock, roster.Leit, channel.id.String(), channel.name, channel.topic)
 	now := time.Now()
-	turn := buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, note.trigger)
+	turn := buildVolatileTurn(now, a.vitals(now), roster.GradDo, recall, history, note.trigger)
 
 	rec := a.tracer.Start(channelID.String(), note.traceUser, system, note.trigger)
 	resp, err := a.llm.Complete(ctx, llm.CompletionRequest{

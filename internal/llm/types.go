@@ -92,9 +92,33 @@ type RickResponse struct {
 
 // Result is what a tool's Execute function returns to the calling loop.
 type Result struct {
-	Content  string
-	Done     bool          // terminal, decline without text
-	Response *RickResponse // terminal, tool sent the reply itself
+	content  string
+	endsTurn bool
+	response *RickResponse
+}
+
+func Continue(content string) Result {
+	return Result{content: content}
+}
+
+func EndTurn(content string) Result {
+	return Result{content: content, endsTurn: true}
+}
+
+func Reply(resp RickResponse) Result {
+	return Result{response: &resp}
+}
+
+func (r Result) Content() string {
+	return r.content
+}
+
+func (r Result) EndsTurn() bool {
+	return r.endsTurn
+}
+
+func (r Result) Response() *RickResponse {
+	return r.response
 }
 
 type Tool struct {

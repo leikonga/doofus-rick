@@ -38,7 +38,7 @@ func (a *Agent) codeReadTool() llm.Tool {
 			if err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: content}, nil
+			return llm.Continue(content), nil
 		})
 }
 
@@ -67,18 +67,18 @@ func (a *Agent) codeEditTool() llm.Tool {
 				if err := a.codeedit.Write(in.Path, in.FileText); err != nil {
 					return llm.Result{}, err
 				}
-				return llm.Result{Content: "file written"}, nil
+				return llm.Continue("file written"), nil
 			case "str_replace":
 				n, err := a.codeedit.Replace(in.Path, in.OldStr, in.NewStr, false)
 				if err != nil {
 					return llm.Result{}, err
 				}
-				return llm.Result{Content: fmt.Sprintf("%d replacement made", n)}, nil
+				return llm.Continue(fmt.Sprintf("%d replacement made", n)), nil
 			case "insert":
 				if err := a.codeedit.Insert(in.Path, in.InsertLine, in.NewStr); err != nil {
 					return llm.Result{}, err
 				}
-				return llm.Result{Content: "line inserted"}, nil
+				return llm.Continue("line inserted"), nil
 			default:
 				return llm.Result{}, fmt.Errorf("unknown command %q, must be write, str_replace, or insert", in.Command)
 			}
@@ -154,7 +154,7 @@ func (a *Agent) codeShipTool(origin turnOrigin) llm.Tool {
 			}
 			a.recordShip(ctx, origin, in.Message)
 
-			return llm.Result{Content: "built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."}, nil
+			return llm.Continue("built, vetted, tested, boot-checked, committed and pushed to main. rebuild and redeploy take several minutes."), nil
 		})
 }
 

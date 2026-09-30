@@ -41,6 +41,6 @@ type declineIn struct {
 func (a *Agent) declineTool() llm.Tool {
 	return llm.NewTool("decline", "Decline to respond and optionally react with an emoji instead.",
 		func(_ context.Context, in declineIn) (llm.Result, error) {
-			return llm.Result{Response: &llm.RickResponse{Decline: true, Emoji: in.Emoji}}, nil
+			return llm.Reply(llm.RickResponse{Decline: true, Emoji: in.Emoji}), nil
 		})
 }

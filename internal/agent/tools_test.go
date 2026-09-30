@@ -54,7 +54,7 @@ func TestBuildToolsDispatchRoutesToRightExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decline Execute() error = %v", err)
 	}
-	if res.Response == nil || !res.Response.Decline || res.Response.Emoji != "x" {
+	if resp := res.Response(); resp == nil || !resp.Decline || resp.Emoji != "x" {
 		t.Errorf("decline Execute() result = %+v, want decline response with emoji x", res)
 	}
 }

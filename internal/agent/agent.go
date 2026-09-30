@@ -22,6 +22,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/shell"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/syncmap"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
@@ -54,7 +55,7 @@ type Agent struct {
 	retriever        *archive.Retriever
 	affinity         *affinity.Ledger
 	typingTheatre    *typingTheatre
-	typingChannels   sync.Map // snowflake.ID -> struct{}
+	typingChannels   syncmap.Map[snowflake.ID, struct{}]
 	codeedit         *codeedit.Editor
 	turnTimeout      time.Duration
 	repoMu           sync.RWMutex

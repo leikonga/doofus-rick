@@ -73,7 +73,7 @@ func (a *Agent) createTask(ctx context.Context, origin turnOrigin, in taskIn, no
 	if wait := fireAt.Sub(now); wait < time.Minute {
 		time.AfterFunc(max(wait, 0), a.wakeTasks)
 	}
-	return llm.Result{Content: fmt.Sprintf("task #%d created, due %s", task.ID, fireAt.Local().Format(time.RFC3339))}, nil
+	return llm.Continue(fmt.Sprintf("task #%d created, due %s", task.ID, fireAt.Local().Format(time.RFC3339))), nil
 }
 
 func taskFireAt(now time.Time, fireAt, in string) (time.Time, error) {
@@ -109,7 +109,7 @@ func (a *Agent) listTasks(ctx context.Context) (llm.Result, error) {
 		return llm.Result{}, err
 	}
 	if len(tasks) == 0 {
-		return llm.Result{Content: "no tasks"}, nil
+		return llm.Continue("no tasks"), nil
 	}
 	var sb strings.Builder
 	for _, t := range tasks {
@@ -117,7 +117,7 @@ func (a *Agent) listTasks(ctx context.Context) (llm.Result, error) {
 			t.ID, t.Status, t.FireAt.Local().Format("2006-01-02 15:04"), a.userName(snowflake.ID(t.RequesterID)), t.RequesterID,
 			oneLine(t.Prompt, taskPromptExcerpt))
 	}
-	return llm.Result{Content: sb.String()}, nil
+	return llm.Continue(sb.String()), nil
 }
 
 func (a *Agent) cancelTask(ctx context.Context, id uint64) (llm.Result, error) {
@@ -129,5 +129,5 @@ func (a *Agent) cancelTask(ctx context.Context, id uint64) (llm.Result, error) {
 		return llm.Result{}, fmt.Errorf("task #%d: %w", id, err)
 	}
 	a.taskCancels.cancel(id)
-	return llm.Result{Content: fmt.Sprintf("task #%d cancelled (was %s)", id, before.Status)}, nil
+	return llm.Continue(fmt.Sprintf("task #%d cancelled (was %s)", id, before.Status)), nil
 }

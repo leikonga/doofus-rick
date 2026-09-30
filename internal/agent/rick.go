@@ -143,19 +143,19 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 		recallCh <- a.buildRecallBlock(ctx, triggerContent, a.visibleChannelIDs(ctx, event.Message.Author.ID))
 	}()
 
-	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
+	roster := a.buildUserRoster(ctx, channel.overwrites)
 
 	recall := <-recallCh
 
 	now := time.Now()
-	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, triggerLabel))}
+	turnParts := []llm.ContentPart{llm.TextPart(buildVolatileTurn(now, a.vitals(now), roster.GradDo, recall, history, triggerLabel))}
 	for _, url := range attachments.imageURLs {
 		turnParts = append(turnParts, llm.ImagePart(url))
 	}
 	turnParts = append(turnParts, attachments.fileParts...)
 
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic),
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, roster.Leit, channel.id.String(), channel.name, channel.topic),
 		messages:    []llm.Message{llm.NewUserMessage(turnParts...)},
 		tracePrompt: triggerLabel,
 		origin:      turnOrigin{ChannelID: event.ChannelID, AuthorID: event.Message.Author.ID, MessageID: event.MessageID},
@@ -432,15 +432,15 @@ func collectToolResults(rec toolRecorder, tools llm.Tools, calls []llm.ToolCall,
 			toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, outcome.err.Error()))
 			continue
 		}
-		if outcome.result.Response != nil {
+		if resp := outcome.result.Response(); resp != nil {
 			rec.AddTool(call.Name, call.Arguments, "(terminal)", false)
-			return outcome.result.Response, nil, false
+			return resp, nil, false
 		}
-		rec.AddTool(call.Name, call.Arguments, outcome.result.Content, false)
-		if outcome.result.Done {
+		rec.AddTool(call.Name, call.Arguments, outcome.result.Content(), false)
+		if outcome.result.EndsTurn() {
 			done = true
 		}
-		toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, outcome.result.Content))
+		toolMessages = append(toolMessages, llm.NewToolResultMessage(call.ID, outcome.result.Content()))
 	}
 	return nil, toolMessages, done
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/syncmap"
 )
 
 type Agent interface {
@@ -46,8 +47,8 @@ type Bot struct {
 	client           *disgobot.Client
 	agent            Agent
 	cache            UserCache
-	presences        sync.Map // snowflake.ID -> UserPresence
-	voiceChannels    sync.Map // snowflake.ID -> channel name, empty if unknown
+	presences        syncmap.Map[snowflake.ID, UserPresence]
+	voiceChannels    syncmap.Map[snowflake.ID, string] // "" when the channel name lookup failed
 	deployReportOnce sync.Once
 	taskReportOnce   sync.Once
 	ready            chan struct{}

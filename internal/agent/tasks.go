@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -18,6 +17,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
+	"github.com/leikonga/doofus-rick/internal/syncmap"
 )
 
 const (
@@ -86,14 +86,14 @@ func (a *Agent) runTask(ctx context.Context, task store.Task) {
 		cancel()
 	}()
 
-	text, err := a.taskTurn(ctx, task)
+	reply, err := a.taskTurn(ctx, task)
 	if abandonedByCancelOrShutdown(ctx) {
 		return
 	}
 
-	status, result := store.TaskDone, text
-	if err == nil && text != "" {
-		msg := discord.NewMessageCreate().WithContent(taskMessage(snowflake.ID(task.RequesterID), text))
+	status, result := store.TaskDone, reply.Text
+	if err == nil && !reply.Declined && reply.Text != "" {
+		msg := discord.NewMessageCreate().WithContent(taskMessage(snowflake.ID(task.RequesterID), reply.Text))
 		_, err = a.discordClient.Rest.CreateMessage(snowflake.ID(task.ChannelID), msg, rest.WithCtx(ctx))
 	}
 	if err != nil {
@@ -113,7 +113,7 @@ func abandonedByCancelOrShutdown(ctx context.Context) bool {
 }
 
 type taskCancels struct {
-	byID sync.Map
+	byID syncmap.Map[uint64, context.CancelFunc]
 }
 
 func (c *taskCancels) register(id uint64, cancel context.CancelFunc) {
@@ -126,23 +126,28 @@ func (c *taskCancels) forget(id uint64) {
 
 func (c *taskCancels) cancel(id uint64) {
 	if cancel, ok := c.byID.LoadAndDelete(id); ok {
-		cancel.(context.CancelFunc)()
+		cancel()
 	}
 }
 
-func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err error) {
+type taskReply struct {
+	Text     string
+	Declined bool
+}
+
+func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ taskReply, err error) {
 	defer recoverTurn(ctx, &err)
 
 	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 	if err != nil {
-		return "", err
+		return taskReply{}, err
 	}
 
 	channelID := snowflake.ID(task.ChannelID)
 	requesterID := snowflake.ID(task.RequesterID)
 	msgs, err := a.discordClient.Rest.GetMessages(channelID, 0, 0, 0, historyLimit, rest.WithCtx(ctx))
 	if err != nil {
-		return "", fmt.Errorf("fetch channel history: %w", err)
+		return taskReply{}, fmt.Errorf("fetch channel history: %w", err)
 	}
 	slices.Reverse(msgs)
 	history := buildHistory(a.discordClient.ID(), 0, msgs, a.memberName)
@@ -154,23 +159,23 @@ func (a *Agent) taskTurn(ctx context.Context, task store.Task) (_ string, err er
 	go func() {
 		recallCh <- a.buildRecallBlock(ctx, task.Prompt, a.visibleChannelIDs(ctx, requesterID))
 	}()
-	leit, gradDo := a.buildUserRoster(ctx, channel.overwrites)
+	roster := a.buildUserRoster(ctx, channel.overwrites)
 	recall := <-recallCh
 
 	now := time.Now()
 	resp, err := a.callModel(ctx, modelRequest{
-		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, leit, channel.id.String(), channel.name, channel.topic),
-		messages:    []llm.Message{llm.NewUserMessage(llm.TextPart(buildVolatileTurn(now, a.vitals(now), gradDo, recall, history, triggerLabel)))},
+		system:      string(systemPrompt) + buildCachedPrefix(a.selbstBlock, roster.Leit, channel.id.String(), channel.name, channel.topic),
+		messages:    []llm.Message{llm.NewUserMessage(llm.TextPart(buildVolatileTurn(now, a.vitals(now), roster.GradDo, recall, history, triggerLabel)))},
 		tracePrompt: triggerLabel,
 		origin:      turnOrigin{ChannelID: channelID, AuthorID: requesterID, TaskID: task.ID},
 	})
 	if err != nil {
-		return "", err
+		return taskReply{}, err
 	}
 	if resp.Decline {
-		return "", nil
+		return taskReply{Declined: true}, nil
 	}
-	return strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.Text, "")), nil
+	return taskReply{Text: strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.Text, ""))}, nil
 }
 
 func taskTriggerLabel(task store.Task, requesterName string) string {

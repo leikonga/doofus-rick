@@ -33,7 +33,7 @@ func (a *Agent) mediaSearchTool() llm.Tool {
 			if in.Caption != "" {
 				text = in.Caption + "\n" + url
 			}
-			return llm.Result{Response: &llm.RickResponse{Text: text}}, nil
+			return llm.Reply(llm.RickResponse{Text: text}), nil
 		})
 }
 
@@ -52,7 +52,7 @@ func (a *Agent) webSearchTool() llm.Tool {
 			if err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: result}, nil
+			return llm.Continue(result), nil
 		})
 }
 
@@ -67,6 +67,6 @@ func (a *Agent) fetchPageTool() llm.Tool {
 			if err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: content}, nil
+			return llm.Continue(content), nil
 		})
 }

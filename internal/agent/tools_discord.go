@@ -38,7 +38,7 @@ func (a *Agent) sendMessageTool() llm.Tool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithContent(in.Content), rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: "message sent", Done: true}, nil
+			return llm.EndTurn("message sent"), nil
 		})
 }
 
@@ -65,7 +65,7 @@ func (a *Agent) createPollTool() llm.Tool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, discord.NewMessageCreate().WithPoll(poll), rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: "poll created", Done: true}, nil
+			return llm.EndTurn("poll created"), nil
 		})
 }
 
@@ -83,7 +83,7 @@ func (a *Agent) sendFileTool() llm.Tool {
 			clean := filepath.Clean(in.Path)
 			if !strings.HasPrefix(clean, a.config.WorkDir) {
 				slog.Warn("send_file rejected path outside workdir", "path", clean, "workdir", a.config.WorkDir)
-				return llm.Result{Content: "path must be inside " + a.config.WorkDir}, nil
+				return llm.Continue("path must be inside " + a.config.WorkDir), nil
 			}
 
 			f, err := os.Open(clean)
@@ -108,7 +108,7 @@ func (a *Agent) sendFileTool() llm.Tool {
 			if _, err := a.discordClient.Rest.CreateMessage(chID, msg, rest.WithCtx(ctx)); err != nil {
 				return llm.Result{}, err
 			}
-			return llm.Result{Content: "file sent", Done: true}, nil
+			return llm.EndTurn("file sent"), nil
 		})
 }
 
@@ -129,6 +129,6 @@ func (a *Agent) reactTool(origin turnOrigin) llm.Tool {
 					slog.Warn("failed to add reaction", "emoji", emoji, "error", err)
 				}
 			}
-			return llm.Result{Content: "reactions added"}, nil
+			return llm.Continue("reactions added"), nil
 		})
 }

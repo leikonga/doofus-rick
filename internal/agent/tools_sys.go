@@ -22,7 +22,7 @@ type shellExecIn struct {
 func (a *Agent) shellExecTool() llm.Tool {
 	return llm.NewTool("sys_shell", a.shellDesc,
 		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
-			return llm.Result{Content: a.shell.Exec(ctx, in.Command, shell.DefaultOutputLimit)}, nil
+			return llm.Continue(a.shell.Exec(ctx, in.Command, shell.DefaultOutputLimit)), nil
 		})
 }
 
@@ -70,7 +70,7 @@ func (a *Agent) checkLogsTool() llm.Tool {
 		"Read warnings and errors from Rick's persistent process logs (they survive restarts) plus any crash reports from earlier boots. "+
 			"Use when asked why Rick didn't respond or what went wrong.",
 		func(_ context.Context, in checkLogsIn) (llm.Result, error) {
-			return llm.Result{Content: a.logReport(in.Hours, time.Now())}, nil
+			return llm.Continue(a.logReport(in.Hours, time.Now())), nil
 		})
 }
 

@@ -139,7 +139,7 @@ func codeShipTestToolFor(a *Agent, origin turnOrigin) (func(context.Context, jso
 	}
 	return func(ctx context.Context, in json.RawMessage) (string, error) {
 		res, err := tool.Execute(ctx, in)
-		return res.Content, err
+		return res.Content(), err
 	}, true
 }
 

@@ -77,7 +77,7 @@ func execTaskTool(t *testing.T, a *Agent, origin turnOrigin, in string) (string,
 		t.Fatal("sys_task tool not found")
 	}
 	res, err := tool.Execute(context.Background(), json.RawMessage(in))
-	return res.Content, err
+	return res.Content(), err
 }
 
 func TestTaskCreateRejectedUnderTaskOrigin(t *testing.T) {

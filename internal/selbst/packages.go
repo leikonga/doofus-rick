@@ -18,6 +18,7 @@ var packages = map[string]string{
 	"selfcode":    "code_ship helpers: postgres snapshots and verifying pending migrations against a scratch database",
 	"shell":       "sys_shell executor: runs bash as the unprivileged shell user with a timeout, output cap and process-group kill",
 	"store":       "postgres via gorm plus goose migrations: messages, chunks, embeddings, quotes, tasks, affinity, traces, token usage",
+	"syncmap":     "generic typed wrapper over sync.Map",
 	"tracer":      "records each turn (prompt, tools, tokens, response); keeps successes in memory, persists failures",
 	"web":         "http server: discord oauth login, quote pages, debug trace viewer, goroutine leak profile",
 }

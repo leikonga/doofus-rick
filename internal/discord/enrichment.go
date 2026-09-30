@@ -62,11 +62,10 @@ func (b *Bot) OnlineMembers() []discord.Member {
 	defer b.cache.mu.RUnlock()
 	var result []discord.Member
 	for _, m := range b.cache.members {
-		val, ok := b.presences.Load(m.User.ID)
+		p, ok := b.presences.Load(m.User.ID)
 		if !ok {
 			continue
 		}
-		p := val.(UserPresence)
 		if p.Status != discord.OnlineStatusOffline && p.Status != discord.OnlineStatusInvisible {
 			result = append(result, m)
 		}
@@ -125,11 +124,11 @@ func (b *Bot) GetStatusForID(id string) discord.OnlineStatus {
 	if err != nil {
 		return discord.OnlineStatusOffline
 	}
-	val, ok := b.presences.Load(uid)
+	p, ok := b.presences.Load(uid)
 	if !ok {
 		return discord.OnlineStatusOffline
 	}
-	return val.(UserPresence).Status
+	return p.Status
 }
 
 func (b *Bot) GetActivitiesForID(id string) []discord.Activity {
@@ -137,17 +136,17 @@ func (b *Bot) GetActivitiesForID(id string) []discord.Activity {
 	if err != nil {
 		return nil
 	}
-	val, ok := b.presences.Load(uid)
+	p, ok := b.presences.Load(uid)
 	if !ok {
 		return nil
 	}
-	return val.(UserPresence).Activities
+	return p.Activities
 }
 
 func (b *Bot) VoiceChannels() map[snowflake.ID]string {
 	result := make(map[snowflake.ID]string)
-	b.voiceChannels.Range(func(k, v any) bool {
-		result[k.(snowflake.ID)] = v.(string)
+	b.voiceChannels.Range(func(id snowflake.ID, name string) bool {
+		result[id] = name
 		return true
 	})
 	return result
@@ -158,9 +157,6 @@ func (b *Bot) VoiceChannelForID(id string) string {
 	if err != nil {
 		return ""
 	}
-	val, ok := b.voiceChannels.Load(uid)
-	if !ok {
-		return ""
-	}
-	return val.(string)
+	name, _ := b.voiceChannels.Load(uid)
+	return name
 }
