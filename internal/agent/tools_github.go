@@ -9,10 +9,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/config"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
 const githubRepo = "leikonga/doofus-rick"
+
+type githubTools struct {
+	config *config.Config
+}
 
 type githubIssueIn struct {
 	Action  string `json:"action" jsonschema:"required,enum=list,enum=comment,enum=close,description=list shows open issues; comment adds a comment; close closes an issue (optionally with a comment)."`
@@ -20,17 +25,17 @@ type githubIssueIn struct {
 	Comment string `json:"comment" jsonschema:"description=Comment text. Required for comment; optional for close."`
 }
 
-func (a *Agent) githubIssueTool() llm.Tool {
+func (g *githubTools) githubIssueTool() llm.Tool {
 	return llm.NewTool("github_issue",
 		"List, comment on or close issues of Rick's own GitHub repo ("+githubRepo+"). Uses the push token internally.",
 		func(ctx context.Context, in githubIssueIn) (llm.Result, error) {
-			if a.config.GitHubToken == "" {
+			if g.config.GitHubToken == "" {
 				return llm.Result{}, fmt.Errorf("no GITHUB_TOKEN configured")
 			}
 			base := "https://api.github.com/repos/" + githubRepo + "/issues"
 			switch in.Action {
 			case "list":
-				out, err := a.githubDo(ctx, http.MethodGet, base+"?state=open&per_page=50", nil)
+				out, err := g.githubDo(ctx, http.MethodGet, base+"?state=open&per_page=50", nil)
 				if err != nil {
 					return llm.Result{}, err
 				}
@@ -61,12 +66,12 @@ func (a *Agent) githubIssueTool() llm.Tool {
 				}
 				url := fmt.Sprintf("%s/%d", base, in.Number)
 				if in.Comment != "" {
-					if _, err := a.githubDo(ctx, http.MethodPost, url+"/comments", map[string]any{"body": in.Comment}); err != nil {
+					if _, err := g.githubDo(ctx, http.MethodPost, url+"/comments", map[string]any{"body": in.Comment}); err != nil {
 						return llm.Result{}, err
 					}
 				}
 				if in.Action == "close" {
-					if _, err := a.githubDo(ctx, http.MethodPatch, url, map[string]any{"state": "closed", "state_reason": "completed"}); err != nil {
+					if _, err := g.githubDo(ctx, http.MethodPatch, url, map[string]any{"state": "closed", "state_reason": "completed"}); err != nil {
 						return llm.Result{}, err
 					}
 				}
@@ -76,7 +81,7 @@ func (a *Agent) githubIssueTool() llm.Tool {
 		})
 }
 
-func (a *Agent) githubDo(ctx context.Context, method, url string, body any) ([]byte, error) {
+func (g *githubTools) githubDo(ctx context.Context, method, url string, body any) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	var r io.Reader
@@ -91,7 +96,7 @@ func (a *Agent) githubDo(ctx context.Context, method, url string, body any) ([]b
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+a.config.GitHubToken)
+	req.Header.Set("Authorization", "Bearer "+g.config.GitHubToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	resp, err := http.DefaultClient.Do(req)

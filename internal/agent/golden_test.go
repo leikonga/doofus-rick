@@ -75,7 +75,7 @@ func TestBuildVolatileTurnGolden(t *testing.T) {
 }
 
 func TestBuildToolsGolden(t *testing.T) {
-	a := &Agent{shellDesc: "FIXED SHELL DESCRIPTION"}
+	a := &Agent{sys: shellTools{desc: "FIXED SHELL DESCRIPTION"}}
 	tools := a.buildTools(turnOrigin{})
 
 	type toolSpec struct {

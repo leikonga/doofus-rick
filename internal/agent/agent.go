@@ -22,7 +22,6 @@ import (
 	"github.com/leikonga/doofus-rick/internal/selfcode"
 	"github.com/leikonga/doofus-rick/internal/shell"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"github.com/leikonga/doofus-rick/internal/syncmap"
 	"github.com/leikonga/doofus-rick/internal/tracer"
 )
 
@@ -43,10 +42,9 @@ type Agent struct {
 	llm              *llm.Client
 	discord          DiscordState
 	discordClient    *disgobot.Client
-	brave            *brave.Client
-	giphy            *giphy.Client
-	shell            *shell.Runner
-	shellDesc        string
+	web              webTools
+	sys              shellTools
+	github           githubTools
 	selbstBlock      string
 	runtimeLogs      runtimeLogs
 	deploys          *runtimehome.Journal
@@ -54,8 +52,7 @@ type Agent struct {
 	tracer           *tracer.Tracer
 	retriever        *archive.Retriever
 	affinity         *affinity.Ledger
-	typingTheatre    *typingTheatre
-	typingChannels   syncmap.Map[snowflake.ID, struct{}]
+	typist           *typist
 	codeedit         *codeedit.Editor
 	turnTimeout      time.Duration
 	repoMu           sync.RWMutex
@@ -118,15 +115,21 @@ func New(c *config.Config, d Deps) *Agent {
 		llm:           d.LLM,
 		discord:       d.Discord,
 		discordClient: d.Client,
-		brave:         brave.New(httpClient, c.BraveAPIKey),
-		giphy:         giphy.New(httpClient, c.GiphyAPIKey),
-		shell:         shell.New(c.WorkDir, c.ShellTimeout, c.ShellUser),
-		shellDesc:     shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
-		selbstBlock:   self.Block(),
-		tracer:        d.Tracer,
-		retriever:     d.Retriever,
-		affinity:      d.Affinity,
-		typingTheatre: newTypingTheatre(typingTheatreConfig{
+		web: webTools{
+			brave: brave.New(httpClient, c.BraveAPIKey),
+			giphy: giphy.New(httpClient, c.GiphyAPIKey),
+		},
+		sys: shellTools{
+			runner:      shell.New(c.WorkDir, c.ShellTimeout, c.ShellUser),
+			desc:        shellDescription(c.ShellUser, c.WorkDir, c.PprofAddr, sandbox.Available(tools)),
+			runtimeLogs: logs,
+		},
+		github:      githubTools{config: c},
+		selbstBlock: self.Block(),
+		tracer:      d.Tracer,
+		retriever:   d.Retriever,
+		affinity:    d.Affinity,
+		typist: newTypist(typingTheatreConfig{
 			Enabled:  c.TypingTheatre,
 			MaxDelay: c.TypingMaxDelay,
 			Chance:   c.TypingChance,

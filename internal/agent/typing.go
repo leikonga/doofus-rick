@@ -1,9 +1,81 @@
 package agent
 
 import (
+	"context"
+	"log/slog"
 	"math/rand/v2"
 	"time"
+
+	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
+	"github.com/leikonga/doofus-rick/internal/syncmap"
 )
+
+type typist struct {
+	theatre  *typingTheatre
+	channels syncmap.Map[snowflake.ID, struct{}]
+}
+
+func newTypist(config typingTheatreConfig) *typist {
+	return &typist{theatre: newTypingTheatre(config)}
+}
+
+func (t *typist) start(ctx context.Context, event *events.MessageCreate) <-chan struct{} {
+	if _, alreadyTyping := t.channels.LoadOrStore(event.ChannelID, struct{}{}); alreadyTyping {
+		return nil
+	}
+	seq := t.theatre.GetTypingSequence()
+	if len(seq) == 0 {
+		go func() {
+			defer t.channels.Delete(event.ChannelID)
+			keepTyping(ctx, event)
+		}()
+		return nil
+	}
+	theatreDone := runTypingTheatre(ctx, event, seq)
+	go func() {
+		defer t.channels.Delete(event.ChannelID)
+		<-theatreDone
+		keepTyping(ctx, event)
+	}()
+	return theatreDone
+}
+
+func keepTyping(ctx context.Context, event *events.MessageCreate) {
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
+	for {
+		if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
+			slog.Warn("failed to send typing indicator", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runTypingTheatre(ctx context.Context, event *events.MessageCreate, sequence []time.Duration) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i, d := range sequence {
+			if i%2 == 0 {
+				if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
+					slog.Warn("failed to send typing indicator", "error", err)
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(d):
+			}
+		}
+	}()
+	return done
+}
 
 type typingTheatre struct {
 	config *typingTheatreConfig

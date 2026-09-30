@@ -17,11 +17,11 @@ type turnOrigin struct {
 func (a *Agent) buildTools(origin turnOrigin) llm.Tools {
 	tools := llm.Tools{
 		a.declineTool(),
-		a.checkLogsTool(),
-		a.mediaSearchTool(),
-		a.webSearchTool(),
-		a.fetchPageTool(),
-		a.shellExecTool(),
+		a.sys.checkLogsTool(),
+		a.web.mediaSearchTool(),
+		a.web.webSearchTool(),
+		a.web.fetchPageTool(),
+		a.sys.shellExecTool(),
 		a.saveQuoteTool(origin),
 		a.getUserQuotesTool(),
 		a.searchHistoryTool(origin),
@@ -29,7 +29,7 @@ func (a *Agent) buildTools(origin turnOrigin) llm.Tools {
 		a.codeEditTool(),
 		a.codeShipTool(origin),
 		a.taskTool(origin),
-		a.githubIssueTool(),
+		a.github.githubIssueTool(),
 	}
 	return append(tools, a.discordTools(origin)...)
 }

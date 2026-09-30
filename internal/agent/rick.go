@@ -69,22 +69,7 @@ func (a *Agent) handleMention(ctx context.Context, event *events.MessageCreate) 
 	defer cancel()
 
 	// Typing starts before the history/recall fetches so the embedding call never delays the indicator.
-	var theatreDone <-chan struct{}
-	if _, alreadyTyping := a.typingChannels.LoadOrStore(event.ChannelID, struct{}{}); !alreadyTyping {
-		if seq := a.typingTheatre.GetTypingSequence(); len(seq) > 0 {
-			theatreDone = a.runTypingTheatre(ctx, event, seq)
-			go func() {
-				defer a.typingChannels.Delete(event.ChannelID)
-				<-theatreDone
-				a.keepTyping(ctx, event)
-			}()
-		} else {
-			go func() {
-				defer a.typingChannels.Delete(event.ChannelID)
-				a.keepTyping(ctx, event)
-			}()
-		}
-	}
+	theatreDone := a.typist.start(ctx, event)
 
 	systemPrompt, err := os.ReadFile(a.config.SystemPromptFile)
 	if err != nil {
@@ -455,41 +440,6 @@ func escalateForCode(alreadyEscalated bool, calls []llm.ToolCall) bool {
 		}
 	}
 	return false
-}
-
-func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
-	ticker := time.NewTicker(8 * time.Second)
-	defer ticker.Stop()
-	for {
-		if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
-			slog.Warn("failed to send typing indicator", "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (a *Agent) runTypingTheatre(ctx context.Context, event *events.MessageCreate, sequence []time.Duration) <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i, d := range sequence {
-			if i%2 == 0 {
-				if err := event.Client().Rest.SendTyping(event.ChannelID, rest.WithCtx(ctx)); err != nil {
-					slog.Warn("failed to send typing indicator", "error", err)
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(d):
-			}
-		}
-	}()
-	return done
 }
 
 func (a *Agent) memberName(user discord.User) string {

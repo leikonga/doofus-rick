@@ -30,8 +30,8 @@ func (f *fakeRuntimeLogs) CrashReports() ([]runtimehome.CrashReport, error) {
 }
 
 func TestLogReportUnavailable(t *testing.T) {
-	a := &Agent{}
-	if got := a.logReport(24, time.Now()); !strings.Contains(got, "log directory unavailable") {
+	s := &shellTools{}
+	if got := s.logReport(24, time.Now()); !strings.Contains(got, "log directory unavailable") {
 		t.Fatalf("logReport = %q", got)
 	}
 }
@@ -51,8 +51,8 @@ func TestLogReportHoursClamp(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprint(tt.in), func(t *testing.T) {
 			logs := &fakeRuntimeLogs{}
-			a := &Agent{runtimeLogs: logs}
-			got := a.logReport(tt.in, now)
+			s := &shellTools{runtimeLogs: logs}
+			got := s.logReport(tt.in, now)
 			if want := now.Add(-time.Duration(tt.want) * time.Hour); !logs.gotSince.Equal(want) {
 				t.Errorf("since = %v, want %v", logs.gotSince, want)
 			}
@@ -83,8 +83,8 @@ func TestLogReportFormatting(t *testing.T) {
 		},
 		logErr: errors.New("read rick-2026-09-28.jsonl: token too long"),
 	}
-	a := &Agent{runtimeLogs: logs}
-	got := a.logReport(24, time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC))
+	s := &shellTools{runtimeLogs: logs}
+	got := s.logReport(24, time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC))
 	want := strings.Join([]string{
 		"warnings and errors in the last 24h (UTC):",
 		`2026-09-28 14:32:05 WARN llm retry model=x/y error="context deadline exceeded"`,
@@ -109,8 +109,8 @@ func TestLogReportStaysWithinOutputLimit(t *testing.T) {
 			Msg:   fmt.Sprintf("m%02d %s", i, strings.Repeat("x", 150)),
 		})
 	}
-	a := &Agent{runtimeLogs: &fakeRuntimeLogs{entries: entries}}
-	got := a.logReport(24, time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC))
+	s := &shellTools{runtimeLogs: &fakeRuntimeLogs{entries: entries}}
+	got := s.logReport(24, time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC))
 	if len(got) > shell.DefaultOutputLimit {
 		t.Fatalf("len = %d, exceeds %d", len(got), shell.DefaultOutputLimit)
 	}

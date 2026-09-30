@@ -15,14 +15,20 @@ import (
 	"github.com/leikonga/doofus-rick/internal/shell"
 )
 
+type shellTools struct {
+	runner      *shell.Runner
+	desc        string
+	runtimeLogs runtimeLogs
+}
+
 type shellExecIn struct {
 	Command string `json:"command" jsonschema:"required,description=Shell command to run."`
 }
 
-func (a *Agent) shellExecTool() llm.Tool {
-	return llm.NewTool("sys_shell", a.shellDesc,
+func (s *shellTools) shellExecTool() llm.Tool {
+	return llm.NewTool("sys_shell", s.desc,
 		func(ctx context.Context, in shellExecIn) (llm.Result, error) {
-			return llm.Continue(a.shell.Exec(ctx, in.Command, shell.DefaultOutputLimit)), nil
+			return llm.Continue(s.runner.Exec(ctx, in.Command, shell.DefaultOutputLimit)), nil
 		})
 }
 
@@ -65,12 +71,12 @@ type checkLogsIn struct {
 	Hours int `json:"hours" jsonschema:"description=How many hours back to look. Defaults to 24; clamped to 1..336."`
 }
 
-func (a *Agent) checkLogsTool() llm.Tool {
+func (s *shellTools) checkLogsTool() llm.Tool {
 	return llm.NewTool("sys_logs",
 		"Read warnings and errors from Rick's persistent process logs (they survive restarts) plus any crash reports from earlier boots. "+
 			"Use when asked why Rick didn't respond or what went wrong.",
 		func(_ context.Context, in checkLogsIn) (llm.Result, error) {
-			return llm.Continue(a.logReport(in.Hours, time.Now())), nil
+			return llm.Continue(s.logReport(in.Hours, time.Now())), nil
 		})
 }
 
@@ -87,13 +93,13 @@ func clampLogHours(hours int) int {
 	}
 }
 
-func (a *Agent) logReport(hours int, now time.Time) string {
-	if a.runtimeLogs == nil {
+func (s *shellTools) logReport(hours int, now time.Time) string {
+	if s.runtimeLogs == nil {
 		return "log directory unavailable: runtime home failed to open, so no persistent logs or crash reports exist"
 	}
 	hours = clampLogHours(hours)
-	entries, logErr := a.runtimeLogs.Problems(now.Add(-time.Duration(hours) * time.Hour))
-	crashes, crashErr := a.runtimeLogs.CrashReports()
+	entries, logErr := s.runtimeLogs.Problems(now.Add(-time.Duration(hours) * time.Hour))
+	crashes, crashErr := s.runtimeLogs.CrashReports()
 
 	var tail strings.Builder
 	if len(crashes) > 0 {
