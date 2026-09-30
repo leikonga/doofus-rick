@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -88,12 +90,64 @@ func (a *Agent) getUserQuotesTool() llm.Tool {
 }
 
 type searchHistoryIn struct {
-	Query string `json:"query" jsonschema:"required,description=What to search for."`
-	Scope string `json:"scope" jsonschema:"required,enum=messages,enum=quotes,description=messages searches archived chat history via hybrid retrieval; quotes searches the quote book."`
+	Query  string `json:"query" jsonschema:"required,description=What to search for."`
+	Scope  string `json:"scope" jsonschema:"required,enum=messages,enum=quotes,description=messages searches archived chat history via hybrid retrieval; quotes searches the quote book."`
+	Author string `json:"author,omitempty" jsonschema:"description=Only for scope messages: restrict to chunks containing messages by this author. A Discord snowflake or an exact display name."`
+	Since  string `json:"since,omitempty" jsonschema:"description=Only for scope messages: earliest date inclusive as YYYY-MM-DD."`
+	Until  string `json:"until,omitempty" jsonschema:"description=Only for scope messages: latest date inclusive as YYYY-MM-DD."`
+}
+
+const dateLayout = "2006-01-02"
+
+func parseSearchDates(since, until string) (*time.Time, *time.Time, error) {
+	var from, to *time.Time
+	if since != "" {
+		t, err := time.Parse(dateLayout, since)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid since %q, expected YYYY-MM-DD", since)
+		}
+		from = &t
+	}
+	if until != "" {
+		t, err := time.Parse(dateLayout, until)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid until %q, expected YYYY-MM-DD", until)
+		}
+		t = t.AddDate(0, 0, 1)
+		to = &t
+	}
+	return from, to, nil
+}
+
+// resolveAuthor returns a nil ID and a model-readable message when the author cannot be resolved to exactly one user.
+func (a *Agent) resolveAuthor(ctx context.Context, author string) (*uint64, string, error) {
+	author = strings.TrimSpace(author)
+	if author == "" {
+		return nil, "", nil
+	}
+	if id, err := strconv.ParseUint(author, 10, 64); err == nil {
+		return &id, "", nil
+	}
+	matches, err := a.store.FindAuthorsByName(ctx, author)
+	if err != nil {
+		return nil, "", err
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Sprintf("no author named %q found; pass a Discord snowflake or an exact display name", author), nil
+	case 1:
+		return &matches[0].AuthorID, "", nil
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "author %q is ambiguous; retry with one of these snowflakes:\n", author)
+	for _, m := range matches {
+		fmt.Fprintf(&sb, "- %d (%s, %d messages)\n", m.AuthorID, m.AuthorName, m.MsgCount)
+	}
+	return nil, sb.String(), nil
 }
 
 func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
-	return llm.NewTool("memory_search", "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
+	return llm.NewTool("memory_search", "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need. For scope messages, optional author (snowflake or exact display name) and since/until (YYYY-MM-DD, inclusive) narrow the search.",
 		func(ctx context.Context, in searchHistoryIn) (llm.Result, error) {
 			switch in.Scope {
 			case "quotes":
@@ -114,7 +168,24 @@ func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {
 				if len(channelIDs) == 0 {
 					return llm.Continue("no channels to search"), nil
 				}
-				chunks, err := a.retriever.Retrieve(ctx, in.Query, channelIDs)
+				since, until, err := parseSearchDates(in.Since, in.Until)
+				if err != nil {
+					return llm.Result{}, err
+				}
+				authorID, notice, err := a.resolveAuthor(ctx, in.Author)
+				if err != nil {
+					return llm.Result{}, err
+				}
+				if notice != "" {
+					return llm.Continue(notice), nil
+				}
+				chunks, err := a.retriever.Retrieve(ctx, archive.RetrieveRequest{
+					Query:      in.Query,
+					ChannelIDs: channelIDs,
+					AuthorID:   authorID,
+					Since:      since,
+					Until:      until,
+				})
 				if err != nil {
 					return llm.Result{}, err
 				}

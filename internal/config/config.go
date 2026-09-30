@@ -70,7 +70,7 @@ type Config struct {
 
 	RecallEnabled        bool
 	RecallTopK           int
-	RecallMinScore       float64
+	RecallMinSimilarity  float64
 	RecallNeighborChunks int
 
 	AmbientEnabled      bool
@@ -166,7 +166,7 @@ func LoadConfig() *Config {
 
 		RecallEnabled:        getEnvBool("RECALL_ENABLED", true),
 		RecallTopK:           getEnvInt("RECALL_TOP_K", 3),
-		RecallMinScore:       getEnvFloat64("RECALL_MIN_SCORE", 0.005),
+		RecallMinSimilarity:  getEnvFloat64("RECALL_MIN_SIMILARITY", 0),
 		RecallNeighborChunks: getEnvInt("RECALL_NEIGHBOR_CHUNKS", 1),
 
 		AmbientEnabled:      getEnvBool("AMBIENT_ENABLED", false),

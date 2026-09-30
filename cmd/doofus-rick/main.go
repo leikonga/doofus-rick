@@ -125,7 +125,7 @@ func run() error {
 	llmClient := llm.NewClient(c.OpenRouterAPIKey)
 	retriever := archive.NewRetriever(archive.RetrievalConfig{
 		TopK:           c.RecallTopK,
-		MinScore:       c.RecallMinScore,
+		MinSimilarity:  c.RecallMinSimilarity,
 		EmbedModel:     c.RickEmbedModel,
 		NeighborChunks: c.RecallNeighborChunks,
 	}, db, llmClient)

@@ -72,9 +72,9 @@ func TestRetrieveHybridRanking(t *testing.T) {
 	vecOnly := seedChunk(t, s, 1, "unrelated words\n", 5)
 	otherChannel := seedChunk(t, s, 2, "zebra elsewhere\n", 0)
 
-	r := NewRetriever(RetrievalConfig{TopK: 10, MinScore: 0.001, EmbedModel: testEmbedModel, NeighborChunks: 1}, s, fakeEmbedClient(t, unitVector(0)))
+	r := NewRetriever(RetrievalConfig{TopK: 10, EmbedModel: testEmbedModel, NeighborChunks: 1}, s, fakeEmbedClient(t, unitVector(0)))
 
-	got, err := r.Retrieve(ctx, "zebra", []uint64{1})
+	got, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestRetrieveHybridRanking(t *testing.T) {
 		t.Errorf("scores not descending: %v, %v", got[0].Score, got[1].Score)
 	}
 
-	both2, err := r.Retrieve(ctx, "zebra", []uint64{1, 2})
+	both2, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1, 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,37 +109,73 @@ func TestRetrieveHybridRanking(t *testing.T) {
 	}
 }
 
-func TestRetrieveMinScoreAndTopK(t *testing.T) {
+func TestRetrieveMinSimilarityAndTopK(t *testing.T) {
 	s := pgtest.Store(t)
 	ctx := context.Background()
 	both := seedChunk(t, s, 1, "zebra crossing\n", 0)
-	seedChunk(t, s, 1, "zebra herd\n", -1)
-	seedChunk(t, s, 1, "unrelated words\n", 5)
+	lexOnly := seedChunk(t, s, 1, "zebra herd\n", -1)
+	vecOnly := seedChunk(t, s, 1, "unrelated words\n", 5)
 	client := fakeEmbedClient(t, unitVector(0))
 
 	tests := []struct {
 		name string
 		cfg  RetrievalConfig
-		want int
+		want []uint64
 	}{
-		{"topk limits", RetrievalConfig{TopK: 1, MinScore: 0.001}, 1},
-		{"min score filters weaker hits", RetrievalConfig{TopK: 10, MinScore: 0.02}, 1},
-		{"min score above everything", RetrievalConfig{TopK: 10, MinScore: 0.5}, 0},
-		{"no filtering", RetrievalConfig{TopK: 10, MinScore: 0.001}, 3},
+		{"topk limits", RetrievalConfig{TopK: 1}, []uint64{both}},
+		{"floor drops weak vector hit, keeps lexical", RetrievalConfig{TopK: 10, MinSimilarity: 0.5}, []uint64{both, lexOnly}},
+		{"disabled floor keeps all", RetrievalConfig{TopK: 10}, []uint64{both, lexOnly, vecOnly}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.cfg.EmbedModel = testEmbedModel
 			r := NewRetriever(tt.cfg, s, client)
-			got, err := r.Retrieve(ctx, "zebra", []uint64{1})
+			got, err := r.Retrieve(ctx, RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{1}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := chunkIDs(got)
+			if len(ids) != len(tt.want) || ids[0] != both {
+				t.Fatalf("got %v, want %v with %d first", ids, tt.want, both)
+			}
+			for _, id := range tt.want {
+				if !slices.Contains(ids, id) {
+					t.Errorf("chunk %d missing from %v", id, ids)
+				}
+			}
+		})
+	}
+}
+
+func TestRetrievePassesFilters(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	id := seedChunk(t, s, 1, "zebra\n", 0)
+	pgtest.Exec(t, "INSERT INTO messages (id, channel_id, author_id, author_name, content, is_bot, created_at) VALUES (?, 1, 42, 'klaus', 'zebra', false, now())", id)
+	r := NewRetriever(RetrievalConfig{EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
+
+	author, other := uint64(42), uint64(43)
+	future := time.Now().Add(24 * time.Hour)
+	tests := []struct {
+		name string
+		req  RetrieveRequest
+		want int
+	}{
+		{"matching author", RetrieveRequest{AuthorID: &author}, 1},
+		{"other author", RetrieveRequest{AuthorID: &other}, 0},
+		{"since in future", RetrieveRequest{Since: &future}, 0},
+		{"until in future", RetrieveRequest{Until: &future}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.req.Query = "zebra"
+			tt.req.ChannelIDs = []uint64{1}
+			got, err := r.Retrieve(ctx, tt.req)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(got) != tt.want {
-				t.Fatalf("got %d chunks %v, want %d", len(got), chunkIDs(got), tt.want)
-			}
-			if tt.want > 0 && got[0].ID != both {
-				t.Errorf("first = %d, want %d", got[0].ID, both)
+				t.Fatalf("got %v, want %d results", chunkIDs(got), tt.want)
 			}
 		})
 	}
@@ -167,8 +203,8 @@ func TestRetrieveNeighborExpansion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRetriever(RetrievalConfig{TopK: 1, MinScore: 0.001, EmbedModel: testEmbedModel, NeighborChunks: tt.neighbors}, s, client)
-			got, err := r.Retrieve(ctx, "nomatch", []uint64{3})
+			r := NewRetriever(RetrievalConfig{TopK: 1, EmbedModel: testEmbedModel, NeighborChunks: tt.neighbors}, s, client)
+			got, err := r.Retrieve(ctx, RetrieveRequest{Query: "nomatch", ChannelIDs: []uint64{3}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +224,7 @@ func TestRetrieveNeighborAtEdges(t *testing.T) {
 	seedChunk(t, s, 1, "second\n", -1)
 	r := NewRetriever(RetrievalConfig{TopK: 1, EmbedModel: testEmbedModel, NeighborChunks: 1}, s, fakeEmbedClient(t, unitVector(0)))
 
-	got, err := r.Retrieve(context.Background(), "nomatch", []uint64{1})
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "nomatch", ChannelIDs: []uint64{1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +238,7 @@ func TestRetrieveRecordsTokenUsage(t *testing.T) {
 	seedChunk(t, s, 9, "zebra\n", 0)
 	r := NewRetriever(RetrievalConfig{EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
 
-	if _, err := r.Retrieve(context.Background(), "zebra", []uint64{9, 10}); err != nil {
+	if _, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: []uint64{9, 10}}); err != nil {
 		t.Fatal(err)
 	}
 	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
@@ -218,7 +254,7 @@ func TestRetrieveRecordsTokenUsage(t *testing.T) {
 func TestRetrieveEmptyChannelIDs(t *testing.T) {
 	s := pgtest.Store(t)
 	r := NewRetriever(RetrievalConfig{EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
-	got, err := r.Retrieve(context.Background(), "zebra", nil)
+	got, err := r.Retrieve(context.Background(), RetrieveRequest{Query: "zebra", ChannelIDs: nil})
 	if err != nil || len(got) != 0 {
 		t.Errorf("got %v, %v; want no results and no error", got, err)
 	}

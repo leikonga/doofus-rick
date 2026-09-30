@@ -155,10 +155,14 @@
   },
   {
     "name": "memory_search",
-    "description": "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need.",
+    "description": "Search either the archived chat history or the quote book for something specific. Use for deliberate digging when the automatic context didn't surface what you need. For scope messages, optional author (snowflake or exact display name) and since/until (YYYY-MM-DD, inclusive) narrow the search.",
     "schema": {
       "additionalProperties": false,
       "properties": {
+        "author": {
+          "description": "Only for scope messages: restrict to chunks containing messages by this author. A Discord snowflake or an exact display name.",
+          "type": "string"
+        },
         "query": {
           "description": "What to search for.",
           "type": "string"
@@ -169,6 +173,14 @@
             "messages",
             "quotes"
           ],
+          "type": "string"
+        },
+        "since": {
+          "description": "Only for scope messages: earliest date inclusive as YYYY-MM-DD.",
+          "type": "string"
+        },
+        "until": {
+          "description": "Only for scope messages: latest date inclusive as YYYY-MM-DD.",
           "type": "string"
         }
       },

@@ -271,3 +271,24 @@ func (s *Store) IncrementAmbientFiresToday(ctx context.Context, channelID uint64
 		Where("channel_id = ?", channelID).
 		UpdateColumn("fires_today", gorm.Expr("fires_today + 1")).Error
 }
+
+// FindAuthorsByName matches any name an author has used, case-insensitively, and returns each author's latest name.
+func (s *Store) FindAuthorsByName(ctx context.Context, name string) ([]ActiveAuthor, error) {
+	var authors []ActiveAuthor
+	err := s.db.WithContext(ctx).Raw(`
+		SELECT m.author_id AS author_id,
+		       (SELECT m2.author_name FROM messages m2
+		        WHERE m2.author_id = m.author_id
+		        ORDER BY m2.created_at DESC LIMIT 1) AS author_name,
+		       COUNT(*) AS msg_count
+		FROM messages m
+		WHERE lower(m.author_name) = lower(?) AND m.is_bot = ?
+		GROUP BY m.author_id
+		ORDER BY msg_count DESC
+		LIMIT 10
+	`, name, false).Scan(&authors).Error
+	if err != nil {
+		return nil, fmt.Errorf("find authors by name: %w", err)
+	}
+	return authors, nil
+}

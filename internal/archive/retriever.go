@@ -12,9 +12,11 @@ import (
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
+const recallNote = "Possibly related old chat snippets. Often unrelated; ignore unless clearly relevant."
+
 type RetrievalConfig struct {
 	TopK           int
-	MinScore       float64
+	MinSimilarity  float64
 	EmbedModel     string
 	NeighborChunks int
 }
@@ -29,9 +31,6 @@ func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retrie
 	if config.TopK == 0 {
 		config.TopK = 3
 	}
-	if config.MinScore == 0 {
-		config.MinScore = 0.005
-	}
 	return &Retriever{config: config, store: s, llm: c}
 }
 
@@ -44,8 +43,17 @@ type RetrievedChunk struct {
 	ChannelVisible bool
 }
 
-func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uint64) ([]RetrievedChunk, error) {
+type RetrieveRequest struct {
+	Query      string
+	ChannelIDs []uint64
+	AuthorID   *uint64
+	Since      *time.Time
+	Until      *time.Time
+}
+
+func (r *Retriever) Retrieve(ctx context.Context, req RetrieveRequest) ([]RetrievedChunk, error) {
 	var results []RetrievedChunk
+	query, channelIDs := req.Query, req.ChannelIDs
 
 	queryText := fmt.Sprintf("Instruct: Given a question, retrieve relevant chat logs\nQuery: %s", query)
 
@@ -72,38 +80,54 @@ func (r *Retriever) Retrieve(ctx context.Context, query string, channelIDs []uin
 		ChannelIDs: channelIDs,
 		Model:      r.config.EmbedModel,
 		TopK:       r.config.TopK,
+
+		MinSimilarity: r.config.MinSimilarity,
+		AuthorID:      req.AuthorID,
+		Since:         req.Since,
+		Until:         req.Until,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	for _, c := range chunks {
-		if c.Score >= r.config.MinScore {
-			content := c.Content
-			if expanded, err := r.expandWithNeighbors(ctx, c.ChannelID, c.ID, content); err != nil {
-				slog.Warn("failed to expand chunk with neighbors", "chunk_id", c.ID, "error", err)
-			} else {
-				content = expanded
-			}
-			results = append(results, RetrievedChunk{
-				ID:             c.ID,
-				ChannelID:      c.ChannelID,
-				Content:        content,
-				Score:          c.Score,
-				LastActive:     c.LastActive,
-				ChannelVisible: true,
-			})
+		slog.Debug("archive candidate", "chunk_id", c.ID, "similarity", c.Similarity, "rrf", c.Score, "content", preview(c.Content, 80))
+		content := c.Content
+		if expanded, err := r.expandWithNeighbors(ctx, c.ChannelID, c.ID, content); err != nil {
+			slog.Warn("failed to expand chunk with neighbors", "chunk_id", c.ID, "error", err)
+		} else {
+			content = expanded
 		}
+		results = append(results, RetrievedChunk{
+			ID:             c.ID,
+			ChannelID:      c.ChannelID,
+			Content:        content,
+			Score:          c.Score,
+			LastActive:     c.LastActive,
+			ChannelVisible: true,
+		})
 	}
 
-	var topScore float64
-	if len(chunks) > 0 {
-		topScore = chunks[0].Score
-	}
-	slog.Info("archive retrieval", "query", query, "candidates", len(chunks), "passed_min_score", len(results),
-		"min_score", r.config.MinScore, "top_score", topScore)
+	slog.Info("archive retrieval", "query", query, "candidates", len(chunks), "min_similarity", r.config.MinSimilarity,
+		"author_id", formatOptional(req.AuthorID), "since", formatOptional(req.Since), "until", formatOptional(req.Until))
 
 	return results, nil
+}
+
+func preview(content string, limit int) string {
+	content = strings.Join(strings.Fields(content), " ")
+	runes := []rune(content)
+	if len(runes) <= limit {
+		return content
+	}
+	return string(runes[:limit])
+}
+
+func formatOptional[T any](p *T) string {
+	if p == nil {
+		return "none"
+	}
+	return fmt.Sprint(*p)
 }
 
 func (r *Retriever) expandWithNeighbors(ctx context.Context, channelID, chunkID uint64, content string) (string, error) {
@@ -137,6 +161,8 @@ func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {
 
 	var sb strings.Builder
 	sb.WriteString("<recall>\n")
+	sb.WriteString(recallNote)
+	sb.WriteByte('\n')
 	for _, c := range chunks {
 		fmt.Fprintf(&sb, "<chunk date=%q>\n%s\n</chunk>\n", c.LastActive.Format("2006-01-02"), strings.TrimRight(c.Content, "\n"))
 	}
