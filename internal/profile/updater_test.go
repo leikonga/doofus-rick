@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
 )
@@ -89,7 +90,7 @@ func msgAt(id, channel, author uint64, content string) store.Message {
 }
 
 func newTestUpdater(st *fakeStore, c *fakeLLM, ch fakeChannels, names fakeNamer) *Updater {
-	u := NewUpdater(Config{Model: "m", MinNewMessages: 5}, c, st, ch, nil)
+	u := NewUpdater(Config{Model: "m", MinNewMessages: 5}, c, st, ch, archive.NoChannelNames{})
 	if names != nil {
 		u.names = names
 	}
@@ -136,7 +137,7 @@ func TestRunOnceWithoutExistingProfile(t *testing.T) {
 		messages:   map[uint64][]store.Message{7: {msgAt(60, 1, 7, "hello")}},
 	}
 	c := &fakeLLM{}
-	newTestUpdater(st, c, fakeChannels{ids: []uint64{1}}, nil).runOnce(context.Background())
+	newTestUpdater(st, c, fakeChannels{ids: []uint64{1}}, fakeNamer(nil)).runOnce(context.Background())
 	if !strings.Contains(c.reqs[0].Messages[0].Text(), "none yet") {
 		t.Errorf("prompt = %s", c.reqs[0].Messages[0].Text())
 	}
@@ -150,7 +151,7 @@ func TestRunOnceOneFailureDoesNotStopOthers(t *testing.T) {
 		},
 	}
 	c := &fakeLLM{errs: []error{errors.New("boom")}, replies: []string{"", `{"profile":"   "}`, `{"profile":"ok"}`}}
-	newTestUpdater(st, c, fakeChannels{ids: []uint64{1}}, nil).runOnce(context.Background())
+	newTestUpdater(st, c, fakeChannels{ids: []uint64{1}}, fakeNamer(nil)).runOnce(context.Background())
 
 	if len(c.reqs) != 3 {
 		t.Fatalf("requests = %d, want 3", len(c.reqs))
@@ -174,7 +175,7 @@ func TestRunOnceSkipsWithoutPublicChannels(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			st := &fakeStore{candidates: []store.ProfileCandidate{{AuthorID: 7}}, messages: map[uint64][]store.Message{7: {msgAt(1, 1, 7, "hello")}}}
 			c := &fakeLLM{}
-			newTestUpdater(st, c, ch, nil).runOnce(context.Background())
+			newTestUpdater(st, c, ch, fakeNamer(nil)).runOnce(context.Background())
 			if len(c.reqs) != 0 || len(st.saved) != 0 {
 				t.Errorf("requests = %d, saved = %v", len(c.reqs), st.saved)
 			}
@@ -184,7 +185,7 @@ func TestRunOnceSkipsWithoutPublicChannels(t *testing.T) {
 
 func TestRunStopsOnContextCancel(t *testing.T) {
 	st := &fakeStore{}
-	u := NewUpdater(Config{Model: "m", InitialDelay: time.Hour, Interval: time.Hour}, &fakeLLM{}, st, fakeChannels{ids: []uint64{1}}, nil)
+	u := NewUpdater(Config{Model: "m", InitialDelay: time.Hour, Interval: time.Hour}, &fakeLLM{}, st, fakeChannels{ids: []uint64{1}}, archive.NoChannelNames{})
 	ctx, cancel := context.WithCancel(context.Background())
 	u.Start(ctx)
 	cancel()
@@ -205,7 +206,7 @@ func TestRunStopsMidRun(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &cancelingLLM{fakeLLM: &fakeLLM{}, cancel: cancel}
-	u := NewUpdater(Config{Model: "m"}, c, st, fakeChannels{ids: []uint64{1}}, nil)
+	u := NewUpdater(Config{Model: "m"}, c, st, fakeChannels{ids: []uint64{1}}, archive.NoChannelNames{})
 	u.runOnce(ctx)
 	if len(c.reqs) != 1 {
 		t.Errorf("requests = %d, want 1 (second author skipped after cancel)", len(c.reqs))
@@ -228,7 +229,7 @@ func TestRunFirstTickAfterInitialDelay(t *testing.T) {
 		candidates: []store.ProfileCandidate{{AuthorID: 7}},
 		messages:   map[uint64][]store.Message{7: {msgAt(1, 1, 7, "hello")}},
 	}
-	u := NewUpdater(Config{Model: "m", InitialDelay: 5 * time.Millisecond, Interval: time.Hour}, &fakeLLM{}, st, fakeChannels{ids: []uint64{1}}, nil)
+	u := NewUpdater(Config{Model: "m", InitialDelay: 5 * time.Millisecond, Interval: time.Hour}, &fakeLLM{}, st, fakeChannels{ids: []uint64{1}}, archive.NoChannelNames{})
 	ctx, cancel := context.WithCancel(context.Background())
 	u.Start(ctx)
 	deadline := time.After(2 * time.Second)

@@ -42,7 +42,6 @@ func (s *Store) DeletePersonProfile(ctx context.Context, userID uint64) error {
 	return nil
 }
 
-// GetProfileCandidates counts only messages in channelIDs, most active authors first.
 func (s *Store) GetProfileCandidates(ctx context.Context, channelIDs []uint64, minNew, limit int) ([]ProfileCandidate, error) {
 	if len(channelIDs) == 0 {
 		return nil, nil

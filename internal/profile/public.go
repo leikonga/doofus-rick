@@ -18,7 +18,6 @@ type guildReader interface {
 	GetRoles(guildID snowflake.ID, opts ...rest.RequestOpt) ([]discord.Role, error)
 }
 
-// PublicChannels lists message channels where @everyone can view the channel. The @everyone role id equals the guild id.
 type PublicChannels struct {
 	rest    guildReader
 	guildID snowflake.ID
@@ -72,9 +71,14 @@ func (p *PublicChannels) PublicChannelIDs(ctx context.Context) ([]uint64, error)
 	return ids, nil
 }
 
+// The @everyone role id equals the guild id.
+func everyoneRoleID(guildID snowflake.ID) snowflake.ID {
+	return guildID
+}
+
 func everyonePermissions(roles []discord.Role, guildID snowflake.ID) (discord.Permissions, bool) {
 	for _, r := range roles {
-		if r.ID == guildID {
+		if r.ID == everyoneRoleID(guildID) {
 			return r.Permissions, true
 		}
 	}
@@ -83,7 +87,7 @@ func everyonePermissions(roles []discord.Role, guildID snowflake.ID) (discord.Pe
 
 func everyoneCanView(base discord.Permissions, overwrites discord.PermissionOverwrites, guildID snowflake.ID) bool {
 	perms := base
-	if ow, ok := overwrites.Role(guildID); ok {
+	if ow, ok := overwrites.Role(everyoneRoleID(guildID)); ok {
 		perms = perms.Remove(ow.Deny).Add(ow.Allow)
 	}
 	return perms.Has(discord.PermissionViewChannel)

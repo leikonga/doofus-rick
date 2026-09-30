@@ -49,3 +49,7 @@ func (n *ChannelNames) ChannelName(ctx context.Context, channelID uint64) string
 	n.mu.Unlock()
 	return name
 }
+
+type NoChannelNames struct{}
+
+func (NoChannelNames) ChannelName(context.Context, uint64) string { return "" }

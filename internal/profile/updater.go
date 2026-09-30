@@ -82,7 +82,6 @@ type Updater struct {
 	wg       sync.WaitGroup
 }
 
-// names may be nil; messages are then formatted without a channel name.
 func NewUpdater(config Config, c completer, s updaterStore, channels ChannelProvider, names archive.ChannelNamer) *Updater {
 	if config.MaxTokens == 0 {
 		config.MaxTokens = defaultMaxTokens
@@ -210,9 +209,7 @@ func (u *Updater) buildPrompt(ctx context.Context, msgs []store.Message, existin
 	for _, m := range msgs {
 		name, ok := names[m.ChannelID]
 		if !ok {
-			if u.names != nil {
-				name = u.names.ChannelName(ctx, m.ChannelID)
-			}
+			name = u.names.ChannelName(ctx, m.ChannelID)
 			names[m.ChannelID] = name
 		}
 		text := strings.Join(strings.Fields(m.Content), " ")
