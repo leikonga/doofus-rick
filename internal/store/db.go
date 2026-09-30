@@ -42,7 +42,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err := RunMigrations(ctx, sqlDB); err != nil {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-	if err := db.WithContext(ctx).AutoMigrate(&Quote{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &AmbientLog{}, &AmbientState{}); err != nil {
+	if err := db.WithContext(ctx).AutoMigrate(&Quote{}, &TokenUsage{}, &FailureTrace{}, &Message{}, &ForgottenAuthor{}, &BackfillState{}, &BackfillChannel{}, &Chunk{}, &ChunkEmbedding{}, &UserAffinity{}, &PersonProfile{}, &AmbientLog{}, &AmbientState{}); err != nil {
 		return nil, fmt.Errorf("automigrate: %w", err)
 	}
 

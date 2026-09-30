@@ -12,6 +12,7 @@ var packages = map[string]string{
 	"giphy":       "giphy gif search for the web_media tool",
 	"llm":         "openrouter client: chat completions with tools and prompt caching, embeddings, tool schema derivation",
 	"pgtest":      "test-only postgres harness: one pgvector testcontainer per test binary, truncates tables per test, skips without docker",
+	"profile":     "background job keeping a neutral per-member profile summary from messages in channels @everyone can view, read by the memory_person tool",
 	"runtimehome": "runtime dir in the work dir: daily jsonl logs, per-boot crash files, deploy journal (ship, boot, reported), readers behind sys_logs, group permissions",
 	"sandbox":     "manifest of native alpine tools installed for sys_shell (tools.txt)",
 	"selbst":      "rick's self-knowledge: build and runtime facts for the <selbst> block, this package map, live vitals, deploy status and the post-restart deploy report",

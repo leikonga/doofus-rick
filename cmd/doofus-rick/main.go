@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/disgoorg/disgo/rest"
 	"github.com/leikonga/doofus-rick/internal/affinity"
 	"github.com/leikonga/doofus-rick/internal/agent"
 	"github.com/leikonga/doofus-rick/internal/ambient"
@@ -24,6 +25,7 @@ import (
 	"github.com/leikonga/doofus-rick/internal/config"
 	discordpkg "github.com/leikonga/doofus-rick/internal/discord"
 	"github.com/leikonga/doofus-rick/internal/llm"
+	"github.com/leikonga/doofus-rick/internal/profile"
 	"github.com/leikonga/doofus-rick/internal/runtimehome"
 	"github.com/leikonga/doofus-rick/internal/selbst"
 	"github.com/leikonga/doofus-rick/internal/shell"
@@ -196,6 +198,11 @@ func run() error {
 	}, llmClient, db)
 	watcher := ambient.NewWatcher(ambient.WatcherConfig{Enabled: c.AmbientEnabled, Window: c.AmbientWindow}, db, gate, classifier, ag, rick.Client().ID)
 
+	profiler := newProfiler(c, llmClient, db, rick.Client().Rest, archive.NewChannelNames(rick.Client().Rest))
+	if profiler != nil {
+		profiler.Start(ctx)
+	}
+
 	errCh := make(chan error, 2)
 	go func() {
 		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest, Ambient: watcher, Tasks: ag.Scheduler()}); err != nil {
@@ -246,13 +253,37 @@ func run() error {
 	}
 	rick.Close(shutdownCtx)
 
-	if waitAll(shutdownCtx, rick.Wait, ingest.Wait, watcher.Wait, ag.Scheduler().Wait, ag.Wait) {
+	waits := []func(){rick.Wait, ingest.Wait, watcher.Wait, ag.Scheduler().Wait, ag.Wait}
+	if profiler != nil {
+		waits = append(waits, profiler.Wait)
+	}
+	if waitAll(shutdownCtx, waits...) {
 		slog.Info("shutdown complete")
 	} else {
 		slog.Warn("shutdown timed out, abandoning goroutines still running", "timeout", shutdownTimeout)
 	}
 
 	return runErr
+}
+
+func newProfiler(c *config.Config, llmClient *llm.Client, db *store.Store, guild rest.Rest, names archive.ChannelNamer) *profile.Updater {
+	if !c.ProfileEnabled {
+		return nil
+	}
+	if c.ProfileModel == "" {
+		slog.Warn("PROFILE_ENABLED is set but PROFILE_MODEL is empty, profiles not started")
+		return nil
+	}
+	public, err := profile.NewPublicChannels(guild, c.DiscordGuild)
+	if err != nil {
+		slog.Warn("profiles not started", "error", err)
+		return nil
+	}
+	return profile.NewUpdater(profile.Config{
+		Model:          c.ProfileModel,
+		Interval:       c.ProfileInterval,
+		MinNewMessages: c.ProfileMinNewMessages,
+	}, llmClient, db, public, names)
 }
 
 func waitAll(ctx context.Context, waits ...func()) bool {
@@ -367,6 +398,11 @@ func forget(args []string) error {
 			return fmt.Errorf("forget author %d: %w", fa.authorID, err)
 		}
 		fmt.Printf("forgotten author %d\n", fa.authorID)
+
+		if err := db.DeletePersonProfile(ctx, fa.authorID); err != nil {
+			return fmt.Errorf("delete profile for author %d: %w", fa.authorID, err)
+		}
+		fmt.Printf("deleted profile for author %d\n", fa.authorID)
 
 		if fa.quotes {
 			if err := db.DeleteQuotesByAuthor(ctx, strconv.FormatUint(fa.authorID, 10)); err != nil {

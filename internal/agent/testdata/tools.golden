@@ -192,6 +192,23 @@
     }
   },
   {
+    "name": "memory_person",
+    "description": "Read the maintained profile of a server member: how they talk, recurring topics, running jokes, nicknames, who they interact with and notable quotes, built from public channels only. Use it before writing about, roasting, or making content about a specific member.",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "description": "The member to look up. A Discord snowflake or an exact display name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "code_read",
     "description": "Read a file from Rick's own source checkout, cat -n style with line numbers.",
     "schema": {

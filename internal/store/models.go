@@ -101,6 +101,13 @@ type UserAffinity struct {
 	UpdatedAt  time.Time `gorm:"not null"`
 }
 
+type PersonProfile struct {
+	UserID             uint64    `gorm:"primaryKey"`
+	Summary            string    `gorm:"type:text;not null"`
+	WatermarkMessageID uint64    `gorm:"not null"`
+	UpdatedAt          time.Time `gorm:"not null"`
+}
+
 type AmbientLog struct {
 	ID        uint64    `gorm:"primaryKey"`
 	ChannelID uint64    `gorm:"not null"`

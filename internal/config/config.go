@@ -92,6 +92,11 @@ type Config struct {
 	AffinityBaseline int
 	AffinityModel    string
 
+	ProfileEnabled        bool
+	ProfileModel          string
+	ProfileInterval       time.Duration
+	ProfileMinNewMessages int
+
 	TypingTheatre  bool
 	TypingMaxDelay time.Duration
 	TypingChance   float64
@@ -191,6 +196,11 @@ func LoadConfig() *Config {
 		AffinityEnabled:  getEnvBool("AFFINITY_ENABLED", true),
 		AffinityBaseline: getEnvInt("AFFINITY_BASELINE", -20),
 		AffinityModel:    getEnv("AFFINITY_MODEL", ""),
+
+		ProfileEnabled:        getEnvBool("PROFILE_ENABLED", false),
+		ProfileModel:          getEnv("PROFILE_MODEL", ""),
+		ProfileInterval:       getEnvDuration("PROFILE_INTERVAL", 6*time.Hour),
+		ProfileMinNewMessages: getEnvInt("PROFILE_MIN_NEW_MESSAGES", 50),
 
 		TypingTheatre:  getEnvBool("TYPING_THEATRE", false),
 		TypingMaxDelay: getEnvDuration("TYPING_MAX_DELAY", 20*time.Second),

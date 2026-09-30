@@ -12,7 +12,7 @@ func TestBuildToolsCountAndNames(t *testing.T) {
 	a := &Agent{}
 	tools := a.buildTools(turnOrigin{})
 
-	const want = 18
+	const want = 19
 	if len(tools) != want {
 		t.Fatalf("buildTools() returned %d tools, want %d", len(tools), want)
 	}
@@ -20,7 +20,7 @@ func TestBuildToolsCountAndNames(t *testing.T) {
 	wantNames := []string{
 		"decline", "discord_react", "web_media", "web_search", "web_fetch",
 		"sys_shell", "discord_send_message", "discord_create_poll", "discord_send_file", "memory_quote_save",
-		"memory_quote_list", "sys_task", "sys_logs", "memory_search",
+		"memory_quote_list", "sys_task", "sys_logs", "memory_search", "memory_person",
 		"code_read", "code_edit", "code_ship", "github_issue",
 	}
 	seen := make(map[string]bool, len(tools))
