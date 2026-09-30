@@ -37,29 +37,26 @@ type DiscordState interface {
 }
 
 type Agent struct {
-	store            *store.Store
-	config           *config.Config
-	llm              *llm.Client
-	discord          DiscordState
-	discordClient    *disgobot.Client
-	web              webTools
-	sys              shellTools
-	github           githubTools
-	code             codeTools
-	selbstBlock      string
-	runtimeLogs      runtimeLogs
-	deploys          *runtimehome.Journal
-	crashFile        string
-	tracer           *tracer.Tracer
-	retriever        *archive.Retriever
-	affinity         *affinity.Ledger
-	typist           *typist
-	turnTimeout      time.Duration
-	tasks            taskStore
-	taskWake         chan struct{}
-	taskCancels      taskCancels
-	interruptedTasks chan []store.Task
-	wg               sync.WaitGroup
+	store         *store.Store
+	config        *config.Config
+	llm           *llm.Client
+	discord       DiscordState
+	discordClient *disgobot.Client
+	web           webTools
+	sys           shellTools
+	github        githubTools
+	code          codeTools
+	selbstBlock   string
+	runtimeLogs   runtimeLogs
+	deploys       *runtimehome.Journal
+	crashFile     string
+	tracer        *tracer.Tracer
+	retriever     *archive.Retriever
+	affinity      *affinity.Ledger
+	typist        *typist
+	turnTimeout   time.Duration
+	tasks         *Scheduler
+	wg            sync.WaitGroup
 }
 
 type Deps struct {
@@ -103,7 +100,7 @@ func New(c *config.Config, d Deps) *Agent {
 		paths.Logs, paths.Crash, paths.Deploys = home.LogsDir(), home.CrashDir(), home.DeploysPath()
 	}
 	self := selbst.Gather(c.RickModel, c.ShellUser, c.PprofAddr, paths)
-	return &Agent{
+	a := &Agent{
 		runtimeLogs:   logs,
 		deploys:       deploys,
 		crashFile:     crashFile,
@@ -138,11 +135,14 @@ func New(c *config.Config, d Deps) *Agent {
 			MaxDelay: c.TypingMaxDelay,
 			Chance:   c.TypingChance,
 		}),
-		turnTimeout:      c.RickTurnTimeout,
-		tasks:            d.Store,
-		taskWake:         make(chan struct{}, 1),
-		interruptedTasks: make(chan []store.Task, 1),
+		turnTimeout: c.RickTurnTimeout,
 	}
+	a.tasks = newScheduler(d.Store, c.RickTurnTimeout, a.taskTurn, a.postTask, a.userName)
+	return a
+}
+
+func (a *Agent) Scheduler() *Scheduler {
+	return a.tasks
 }
 
 func (a *Agent) Wait() {

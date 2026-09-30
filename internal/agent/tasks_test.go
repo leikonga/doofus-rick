@@ -62,17 +62,14 @@ func (f *fakeTaskStore) InterruptRunningTasks(context.Context) ([]store.Task, er
 	return f.interrupted, nil
 }
 
-func newTaskTestAgent(fs *fakeTaskStore) *Agent {
-	return &Agent{
-		tasks:            fs,
-		discord:          &mockDiscord{users: map[string]string{"100": "alice", "200": "bob"}},
-		interruptedTasks: make(chan []store.Task, 1),
-	}
+func newTaskTestScheduler(fs *fakeTaskStore) *Scheduler {
+	a := &Agent{discord: &mockDiscord{users: map[string]string{"100": "alice", "200": "bob"}}}
+	return newScheduler(fs, time.Minute, nil, nil, a.userName)
 }
 
-func execTaskTool(t *testing.T, a *Agent, origin turnOrigin, in string) (string, error) {
+func execTaskTool(t *testing.T, s *Scheduler, origin turnOrigin, in string) (string, error) {
 	t.Helper()
-	tool, ok := a.buildTools(origin).Find("sys_task")
+	tool, ok := (&Agent{tasks: s}).buildTools(origin).Find("sys_task")
 	if !ok {
 		t.Fatal("sys_task tool not found")
 	}
@@ -82,8 +79,8 @@ func execTaskTool(t *testing.T, a *Agent, origin turnOrigin, in string) (string,
 
 func TestTaskCreateRejectedUnderTaskOrigin(t *testing.T) {
 	fs := &fakeTaskStore{}
-	a := newTaskTestAgent(fs)
-	_, err := execTaskTool(t, a, turnOrigin{ChannelID: 1, AuthorID: 100, TaskID: 7}, `{"command":"create","prompt":"x"}`)
+	s := newTaskTestScheduler(fs)
+	_, err := execTaskTool(t, s, turnOrigin{ChannelID: 1, AuthorID: 100, TaskID: 7}, `{"command":"create","prompt":"x"}`)
 	if !errors.Is(err, errTaskFromTask) {
 		t.Fatalf("create under task origin: err = %v, want errTaskFromTask", err)
 	}
@@ -94,8 +91,8 @@ func TestTaskCreateRejectedUnderTaskOrigin(t *testing.T) {
 
 func TestTaskCreateStoresOrigin(t *testing.T) {
 	fs := &fakeTaskStore{}
-	a := newTaskTestAgent(fs)
-	out, err := execTaskTool(t, a, turnOrigin{ChannelID: 42, AuthorID: 100, MessageID: 9}, `{"command":"create","prompt":"remind alice","in":"2h"}`)
+	s := newTaskTestScheduler(fs)
+	out, err := execTaskTool(t, s, turnOrigin{ChannelID: 42, AuthorID: 100, MessageID: 9}, `{"command":"create","prompt":"remind alice","in":"2h"}`)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -146,10 +143,10 @@ func TestTaskListAndCancelAcrossRequesters(t *testing.T) {
 		{ID: 2, ChannelID: 1, RequesterID: 200, Prompt: "bob task", Status: store.TaskRunning},
 		{ID: 3, ChannelID: 1, RequesterID: 200, Prompt: "bob old", Status: store.TaskDone},
 	}}
-	a := newTaskTestAgent(fs)
+	s := newTaskTestScheduler(fs)
 	alice := turnOrigin{ChannelID: 1, AuthorID: 100}
 
-	out, err := execTaskTool(t, a, alice, `{"command":"list"}`)
+	out, err := execTaskTool(t, s, alice, `{"command":"list"}`)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -160,7 +157,7 @@ func TestTaskListAndCancelAcrossRequesters(t *testing.T) {
 	}
 
 	var runningCancelled bool
-	a.taskCancels.register(2, func() { runningCancelled = true })
+	s.cancels.register(2, func() { runningCancelled = true })
 
 	tests := []struct {
 		name    string
@@ -175,7 +172,7 @@ func TestTaskListAndCancelAcrossRequesters(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := execTaskTool(t, a, alice, `{"command":"cancel","id":`+tt.id+`}`)
+			_, err := execTaskTool(t, s, alice, `{"command":"cancel","id":`+tt.id+`}`)
 			if tt.wantErr == nil && err != nil {
 				t.Fatalf("cancel %s: %v", tt.id, err)
 			}
@@ -192,17 +189,18 @@ func TestTaskListAndCancelAcrossRequesters(t *testing.T) {
 	}
 }
 
-func TestRunTasksHandsInterruptedTasksToReport(t *testing.T) {
+func TestSchedulerRunHandsInterruptedTasksToReport(t *testing.T) {
 	fs := &fakeTaskStore{interrupted: []store.Task{
 		{ID: 4, ChannelID: 10, RequesterID: 100, Prompt: "research\nthe thing"},
 		{ID: 5, ChannelID: 11, RequesterID: 200, Prompt: "check the site"},
 	}}
-	a := newTaskTestAgent(fs)
+	s := newTaskTestScheduler(fs)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	a.RunTasks(ctx)
+	s.Run(ctx)
+	s.Wait()
 
-	notes := interruptedNotes(<-a.interruptedTasks)
+	notes := interruptedNotes(<-s.interrupted)
 	if len(notes) != 2 {
 		t.Fatalf("got %d notes, want one per interrupted task", len(notes))
 	}

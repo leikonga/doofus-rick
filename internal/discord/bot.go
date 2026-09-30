@@ -23,17 +23,21 @@ type Agent interface {
 	HandleMention(ctx context.Context, e *events.MessageCreate)
 	ReportDeploy(ctx context.Context)
 	ReportInterruptedTasks(ctx context.Context)
-	RunTasks(ctx context.Context)
 }
 
 type Handlers struct {
 	Agent   Agent
 	Archive Archive
 	Ambient Ambient
+	Tasks   Tasks
 }
 
 type Ambient interface {
 	Check(ctx context.Context, channelID snowflake.ID)
+}
+
+type Tasks interface {
+	Run(ctx context.Context)
 }
 
 type Archive interface {
@@ -123,7 +127,7 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 
 	h.Archive.Run(ctx, b.ready)
 
-	b.wg.Go(func() { h.Agent.RunTasks(ctx) })
+	h.Tasks.Run(ctx)
 
 	slog.Info("connected to discord", "appid", b.client.ApplicationID)
 	return nil

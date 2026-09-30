@@ -194,7 +194,7 @@ func run() error {
 
 	errCh := make(chan error, 2)
 	go func() {
-		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest, Ambient: watcher}); err != nil {
+		if err := rick.Open(ctx, discordpkg.Handlers{Agent: ag, Archive: ingest, Ambient: watcher, Tasks: ag.Scheduler()}); err != nil {
 			errCh <- fmt.Errorf("connect to discord: %w", err)
 		}
 	}()
@@ -242,7 +242,7 @@ func run() error {
 	}
 	rick.Close(shutdownCtx)
 
-	if waitAll(shutdownCtx, rick.Wait, ingest.Wait, watcher.Wait, ag.Wait) {
+	if waitAll(shutdownCtx, rick.Wait, ingest.Wait, watcher.Wait, ag.Scheduler().Wait, ag.Wait) {
 		slog.Info("shutdown complete")
 	} else {
 		slog.Warn("shutdown timed out, abandoning goroutines still running", "timeout", shutdownTimeout)

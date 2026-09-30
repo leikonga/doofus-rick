@@ -2,13 +2,11 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"runtime/pprof"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/leikonga/doofus-rick/internal/llm"
 	"github.com/leikonga/doofus-rick/internal/store"
-	"github.com/leikonga/doofus-rick/internal/syncmap"
 )
 
 const (
@@ -26,108 +23,10 @@ const (
 	recentTasksListed = 5
 )
 
-type taskStore interface {
-	CreateTask(ctx context.Context, t store.Task) (store.Task, error)
-	ListTasks(ctx context.Context, recentFinished int) ([]store.Task, error)
-	CancelTask(ctx context.Context, id uint64) (store.Task, error)
-	ClaimDueTasks(ctx context.Context, now time.Time) ([]store.Task, error)
-	FinishTask(ctx context.Context, id uint64, status store.TaskStatus, result string) error
-	InterruptRunningTasks(ctx context.Context) ([]store.Task, error)
-}
-
-// RunTasks interrupts tasks a previous process left running, then fires due tasks until ctx ends.
-func (a *Agent) RunTasks(ctx context.Context) {
-	interrupted, err := a.tasks.InterruptRunningTasks(ctx)
-	if err != nil {
-		slog.Warn("failed to interrupt leftover running tasks", "error", err)
-	}
-	select {
-	case a.interruptedTasks <- interrupted:
-	default:
-	}
-
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		a.fireDueTasks(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		case <-a.taskWake:
-		}
-	}
-}
-
-func (a *Agent) wakeTasks() {
-	select {
-	case a.taskWake <- struct{}{}:
-	default:
-	}
-}
-
-func (a *Agent) fireDueTasks(ctx context.Context) {
-	tasks, err := a.tasks.ClaimDueTasks(ctx, time.Now())
-	if err != nil {
-		slog.Warn("failed to claim due tasks", "error", err)
-		return
-	}
-	for _, task := range tasks {
-		labels := pprof.Labels("handler", "task", "task", strconv.FormatUint(task.ID, 10), "channel", strconv.FormatUint(task.ChannelID, 10))
-		a.wg.Go(func() { pprof.Do(ctx, labels, func(ctx context.Context) { a.runTask(ctx, task) }) })
-	}
-}
-
-func (a *Agent) runTask(ctx context.Context, task store.Task) {
-	ctx, cancel := context.WithTimeout(ctx, a.turnTimeout)
-	a.taskCancels.register(task.ID, cancel)
-	defer func() {
-		a.taskCancels.forget(task.ID)
-		cancel()
-	}()
-
-	reply, err := a.taskTurn(ctx, task)
-	if abandonedByCancelOrShutdown(ctx) {
-		return
-	}
-
-	status, result := store.TaskDone, reply.Text
-	if err == nil && !reply.Declined && reply.Text != "" {
-		msg := discord.NewMessageCreate().WithContent(taskMessage(snowflake.ID(task.RequesterID), reply.Text))
-		_, err = a.discordClient.Rest.CreateMessage(snowflake.ID(task.ChannelID), msg, rest.WithCtx(ctx))
-	}
-	if err != nil {
-		slog.Warn("task failed", "task", task.ID, "error", err)
-		status, result = store.TaskFailed, err.Error()
-	}
-
-	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer finishCancel()
-	if err := a.tasks.FinishTask(finishCtx, task.ID, status, capText(result, maxTaskResultLen)); err != nil {
-		slog.Warn("failed to record task result", "task", task.ID, "status", status, "error", err)
-	}
-}
-
-func abandonedByCancelOrShutdown(ctx context.Context) bool {
-	return errors.Is(ctx.Err(), context.Canceled)
-}
-
-type taskCancels struct {
-	byID syncmap.Map[uint64, context.CancelFunc]
-}
-
-func (c *taskCancels) register(id uint64, cancel context.CancelFunc) {
-	c.byID.Store(id, cancel)
-}
-
-func (c *taskCancels) forget(id uint64) {
-	c.byID.Delete(id)
-}
-
-func (c *taskCancels) cancel(id uint64) {
-	if cancel, ok := c.byID.LoadAndDelete(id); ok {
-		cancel()
-	}
+func (a *Agent) postTask(ctx context.Context, channelID snowflake.ID, content string) error {
+	msg := discord.NewMessageCreate().WithContent(content)
+	_, err := a.discordClient.Rest.CreateMessage(channelID, msg, rest.WithCtx(ctx))
+	return err
 }
 
 type taskReply struct {
@@ -190,11 +89,11 @@ func taskMessage(requester snowflake.ID, text string) string {
 	return fmt.Sprintf("<@%s> %s", requester, text)
 }
 
-// ReportInterruptedTasks posts one persona note per task RunTasks found cut off by the last shutdown.
+// ReportInterruptedTasks posts one persona note per task the Scheduler found cut off by the last shutdown.
 func (a *Agent) ReportInterruptedTasks(ctx context.Context) {
 	var tasks []store.Task
 	select {
-	case tasks = <-a.interruptedTasks:
+	case tasks = <-a.tasks.interrupted:
 	case <-ctx.Done():
 		return
 	}

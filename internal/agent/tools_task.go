@@ -26,7 +26,7 @@ type taskIn struct {
 	ID      uint64 `json:"id" jsonschema:"description=cancel: id of the task to cancel."`
 }
 
-func (a *Agent) taskTool(origin turnOrigin) llm.Tool {
+func (s *Scheduler) taskTool(origin turnOrigin) llm.Tool {
 	return llm.NewTool("sys_task",
 		"Schedule yourself to do something once, later or right now in the background. "+
 			"When a task fires it runs a full turn of yours with every tool, in the channel it was created in, "+
@@ -38,18 +38,18 @@ func (a *Agent) taskTool(origin turnOrigin) llm.Tool {
 		func(ctx context.Context, in taskIn) (llm.Result, error) {
 			switch in.Command {
 			case "create":
-				return a.createTask(ctx, origin, in, time.Now())
+				return s.createTask(ctx, origin, in, time.Now())
 			case "list":
-				return a.listTasks(ctx)
+				return s.listTasks(ctx)
 			case "cancel":
-				return a.cancelTask(ctx, in.ID)
+				return s.cancelTask(ctx, in.ID)
 			default:
 				return llm.Result{}, fmt.Errorf("unknown command %q, must be create, list or cancel", in.Command)
 			}
 		})
 }
 
-func (a *Agent) createTask(ctx context.Context, origin turnOrigin, in taskIn, now time.Time) (llm.Result, error) {
+func (s *Scheduler) createTask(ctx context.Context, origin turnOrigin, in taskIn, now time.Time) (llm.Result, error) {
 	if origin.TaskID != 0 {
 		return llm.Result{}, errTaskFromTask
 	}
@@ -60,7 +60,7 @@ func (a *Agent) createTask(ctx context.Context, origin turnOrigin, in taskIn, no
 	if err != nil {
 		return llm.Result{}, err
 	}
-	task, err := a.tasks.CreateTask(ctx, store.Task{
+	task, err := s.store.CreateTask(ctx, store.Task{
 		ChannelID:   uint64(origin.ChannelID),
 		RequesterID: uint64(origin.AuthorID),
 		Prompt:      in.Prompt,
@@ -71,7 +71,7 @@ func (a *Agent) createTask(ctx context.Context, origin turnOrigin, in taskIn, no
 		return llm.Result{}, err
 	}
 	if wait := fireAt.Sub(now); wait < time.Minute {
-		time.AfterFunc(max(wait, 0), a.wakeTasks)
+		time.AfterFunc(max(wait, 0), s.wake)
 	}
 	return llm.Continue(fmt.Sprintf("task #%d created, due %s", task.ID, fireAt.Local().Format(time.RFC3339))), nil
 }
@@ -103,8 +103,8 @@ func taskFireAt(now time.Time, fireAt, in string) (time.Time, error) {
 	}
 }
 
-func (a *Agent) listTasks(ctx context.Context) (llm.Result, error) {
-	tasks, err := a.tasks.ListTasks(ctx, recentTasksListed)
+func (s *Scheduler) listTasks(ctx context.Context) (llm.Result, error) {
+	tasks, err := s.store.ListTasks(ctx, recentTasksListed)
 	if err != nil {
 		return llm.Result{}, err
 	}
@@ -114,20 +114,20 @@ func (a *Agent) listTasks(ctx context.Context) (llm.Result, error) {
 	var sb strings.Builder
 	for _, t := range tasks {
 		fmt.Fprintf(&sb, "#%d status=%s due=%s requester=%s (<@%d>) prompt=%q\n",
-			t.ID, t.Status, t.FireAt.Local().Format("2006-01-02 15:04"), a.userName(snowflake.ID(t.RequesterID)), t.RequesterID,
+			t.ID, t.Status, t.FireAt.Local().Format("2006-01-02 15:04"), s.userName(snowflake.ID(t.RequesterID)), t.RequesterID,
 			oneLine(t.Prompt, taskPromptExcerpt))
 	}
 	return llm.Continue(sb.String()), nil
 }
 
-func (a *Agent) cancelTask(ctx context.Context, id uint64) (llm.Result, error) {
+func (s *Scheduler) cancelTask(ctx context.Context, id uint64) (llm.Result, error) {
 	if id == 0 {
 		return llm.Result{}, errTaskIDMissing
 	}
-	before, err := a.tasks.CancelTask(ctx, id)
+	before, err := s.store.CancelTask(ctx, id)
 	if err != nil {
 		return llm.Result{}, fmt.Errorf("task #%d: %w", id, err)
 	}
-	a.taskCancels.cancel(id)
+	s.cancels.cancel(id)
 	return llm.Continue(fmt.Sprintf("task #%d cancelled (was %s)", id, before.Status)), nil
 }

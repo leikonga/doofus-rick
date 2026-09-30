@@ -28,7 +28,7 @@ func (a *Agent) buildTools(origin turnOrigin) llm.Tools {
 		a.code.codeReadTool(),
 		a.code.codeEditTool(),
 		a.code.codeShipTool(origin),
-		a.taskTool(origin),
+		a.tasks.taskTool(origin),
 		a.github.githubIssueTool(),
 	}
 	return append(tools, a.discordTools(origin)...)
