@@ -136,7 +136,7 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 	var rawText string
 	servedModel := a.config.RickModel
 	if err == nil {
-		rawText = messageText(resp.Message)
+		rawText = resp.Message.Text()
 		if resp.Model != "" {
 			servedModel = resp.Model
 		}
@@ -146,7 +146,7 @@ func (a *Agent) handleAmbient(ctx context.Context, note personaNote) (_ snowflak
 		return 0, err
 	}
 
-	text := strings.TrimSpace(trailingTagRe.ReplaceAllString(messageText(resp.Message), ""))
+	text := strings.TrimSpace(trailingTagRe.ReplaceAllString(resp.Message.Text(), ""))
 	if text == "" && note.appendix == "" {
 		return 0, nil
 	}

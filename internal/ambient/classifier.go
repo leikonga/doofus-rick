@@ -80,7 +80,7 @@ Conversation:
 	}
 
 	var result ClassifierResult
-	if err := json.Unmarshal([]byte(resp.Message.Parts[0].Text), &result); err != nil {
+	if err := json.Unmarshal([]byte(resp.Message.Text()), &result); err != nil {
 		return ClassifierResult{}, err
 	}
 

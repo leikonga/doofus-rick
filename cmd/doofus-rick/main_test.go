@@ -58,3 +58,33 @@ func TestWaitAllGivesUpWhenContextExpires(t *testing.T) {
 		t.Errorf("waitAll took %v, want prompt return", elapsed)
 	}
 }
+
+func TestParseForgetArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    forgetArgs
+		wantErr bool
+	}{
+		{"message", []string{"--message", "123"}, forgetArgs{messageID: 123}, false},
+		{"author", []string{"--author", "456"}, forgetArgs{authorID: 456}, false},
+		{"author with quotes", []string{"--author", "456", "--quotes"}, forgetArgs{authorID: 456, quotes: true}, false},
+		{"message and author", []string{"--message", "1", "--author", "2"}, forgetArgs{messageID: 1, authorID: 2}, false},
+		{"no flags", nil, forgetArgs{}, true},
+		{"quotes without author", []string{"--message", "1", "--quotes"}, forgetArgs{}, true},
+		{"non-numeric id", []string{"--message", "abc"}, forgetArgs{}, true},
+		{"unknown flag", []string{"--nope"}, forgetArgs{}, true},
+		{"positional argument", []string{"--message", "1", "extra"}, forgetArgs{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseForgetArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

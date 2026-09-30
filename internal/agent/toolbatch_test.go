@@ -222,7 +222,7 @@ func TestToolBatch(t *testing.T) {
 				}
 				var gotMessages []string
 				for _, m := range msgs {
-					gotMessages = append(gotMessages, messageText(m))
+					gotMessages = append(gotMessages, m.Text())
 				}
 				if !slices.Equal(gotMessages, tt.wantMessages) {
 					t.Fatalf("messages = %q, want %q", gotMessages, tt.wantMessages)

@@ -86,3 +86,24 @@ func TestAssistantMessageCarriesToolCallsNotResults(t *testing.T) {
 		t.Errorf("tool_calls = %+v, want one call with id call_1", decoded.ToolCalls)
 	}
 }
+
+func TestMessageText(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  Message
+		want string
+	}{
+		{"no parts", Message{Role: RoleAssistant}, ""},
+		{"single text part", Message{Parts: []ContentPart{TextPart("response")}}, "response"},
+		{"multiple text parts concatenated", Message{Parts: []ContentPart{TextPart("a"), TextPart("b")}}, "ab"},
+		{"non-text parts ignored", Message{Parts: []ContentPart{ImagePart("http://x"), TextPart("caption")}}, "caption"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.msg.Text(); got != tc.want {
+				t.Errorf("Text() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

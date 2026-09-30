@@ -144,35 +144,6 @@ func TestTrailingTagRe(t *testing.T) {
 	}
 }
 
-func TestMessageText(t *testing.T) {
-	tests := []struct {
-		name string
-		msg  llm.Message
-		want string
-	}{
-		{"no parts", llm.Message{Role: llm.RoleAssistant}, ""},
-		{"single text part", assistantMsg(), "response"},
-		{
-			"multiple text parts concatenated",
-			llm.Message{Parts: []llm.ContentPart{llm.TextPart("a"), llm.TextPart("b")}},
-			"ab",
-		},
-		{
-			"non-text parts ignored",
-			llm.Message{Parts: []llm.ContentPart{llm.ImagePart("http://x"), llm.TextPart("caption")}},
-			"caption",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := messageText(tc.msg); got != tc.want {
-				t.Errorf("messageText() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestBuildCachedPrefix(t *testing.T) {
 	roster := "<leit>\nsnowflake=1 name=hans affinity=-20\n</leit>"
 	got := buildCachedPrefix("<selbst>\ncommit=0123456\n</selbst>", roster, "999", "general", "chat")

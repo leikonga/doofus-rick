@@ -38,6 +38,16 @@ type Message struct {
 	ReasoningDetails json.RawMessage
 }
 
+func (m Message) Text() string {
+	var sb strings.Builder
+	for _, p := range m.Parts {
+		if p.Type == "text" {
+			sb.WriteString(p.Text)
+		}
+	}
+	return sb.String()
+}
+
 type ToolCall struct {
 	ID        string
 	Name      string

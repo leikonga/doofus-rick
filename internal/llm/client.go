@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	openrouter "github.com/OpenRouterTeam/go-sdk"
@@ -236,13 +235,13 @@ func toSDKMessage(m Message) components.ChatMessages {
 		})
 	case RoleAssistant:
 		return components.CreateChatMessagesAssistant(components.ChatAssistantMessage{
-			Content:          toSDKAssistantContent(m.Parts),
+			Content:          toSDKAssistantContent(m.Text()),
 			ToolCalls:        toSDKToolCalls(m.ToolCalls),
 			ReasoningDetails: toSDKReasoningDetails(m.ReasoningDetails),
 		})
 	case RoleTool:
 		return components.CreateChatMessagesTool(components.ChatToolMessage{
-			Content:    components.CreateChatToolMessageContentStr(partsText(m.Parts)),
+			Content:    components.CreateChatToolMessageContentStr(m.Text()),
 			ToolCallID: m.ToolCallID,
 		})
 	default:
@@ -283,8 +282,7 @@ func toSDKUserContent(parts []ContentPart) components.ChatUserMessageContent {
 	return components.CreateChatUserMessageContentArrayOfChatContentItems(items)
 }
 
-func toSDKAssistantContent(parts []ContentPart) optionalnullable.OptionalNullable[components.ChatAssistantMessageContent] {
-	text := partsText(parts)
+func toSDKAssistantContent(text string) optionalnullable.OptionalNullable[components.ChatAssistantMessageContent] {
 	if text == "" {
 		return nil
 	}
@@ -312,16 +310,6 @@ func toSDKContentItem(p ContentPart) (components.ChatContentItems, bool) {
 	default:
 		return components.ChatContentItems{}, false
 	}
-}
-
-func partsText(parts []ContentPart) string {
-	var sb strings.Builder
-	for _, p := range parts {
-		if p.Type == "text" {
-			sb.WriteString(p.Text)
-		}
-	}
-	return sb.String()
 }
 
 func optionalString(s string) *string {

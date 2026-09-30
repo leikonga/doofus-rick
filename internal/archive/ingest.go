@@ -431,12 +431,7 @@ func (i *Ingest) backfillChannel(ctx context.Context, channelID uint64, delay ti
 		default:
 		}
 
-		var before uint64
-		if oldestFetched > 0 {
-			before = oldestFetched
-		}
-
-		msgs, err := i.rest.GetMessages(snowflake.ID(channelID), snowflake.ID(before), 0, 0, i.config.BackfillBatch, rest.WithCtx(ctx))
+		msgs, err := i.rest.GetMessages(snowflake.ID(channelID), 0, snowflake.ID(oldestFetched), 0, i.config.BackfillBatch, rest.WithCtx(ctx))
 		if err != nil {
 			return err
 		}

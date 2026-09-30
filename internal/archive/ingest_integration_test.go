@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -47,9 +48,8 @@ func (f *fakeREST) GetMessages(channelID snowflake.ID, around, before, _ snowfla
 	f.record(opts)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// backfillChannel passes its paging cursor as `around`; the fake pages on either.
-	if before == 0 {
-		before = around
+	if around != 0 {
+		return nil, errors.New("fakeREST: paging with around is not supported")
 	}
 	var out []discord.Message
 	for _, m := range f.messages[channelID] {

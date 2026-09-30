@@ -48,7 +48,10 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "forget":
-			handleForget()
+			if err := forget(os.Args[2:]); err != nil {
+				slog.Error("forget failed", "error", err)
+				os.Exit(1)
+			}
 			return
 		default:
 			fmt.Fprintf(os.Stderr, "unknown subcommand %q; valid: forget\n", os.Args[1])
@@ -290,69 +293,83 @@ func shareWorkDir(workDir string) {
 	}
 }
 
-func handleForget() {
+type forgetArgs struct {
+	messageID uint64
+	authorID  uint64
+	quotes    bool
+}
+
+func parseForgetArgs(args []string) (forgetArgs, error) {
 	var (
-		flagMessage string
-		flagAuthor  string
-		flagQuotes  bool
+		fa      forgetArgs
+		message string
+		author  string
 	)
+	fs := flag.NewFlagSet("forget", flag.ContinueOnError)
+	fs.StringVar(&message, "message", "", "Delete a message by ID")
+	fs.StringVar(&author, "author", "", "Delete all messages from an author")
+	fs.BoolVar(&fa.quotes, "quotes", false, "Also delete quotes for the author")
+	if err := fs.Parse(args); err != nil {
+		return forgetArgs{}, err
+	}
+	if fs.NArg() > 0 {
+		return forgetArgs{}, fmt.Errorf("unexpected arguments: %v", fs.Args())
+	}
+	if message == "" && author == "" {
+		return forgetArgs{}, errors.New("usage: forget --message <id> | --author <snowflake> [--quotes]")
+	}
+	if fa.quotes && author == "" {
+		return forgetArgs{}, errors.New("--quotes requires --author")
+	}
 
-	flag.StringVar(&flagMessage, "message", "", "Delete a message by ID")
-	flag.StringVar(&flagAuthor, "author", "", "Delete all messages from an author")
-	flag.BoolVar(&flagQuotes, "quotes", false, "Also delete quotes for the author")
-	flag.Parse()
+	var err error
+	if message != "" {
+		if fa.messageID, err = strconv.ParseUint(message, 10, 64); err != nil {
+			return forgetArgs{}, fmt.Errorf("invalid message id: %w", err)
+		}
+	}
+	if author != "" {
+		if fa.authorID, err = strconv.ParseUint(author, 10, 64); err != nil {
+			return forgetArgs{}, fmt.Errorf("invalid author id: %w", err)
+		}
+	}
+	return fa, nil
+}
 
-	if flagMessage == "" && flagAuthor == "" {
-		fmt.Println("Usage: forget --message <id> | --author <snowflake>")
-		os.Exit(1)
+func forget(args []string) error {
+	fa, err := parseForgetArgs(args)
+	if err != nil {
+		return err
 	}
 
 	c := config.LoadConfig()
 	db, err := store.Open(context.Background(), c.DSN())
 	if err != nil {
-		slog.Error("failed to open database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("open database: %w", err)
 	}
 
-	if flagMessage != "" {
-		id, err := strconv.ParseUint(flagMessage, 10, 64)
-		if err != nil {
-			slog.Error("invalid message id", "error", err)
-			os.Exit(1)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := db.DeleteMessage(ctx, id); err != nil {
-			slog.Error("failed to delete message", "error", err)
-			os.Exit(1)
+	if fa.messageID != 0 {
+		if err := db.DeleteMessage(ctx, fa.messageID); err != nil {
+			return fmt.Errorf("delete message %d: %w", fa.messageID, err)
 		}
-		fmt.Printf("deleted message %d\n", id)
+		fmt.Printf("deleted message %d\n", fa.messageID)
 	}
 
-	if flagAuthor != "" {
-		authorID, err := strconv.ParseUint(flagAuthor, 10, 64)
-		if err != nil {
-			slog.Error("invalid author id", "error", err)
-			os.Exit(1)
+	if fa.authorID != 0 {
+		if err := db.ForgetAuthor(ctx, fa.authorID); err != nil {
+			return fmt.Errorf("forget author %d: %w", fa.authorID, err)
 		}
+		fmt.Printf("forgotten author %d\n", fa.authorID)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := db.ForgetAuthor(ctx, authorID); err != nil {
-			slog.Error("failed to forget author", "error", err)
-			os.Exit(1)
-		}
-		fmt.Printf("forgotten author %d\n", authorID)
-
-		if flagQuotes {
-			if err := db.DeleteQuotesByAuthor(ctx, flagAuthor); err != nil {
-				slog.Error("failed to delete quotes", "error", err)
-				os.Exit(1)
+		if fa.quotes {
+			if err := db.DeleteQuotesByAuthor(ctx, strconv.FormatUint(fa.authorID, 10)); err != nil {
+				return fmt.Errorf("delete quotes for author %d: %w", fa.authorID, err)
 			}
-			fmt.Printf("deleted quotes for author %d\n", authorID)
+			fmt.Printf("deleted quotes for author %d\n", fa.authorID)
 		}
 	}
+	return nil
 }

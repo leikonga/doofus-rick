@@ -324,7 +324,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 		// though tool_calls is populated, so check the array directly rather
 		// than trusting StopReason.
 		if len(resp.Message.ToolCalls) == 0 {
-			text := messageText(resp.Message)
+			text := resp.Message.Text()
 			if text != "" {
 				return llm.RickResponse{Text: text}, nil
 			}
@@ -337,7 +337,7 @@ func (a *Agent) callModel(ctx context.Context, req modelRequest) (retResp llm.Ri
 
 		messages = append(messages, resp.Message)
 
-		if text := messageText(resp.Message); text != "" {
+		if text := resp.Message.Text(); text != "" {
 			pendingText = text
 		}
 
@@ -457,16 +457,6 @@ func escalateForCode(alreadyEscalated bool, calls []llm.ToolCall) bool {
 		}
 	}
 	return false
-}
-
-func messageText(m llm.Message) string {
-	var sb strings.Builder
-	for _, p := range m.Parts {
-		if p.Type == "text" {
-			sb.WriteString(p.Text)
-		}
-	}
-	return sb.String()
 }
 
 func (a *Agent) keepTyping(ctx context.Context, event *events.MessageCreate) {
