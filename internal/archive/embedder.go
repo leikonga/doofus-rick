@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math"
 	"strconv"
@@ -15,14 +16,20 @@ type EmbeddingConfig struct {
 	Dim   int
 }
 
-type Embedder struct {
-	config EmbeddingConfig
-	store  *store.Store
-	llm    *llm.Client
+type embeddingClient interface {
+	Embed(ctx context.Context, req llm.EmbeddingRequest) (llm.EmbeddingResponse, error)
 }
 
-func NewEmbedder(config EmbeddingConfig, s *store.Store, c *llm.Client) *Embedder {
-	return &Embedder{config: config, store: s, llm: c}
+type Embedder struct {
+	config   EmbeddingConfig
+	store    *store.Store
+	llm      embeddingClient
+	chunker  *Chunker
+	channels ChannelNamer
+}
+
+func NewEmbedder(config EmbeddingConfig, s *store.Store, c embeddingClient, chunker *Chunker, channels ChannelNamer) *Embedder {
+	return &Embedder{config: config, store: s, llm: c, chunker: chunker, channels: channels}
 }
 
 const maxEmbedBatchSize = 20
@@ -30,7 +37,11 @@ const maxEmbedBatchSize = 20
 func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
 	inputs := make([]string, len(batch))
 	for i, chunk := range batch {
-		inputs[i] = chunk.Content
+		text, err := e.embedText(ctx, chunk)
+		if err != nil {
+			return err
+		}
+		inputs[i] = text
 	}
 
 	resp, err := e.llm.Embed(ctx, llm.EmbeddingRequest{
@@ -44,15 +55,17 @@ func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
 		slog.Warn("failed to save token usage", "error", err)
 	}
 
+	if len(resp.Embeddings) != len(batch) {
+		return fmt.Errorf("embedding count %d does not match batch size %d", len(resp.Embeddings), len(batch))
+	}
+
 	for i, embedding := range resp.Embeddings {
-		if i >= len(batch) {
-			break
-		}
 		truncated := truncateTo1024(embedding)
 		storeEmbedding := store.ChunkEmbedding{
 			ChunkID:   batch[i].ID,
 			Model:     e.config.Model,
 			Embedding: store.HalfVector(truncated),
+			Version:   store.CurrentEmbedVersion,
 		}
 		if err := e.store.SaveChunkEmbedding(ctx, storeEmbedding); err != nil {
 			return err
@@ -60,6 +73,18 @@ func (e *Embedder) embedBatch(ctx context.Context, batch []store.Chunk) error {
 	}
 
 	return nil
+}
+
+func (e *Embedder) embedText(ctx context.Context, chunk store.Chunk) (string, error) {
+	messages, err := e.store.GetChunkMessages(ctx, chunk)
+	if err != nil {
+		return "", err
+	}
+	var channelName string
+	if e.channels != nil {
+		channelName = e.channels.ChannelName(ctx, chunk.ChannelID)
+	}
+	return e.chunker.BuildEmbedText(chunk, messages, channelName), nil
 }
 
 func truncateTo1024(vec []float32) []float32 {

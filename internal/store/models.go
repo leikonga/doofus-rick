@@ -91,6 +91,7 @@ type ChunkEmbedding struct {
 	ChunkID   uint64     `gorm:"primaryKey"`
 	Model     string     `gorm:"primaryKey"`
 	Embedding HalfVector `gorm:"type:halfvec(1024);not null"`
+	Version   int        `gorm:"not null;default:1"`
 }
 
 type UserAffinity struct {

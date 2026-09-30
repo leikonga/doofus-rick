@@ -187,3 +187,53 @@ func TestBuildChunkContent_FallsBackToStoredNameWhenUnresolved(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestBuildEmbedText(t *testing.T) {
+	start := time.Date(2025, 3, 14, 14, 32, 0, 0, time.UTC)
+	named := func(id uint64, name string) store.Message {
+		m := msgAt(id, start, "x")
+		m.AuthorID = id
+		m.AuthorName = name
+		return m
+	}
+	chunk := store.Chunk{StartedAt: start, Content: "[14:32 Alice]: hi\n"}
+
+	tests := []struct {
+		name     string
+		resolver DisplayNameResolver
+		messages []store.Message
+		channel  string
+		want     string
+	}{
+		{
+			name:     "channel date and participants in first appearance order",
+			messages: []store.Message{named(2, "Bob"), named(1, "Alice"), named(2, "Bob"), named(3, "Carol")},
+			channel:  "general",
+			want:     "Channel #general, 2025-03-14 (Friday). Participants: Bob, Alice, Carol.\n[14:32 Alice]: hi\n",
+		},
+		{
+			name:     "missing channel name omits channel",
+			messages: []store.Message{named(1, "Alice")},
+			want:     "2025-03-14 (Friday). Participants: Alice.\n[14:32 Alice]: hi\n",
+		},
+		{
+			name:    "no messages omits participants",
+			channel: "general",
+			want:    "Channel #general, 2025-03-14 (Friday).\n[14:32 Alice]: hi\n",
+		},
+		{
+			name:     "resolver names win and dedupe",
+			resolver: mockResolver{"1": "Nick", "2": "Nick"},
+			messages: []store.Message{named(1, "Alice"), named(2, "Bob"), named(3, "Carol")},
+			want:     "2025-03-14 (Friday). Participants: Nick, Carol.\n[14:32 Alice]: hi\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewChunker(ChunkConfig{}, tt.resolver)
+			if got := c.BuildEmbedText(chunk, tt.messages, tt.channel); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

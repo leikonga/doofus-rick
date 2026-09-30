@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -106,6 +107,29 @@ func (c *Chunker) BuildChunkContent(chunk Chunk) string {
 		content.WriteString("[" + ts + " " + c.displayName(msg) + "]: " + msg.Content + "\n")
 	}
 	return content.String()
+}
+
+func (c *Chunker) BuildEmbedText(chunk store.Chunk, messages []store.Message, channelName string) string {
+	var header strings.Builder
+	if channelName != "" {
+		header.WriteString("Channel #" + channelName + ", ")
+	}
+	header.WriteString(chunk.StartedAt.Format("2006-01-02 (Monday)") + ".")
+	if participants := c.participants(messages); len(participants) > 0 {
+		header.WriteString(" Participants: " + strings.Join(participants, ", ") + ".")
+	}
+	return header.String() + "\n" + chunk.Content
+}
+
+func (c *Chunker) participants(messages []store.Message) []string {
+	var names []string
+	for _, msg := range messages {
+		name := c.displayName(msg)
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (c *Chunker) displayName(msg store.Message) string {

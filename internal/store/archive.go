@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *Store) CreateMessage(ctx context.Context, msg Message) error {
@@ -130,19 +131,52 @@ func (s *Store) CreateChunk(ctx context.Context, chunk Chunk) error {
 	return nil
 }
 
+const CurrentEmbedVersion = 2
+
 func (s *Store) SaveChunkEmbedding(ctx context.Context, embedding ChunkEmbedding) error {
-	if err := s.db.WithContext(ctx).Create(&embedding).Error; err != nil {
+	if embedding.Version == 0 {
+		embedding.Version = CurrentEmbedVersion
+	}
+	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "chunk_id"}, {Name: "model"}},
+		DoUpdates: clause.AssignmentColumns([]string{"embedding", "version"}),
+	}).Create(&embedding).Error
+	if err != nil {
 		return fmt.Errorf("save chunk embedding: %w", err)
 	}
 	return nil
 }
 
+func (s *Store) staleChunks(ctx context.Context, model string) *gorm.DB {
+	return s.db.WithContext(ctx).Model(&Chunk{}).
+		Where("NOT EXISTS (SELECT 1 FROM chunk_embeddings e WHERE e.chunk_id = chunks.id AND e.model = ? AND e.version >= ?)", model, CurrentEmbedVersion)
+}
+
 func (s *Store) GetChunksWithoutEmbedding(ctx context.Context, model string, limit int) ([]Chunk, error) {
 	var chunks []Chunk
+	if err := s.staleChunks(ctx, model).Order("id").Limit(limit).Find(&chunks).Error; err != nil {
+		return nil, fmt.Errorf("get chunks without embedding: %w", err)
+	}
+	return chunks, nil
+}
+
+func (s *Store) CountChunksWithoutEmbedding(ctx context.Context, model string) (int64, error) {
+	var n int64
+	if err := s.staleChunks(ctx, model).Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count chunks without embedding: %w", err)
+	}
+	return n, nil
+}
+
+func (s *Store) GetChunkMessages(ctx context.Context, chunk Chunk) ([]Message, error) {
+	var msgs []Message
 	err := s.db.WithContext(ctx).
-		Where("id NOT IN (SELECT chunk_id FROM chunk_embeddings WHERE model = ?)", model).
-		Order("id").Limit(limit).Find(&chunks).Error
-	return chunks, err
+		Where("channel_id = ? AND id BETWEEN ? AND ?", chunk.ChannelID, chunk.FirstMessageID, chunk.LastMessageID).
+		Order("id").Find(&msgs).Error
+	if err != nil {
+		return nil, fmt.Errorf("get messages for chunk %d: %w", chunk.ID, err)
+	}
+	return msgs, nil
 }
 
 func (s *Store) GetChunk(ctx context.Context, id uint64) (*Chunk, error) {

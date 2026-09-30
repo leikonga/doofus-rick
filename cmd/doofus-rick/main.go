@@ -152,7 +152,7 @@ func run() error {
 		ChunkMaxMsgs:  c.ChunkMaxMsgs,
 		ChunkMaxChars: c.ChunkMaxChars,
 	}, rick)
-	embedder := archive.NewEmbedder(archive.EmbeddingConfig{Model: c.RickEmbedModel}, db, llmClient)
+	embedder := archive.NewEmbedder(archive.EmbeddingConfig{Model: c.RickEmbedModel}, db, llmClient, chunker, archive.NewChannelNames(rick.Client().Rest))
 	var scorer archive.ChunkScorer
 	if c.AffinityEnabled {
 		affinityModel := c.AffinityModel

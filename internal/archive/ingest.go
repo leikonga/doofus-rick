@@ -14,7 +14,10 @@ import (
 	"github.com/leikonga/doofus-rick/internal/store"
 )
 
-const maxArchivedContentBytes = 10000
+const (
+	maxArchivedContentBytes = 10000
+	embedLoopBatch          = 100
+)
 
 type discordREST interface {
 	GetMessages(channelID snowflake.ID, around, before, after snowflake.ID, limit int, opts ...rest.RequestOpt) ([]discord.Message, error)
@@ -197,18 +200,34 @@ func (i *Ingest) runEmbeddingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			chunks, err := i.store.GetChunksWithoutEmbedding(ctx, i.config.EmbedModel, 100)
-			if err != nil {
-				slog.Warn("failed to get chunks pending embedding", "error", err)
-				continue
-			}
-			if len(chunks) == 0 {
-				continue
-			}
-			if err := i.embedder.EmbedChunks(ctx, chunks); err != nil {
-				slog.Warn("failed to embed chunks", "error", err)
-			}
+			i.drainEmbeddingBacklog(ctx)
 		}
+	}
+}
+
+func (i *Ingest) drainEmbeddingBacklog(ctx context.Context) {
+	for ctx.Err() == nil {
+		chunks, err := i.store.GetChunksWithoutEmbedding(ctx, i.config.EmbedModel, embedLoopBatch)
+		if err != nil {
+			slog.Warn("failed to get chunks pending embedding", "error", err)
+			return
+		}
+		if len(chunks) == 0 {
+			return
+		}
+		if err := i.embedder.EmbedChunks(ctx, chunks); err != nil {
+			slog.Warn("failed to embed chunks", "error", err)
+			return
+		}
+		if len(chunks) < embedLoopBatch {
+			return
+		}
+		remaining, err := i.store.CountChunksWithoutEmbedding(ctx, i.config.EmbedModel)
+		if err != nil {
+			slog.Warn("failed to count chunks pending embedding", "error", err)
+			return
+		}
+		slog.Info("embedding backlog progress", "embedded", len(chunks), "remaining", remaining)
 	}
 }
 
