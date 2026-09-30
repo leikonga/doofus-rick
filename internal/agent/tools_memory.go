@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -119,31 +118,8 @@ func parseSearchDates(since, until string) (*time.Time, *time.Time, error) {
 	return from, to, nil
 }
 
-// resolveAuthor returns a nil ID and a model-readable message when the author cannot be resolved to exactly one user.
 func (a *Agent) resolveAuthor(ctx context.Context, author string) (*uint64, string, error) {
-	author = strings.TrimSpace(author)
-	if author == "" {
-		return nil, "", nil
-	}
-	if id, err := strconv.ParseUint(author, 10, 64); err == nil {
-		return &id, "", nil
-	}
-	matches, err := a.store.FindAuthorsByName(ctx, author)
-	if err != nil {
-		return nil, "", err
-	}
-	switch len(matches) {
-	case 0:
-		return nil, fmt.Sprintf("no author named %q found; pass a Discord snowflake or an exact display name", author), nil
-	case 1:
-		return &matches[0].AuthorID, "", nil
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "author %q is ambiguous; retry with one of these snowflakes:\n", author)
-	for _, m := range matches {
-		fmt.Fprintf(&sb, "- %d (%s, %d messages)\n", m.AuthorID, m.AuthorName, m.MsgCount)
-	}
-	return nil, sb.String(), nil
+	return archive.ResolveAuthor(ctx, a.store, author)
 }
 
 func (a *Agent) searchHistoryTool(origin turnOrigin) llm.Tool {

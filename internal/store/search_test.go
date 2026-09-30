@@ -173,3 +173,31 @@ func TestFindAuthorsByName(t *testing.T) {
 		t.Fatalf("got %+v, %v; want none", got, err)
 	}
 }
+
+func TestSearchChunksKeywordQuery(t *testing.T) {
+	s := pgtest.Store(t)
+	now := time.Now()
+	seedSearchChunk(t, s, 1, 1, "zebra crossing", -1, now, now)
+	seedSearchChunk(t, s, 2, 1, "giraffe neck", -1, now, now)
+
+	q := baseSearch()
+	q.Query = "something about animals"
+	q.KeywordQuery = "giraffe"
+	got, err := s.SearchChunks(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := searchIDs(got); !slices.Equal(ids, []uint64{2}) {
+		t.Errorf("keyword query ids = %v, want [2]", ids)
+	}
+
+	q.KeywordQuery = ""
+	q.Query = "zebra"
+	got, err = s.SearchChunks(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := searchIDs(got); !slices.Equal(ids, []uint64{1}) {
+		t.Errorf("default ids = %v, want [1]", ids)
+	}
+}

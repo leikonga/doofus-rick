@@ -12,6 +12,7 @@ import (
 type ChunkSearch struct {
 	Vector        []float32
 	Query         string
+	KeywordQuery  string
 	ChannelIDs    []uint64
 	Model         string
 	TopK          int
@@ -49,7 +50,7 @@ const hybridSearchSQL = `
 			),
 			lex as (
 				select c.id, row_number() over (order by ts_rank_cd(tsv, q) desc) as rank
-				from chunks c, plainto_tsquery('simple', @query) q
+				from chunks c, plainto_tsquery('simple', @keywords) q
 				where tsv @@ q and c.channel_id in (@channels)` + chunkFilterSQL + `
 				order by ts_rank_cd(tsv, q) desc limit 50
 			)
@@ -74,10 +75,14 @@ func (s *Store) SearchChunks(ctx context.Context, q ChunkSearch) ([]ScoredChunk,
 		Similarity float64 `gorm:"column:similarity"`
 		LastActive time.Time
 	}
+	keywords := q.KeywordQuery
+	if keywords == "" {
+		keywords = q.Query
+	}
 	err := s.db.WithContext(ctx).Raw(hybridSearchSQL,
 		sql.Named("vec", vectorLiteral(q.Vector)),
 		sql.Named("channels", q.ChannelIDs),
-		sql.Named("query", q.Query),
+		sql.Named("keywords", keywords),
 		sql.Named("topk", q.TopK),
 		sql.Named("model", q.Model),
 		sql.Named("minsim", q.MinSimilarity),

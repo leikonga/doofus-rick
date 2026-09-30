@@ -18,7 +18,6 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
-	"github.com/leikonga/doofus-rick/internal/archive"
 	"github.com/leikonga/doofus-rick/internal/llm"
 )
 
@@ -511,7 +510,7 @@ func (a *Agent) buildRecallBlock(ctx context.Context, query string, channelIDs [
 	if !a.config.RecallEnabled || a.retriever == nil || query == "" || len(channelIDs) == 0 {
 		return ""
 	}
-	chunks, err := a.retriever.Retrieve(ctx, archive.RetrieveRequest{Query: query, ChannelIDs: channelIDs})
+	chunks, err := a.retriever.RetrieveRewritten(ctx, query, channelIDs)
 	if err != nil {
 		slog.Warn("recall retrieval failed", "error", err)
 		return ""

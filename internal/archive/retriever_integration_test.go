@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -261,5 +262,134 @@ func TestRetrieveEmptyChannelIDs(t *testing.T) {
 	rows := pgtest.Query[store.TokenUsage](t, "SELECT * FROM token_usages")
 	if len(rows) != 1 || rows[0].ChannelID != "0" {
 		t.Errorf("rows = %+v, want one row with channel 0", rows)
+	}
+}
+
+type fakeRewriter struct {
+	queries []RewrittenQuery
+	err     error
+	calls   int
+}
+
+func (f *fakeRewriter) Rewrite(context.Context, string, string) ([]RewrittenQuery, error) {
+	f.calls++
+	return f.queries, f.err
+}
+
+func TestRetrieveRewrittenMergesAndDedupes(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	both := seedChunk(t, s, 1, "zebra crossing\n", 0)
+	lexOnly := seedChunk(t, s, 1, "zebra herd\n", -1)
+	giraffe := seedChunk(t, s, 1, "giraffe neck\n", -1)
+	seedChunk(t, s, 1, "giraffe tall\n", -1)
+
+	r := NewRetriever(RetrievalConfig{TopK: 3, EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
+	r.rewriter = &fakeRewriter{queries: []RewrittenQuery{
+		{Text: "zebras", Keywords: "zebra"},
+		{Text: "zebras again", Keywords: "zebra"},
+		{Text: "giraffes", Keywords: "giraffe"},
+	}}
+
+	got, err := r.RetrieveRewritten(ctx, "tell me about animals", []uint64{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := chunkIDs(got)
+	if len(ids) != 3 {
+		t.Fatalf("ids = %v, want 3 capped at TopK", ids)
+	}
+	seen := map[uint64]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			t.Errorf("duplicate chunk %d in %v", id, ids)
+		}
+		seen[id] = true
+	}
+	if ids[0] != both {
+		t.Errorf("best chunk %d should lead: %v", both, ids)
+	}
+	if !seen[lexOnly] && !seen[giraffe] {
+		t.Errorf("neither keyword-only branch represented: %v", ids)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].Score > got[i-1].Score {
+			t.Errorf("not ordered by score: %v", got)
+		}
+	}
+}
+
+func TestRetrieveRewrittenFallsBackToRawQuery(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	zebra := seedChunk(t, s, 1, "zebra crossing\n", 0)
+	client := fakeEmbedClient(t, unitVector(0))
+
+	failing := NewRetriever(RetrievalConfig{TopK: 3, EmbedModel: testEmbedModel}, s, client)
+	failing.rewriter = &fakeRewriter{err: errors.New("boom")}
+	disabled := NewRetriever(RetrievalConfig{TopK: 3, EmbedModel: testEmbedModel}, s, client)
+
+	for name, r := range map[string]*Retriever{"rewriter error": failing, "rewriter unset": disabled} {
+		t.Run(name, func(t *testing.T) {
+			got, err := r.RetrieveRewritten(ctx, "zebra", []uint64{1})
+			if err != nil || !slices.Equal(chunkIDs(got), []uint64{zebra}) {
+				t.Errorf("got %v, %v", chunkIDs(got), err)
+			}
+		})
+	}
+}
+
+func TestRetrieveRewrittenZeroQueriesSkipsRecall(t *testing.T) {
+	s := pgtest.Store(t)
+	seedChunk(t, s, 1, "zebra crossing\n", 0)
+	r := NewRetriever(RetrievalConfig{TopK: 3, EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
+	r.rewriter = &fakeRewriter{}
+	got, err := r.RetrieveRewritten(context.Background(), "lol", []uint64{1})
+	if err != nil || len(got) != 0 {
+		t.Errorf("got %v, %v", got, err)
+	}
+}
+
+func TestRetrieveRewrittenAuthorFilter(t *testing.T) {
+	s := pgtest.Store(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	for _, m := range []store.Message{
+		{ID: 1, ChannelID: 1, AuthorID: 7, AuthorName: "klaus", Content: "c", CreatedAt: now},
+		{ID: 2, ChannelID: 1, AuthorID: 8, AuthorName: "twin", Content: "c", CreatedAt: now},
+		{ID: 3, ChannelID: 1, AuthorID: 9, AuthorName: "twin", Content: "c", CreatedAt: now},
+	} {
+		if err := s.CreateMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chunk := func(id uint64, content string, axis int) {
+		c := store.Chunk{ID: id, ChannelID: 1, Content: content, StartedAt: now, EndedAt: now, MessageCount: 1, FirstMessageID: id, LastMessageID: id}
+		if err := s.CreateChunk(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SaveChunkEmbedding(ctx, store.ChunkEmbedding{ChunkID: id, Model: testEmbedModel, Embedding: store.HalfVector(unitVector(axis))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chunk(1, "zebra from klaus\n", 0)
+	chunk(2, "zebra from twin\n", 0)
+
+	r := NewRetriever(RetrievalConfig{TopK: 5, EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
+	for author, want := range map[string][]uint64{
+		"Klaus": {1},
+		"ghost": {1, 2},
+		"twin":  {1, 2},
+	} {
+		r.rewriter = &fakeRewriter{queries: []RewrittenQuery{{Text: "zebra", Keywords: "zebra", Author: author}}}
+		got, err := r.RetrieveRewritten(ctx, "zebra", []uint64{1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := chunkIDs(got)
+		slices.Sort(ids)
+		if !slices.Equal(ids, want) {
+			t.Errorf("author %q: ids = %v, want %v", author, ids, want)
+		}
 	}
 }

@@ -72,6 +72,7 @@ type Config struct {
 	RecallTopK           int
 	RecallMinSimilarity  float64
 	RecallNeighborChunks int
+	RecallRewriteModel   string
 
 	AmbientEnabled      bool
 	AmbientWindow       time.Duration
@@ -168,6 +169,7 @@ func LoadConfig() *Config {
 		RecallTopK:           getEnvInt("RECALL_TOP_K", 3),
 		RecallMinSimilarity:  getEnvFloat64("RECALL_MIN_SIMILARITY", 0),
 		RecallNeighborChunks: getEnvInt("RECALL_NEIGHBOR_CHUNKS", 1),
+		RecallRewriteModel:   getEnv("RECALL_REWRITE_MODEL", ""),
 
 		AmbientEnabled:      getEnvBool("AMBIENT_ENABLED", false),
 		AmbientWindow:       getEnvDuration("AMBIENT_WINDOW", 90*time.Second),

@@ -128,6 +128,7 @@ func run() error {
 		MinSimilarity:  c.RecallMinSimilarity,
 		EmbedModel:     c.RickEmbedModel,
 		NeighborChunks: c.RecallNeighborChunks,
+		RewriteModel:   c.RecallRewriteModel,
 	}, db, llmClient)
 	aff := affinity.New(affinity.Config{Baseline: c.AffinityBaseline}, db)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,19 +20,30 @@ type RetrievalConfig struct {
 	MinSimilarity  float64
 	EmbedModel     string
 	NeighborChunks int
+	RewriteModel   string
 }
 
 type Retriever struct {
 	config RetrievalConfig
 	store  *store.Store
 	llm    *llm.Client
+
+	rewriter queryRewriter
+}
+
+type queryRewriter interface {
+	Rewrite(ctx context.Context, message, channelKey string) ([]RewrittenQuery, error)
 }
 
 func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retriever {
 	if config.TopK == 0 {
 		config.TopK = 3
 	}
-	return &Retriever{config: config, store: s, llm: c}
+	r := &Retriever{config: config, store: s, llm: c}
+	if config.RewriteModel != "" {
+		r.rewriter = NewQueryRewriter(config.RewriteModel, c, s)
+	}
+	return r
 }
 
 type RetrievedChunk struct {
@@ -45,6 +57,7 @@ type RetrievedChunk struct {
 
 type RetrieveRequest struct {
 	Query      string
+	Keywords   string
 	ChannelIDs []uint64
 	AuthorID   *uint64
 	Since      *time.Time
@@ -75,11 +88,12 @@ func (r *Retriever) Retrieve(ctx context.Context, req RetrieveRequest) ([]Retrie
 		return nil, fmt.Errorf("archive: empty query embedding")
 	}
 	chunks, err := r.store.SearchChunks(ctx, store.ChunkSearch{
-		Vector:     truncateTo1024(embedResp.Embeddings[0]),
-		Query:      query,
-		ChannelIDs: channelIDs,
-		Model:      r.config.EmbedModel,
-		TopK:       r.config.TopK,
+		Vector:       truncateTo1024(embedResp.Embeddings[0]),
+		Query:        query,
+		KeywordQuery: req.Keywords,
+		ChannelIDs:   channelIDs,
+		Model:        r.config.EmbedModel,
+		TopK:         r.config.TopK,
 
 		MinSimilarity: r.config.MinSimilarity,
 		AuthorID:      req.AuthorID,
@@ -168,4 +182,74 @@ func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {
 	}
 	sb.WriteString("</recall>\n")
 	return sb.String()
+}
+
+func (r *Retriever) RetrieveRewritten(ctx context.Context, message string, channelIDs []uint64) ([]RetrievedChunk, error) {
+	raw := RetrieveRequest{Query: message, ChannelIDs: channelIDs}
+	if r.rewriter == nil {
+		return r.Retrieve(ctx, raw)
+	}
+
+	channelKey := "0"
+	if len(channelIDs) > 0 {
+		channelKey = strconv.FormatUint(channelIDs[0], 10)
+	}
+	start := time.Now()
+	queries, err := r.rewriter.Rewrite(ctx, message, channelKey)
+	if err != nil {
+		slog.Warn("query rewrite failed, using raw message", "error", err)
+		return r.Retrieve(ctx, raw)
+	}
+	slog.Info("query rewrite", "message", preview(message, 120), "queries", formatQueries(queries), "latency", time.Since(start))
+
+	best := make(map[uint64]RetrievedChunk)
+	for _, q := range queries {
+		chunks, err := r.Retrieve(ctx, r.requestFor(ctx, q, channelIDs))
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range chunks {
+			if prev, ok := best[c.ID]; !ok || c.Score > prev.Score {
+				best[c.ID] = c
+			}
+		}
+	}
+
+	merged := make([]RetrievedChunk, 0, len(best))
+	for _, c := range best {
+		merged = append(merged, c)
+	}
+	slices.SortFunc(merged, func(a, b RetrievedChunk) int {
+		switch {
+		case a.Score > b.Score:
+			return -1
+		case a.Score < b.Score:
+			return 1
+		}
+		return int(a.ID) - int(b.ID)
+	})
+	if len(merged) > r.config.TopK {
+		merged = merged[:r.config.TopK]
+	}
+	return merged, nil
+}
+
+func (r *Retriever) requestFor(ctx context.Context, q RewrittenQuery, channelIDs []uint64) RetrieveRequest {
+	authorID, notice, err := ResolveAuthor(ctx, r.store, q.Author)
+	if err != nil {
+		slog.Warn("author lookup failed, dropping filter", "author", q.Author, "error", err)
+	}
+	if notice != "" {
+		slog.Debug("dropping author filter for recall", "author", q.Author, "reason", notice)
+	}
+	since, until := q.dateRange()
+	return RetrieveRequest{Query: q.Text, Keywords: q.Keywords, ChannelIDs: channelIDs, AuthorID: authorID, Since: since, Until: until}
+}
+
+func formatQueries(queries []RewrittenQuery) string {
+	parts := make([]string, len(queries))
+	for i, q := range queries {
+		parts[i] = fmt.Sprintf("{text=%q keywords=%q author=%q since=%q until=%q}", q.Text, q.Keywords, q.Author, q.Since, q.Until)
+	}
+	return strings.Join(parts, " ")
 }
