@@ -215,39 +215,103 @@ func TestRecordLive(t *testing.T) {
 }
 
 func TestBackfillPageDelayHonoursContext(t *testing.T) {
-	s := pgtest.Store(t)
 	pages := []discord.Message{
 		testMessage(101, humanUser, "one"),
 		testMessage(102, humanUser, "two"),
 		testMessage(103, humanUser, "three"),
 	}
-	fake := &fakeREST{
-		channels: []discord.GuildChannel{textChannel(t, 10), textChannel(t, 20)},
-		messages: map[snowflake.ID][]discord.Message{10: pages, 20: pages},
+	tests := []struct {
+		name     string
+		channels []snowflake.ID
+	}{
+		{"interrupted before last channel", []snowflake.ID{10, 20}},
+		{"interrupted during last channel", []snowflake.ID{10}},
 	}
-	i := newTestIngest(s, fake, IngestConfig{
-		ArchiveEnabled:  true,
-		BackfillEnabled: true,
-		GuildID:         "1",
-		BackfillDelay:   time.Hour,
-		BackfillBatch:   2,
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := pgtest.Store(t)
+			fake := &fakeREST{messages: map[snowflake.ID][]discord.Message{}}
+			for _, id := range tt.channels {
+				fake.channels = append(fake.channels, textChannel(t, id))
+				fake.messages[id] = pages
+			}
+			i := newTestIngest(s, fake, IngestConfig{
+				ArchiveEnabled:  true,
+				BackfillEnabled: true,
+				GuildID:         "1",
+				BackfillDelay:   time.Hour,
+				BackfillBatch:   2,
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(200*time.Millisecond, cancel)
+			defer cancel()
+
+			start := time.Now()
+			i.runBackfillWorker(ctx)
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Fatalf("worker took %v to stop, want well under 1s", elapsed)
+			}
+
+			state, err := s.GetBackfillState(context.Background())
+			if err != nil {
+				t.Fatalf("GetBackfillState: %v", err)
+			}
+			if state.Status != "failed" || state.LastError == nil || *state.LastError != "interrupted" {
+				t.Errorf("state = %q / %v, want failed / interrupted", state.Status, state.LastError)
+			}
+
+			ch, err := s.GetBackfillChannel(context.Background(), uint64(tt.channels[0]))
+			if err != nil {
+				t.Fatalf("GetBackfillChannel: %v", err)
+			}
+			if ch.Done || ch.LastError != nil {
+				t.Errorf("channel done=%v lastError=%v, want not done and no error", ch.Done, ch.LastError)
+			}
+			if ch.OldestFetched == nil || *ch.OldestFetched != 102 {
+				t.Errorf("cursor = %v, want 102", ch.OldestFetched)
+			}
+		})
+	}
+}
+
+func (f *fakeREST) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func TestRunWaitsForReady(t *testing.T) {
+	s := pgtest.Store(t)
+	fake := &fakeREST{channels: []discord.GuildChannel{textChannel(t, 10)}}
+	i := newTestIngest(s, fake, IngestConfig{BackfillEnabled: true, GuildID: "1", BackfillBatch: 100})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(200*time.Millisecond, cancel)
 	defer cancel()
+	ready := make(chan struct{})
+	i.Run(ctx, ready)
 
-	start := time.Now()
-	i.runBackfillWorker(ctx)
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("worker took %v to stop, want well under 1s", elapsed)
+	time.Sleep(100 * time.Millisecond)
+	if n := fake.callCount(); n != 0 {
+		t.Fatalf("REST calls before ready = %d, want 0", n)
 	}
 
-	state, err := s.GetBackfillState(context.Background())
-	if err != nil {
-		t.Fatalf("GetBackfillState: %v", err)
+	close(ready)
+	deadline := time.Now().Add(2 * time.Second)
+	for fake.callCount() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("backfill did not start after ready")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if state.Status != "failed" || state.LastError == nil || *state.LastError != "interrupted" {
-		t.Errorf("state = %q / %v, want failed / interrupted", state.Status, state.LastError)
-	}
+	cancel()
+	i.Wait()
+}
+
+func TestRunStopsWhenCancelledBeforeReady(t *testing.T) {
+	i := newTestIngest(nil, &fakeREST{}, IngestConfig{BackfillEnabled: true, ArchiveEnabled: true})
+	ctx, cancel := context.WithCancel(context.Background())
+	i.Run(ctx, make(chan struct{}))
+	cancel()
+	i.Wait()
 }

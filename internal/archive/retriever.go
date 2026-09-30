@@ -32,9 +32,6 @@ func NewRetriever(config RetrievalConfig, s *store.Store, c *llm.Client) *Retrie
 	if config.MinScore == 0 {
 		config.MinScore = 0.005
 	}
-	if config.NeighborChunks == 0 {
-		config.NeighborChunks = 1
-	}
 	return &Retriever{config: config, store: s, llm: c}
 }
 
@@ -120,19 +117,19 @@ func (r *Retriever) expandWithNeighbors(ctx context.Context, channelID, chunkID 
 		return "", err
 	}
 
-	var sb strings.Builder
+	parts := make([]string, 0, len(neighbors)+1)
 	inserted := false
 	for _, n := range neighbors {
 		if !inserted && n.ID > chunkID {
-			sb.WriteString(content)
+			parts = append(parts, content)
 			inserted = true
 		}
-		sb.WriteString(n.Content)
+		parts = append(parts, n.Content)
 	}
 	if !inserted {
-		sb.WriteString(content)
+		parts = append(parts, content)
 	}
-	return sb.String(), nil
+	return strings.Join(parts, "\n"), nil
 }
 
 func (r *Retriever) BuildRecallBlock(chunks []RetrievedChunk) string {

@@ -63,16 +63,24 @@ func NewIngest(cfg IngestConfig, s *store.Store, client discordREST, selfID func
 	}
 }
 
-// Run starts the background workers and does not block.
-func (i *Ingest) Run(ctx context.Context) {
-	if i.config.BackfillEnabled {
-		i.wg.Go(func() { i.runBackfillWorker(ctx) })
-	}
+// Workers need selfID, which is 0 until the gateway's READY event.
+func (i *Ingest) Run(ctx context.Context, ready <-chan struct{}) {
+	i.wg.Go(func() {
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			return
+		}
 
-	if i.config.ArchiveEnabled {
-		i.wg.Go(func() { i.runChunkingLoop(ctx) })
-		i.wg.Go(func() { i.runEmbeddingLoop(ctx) })
-	}
+		if i.config.BackfillEnabled {
+			i.wg.Go(func() { i.runBackfillWorker(ctx) })
+		}
+
+		if i.config.ArchiveEnabled {
+			i.wg.Go(func() { i.runChunkingLoop(ctx) })
+			i.wg.Go(func() { i.runEmbeddingLoop(ctx) })
+		}
+	})
 }
 
 func (i *Ingest) Wait() {
@@ -137,13 +145,7 @@ func (i *Ingest) runChunkingLoop(ctx context.Context) {
 // messages, leaving the trailing chunk unsaved if it's still within
 // ChunkGap of now, since more messages could still extend it.
 func (i *Ingest) chunkChannel(ctx context.Context, channelID uint64) {
-	sinceID, err := i.store.GetLastChunkedMessageID(ctx, channelID)
-	if err != nil {
-		slog.Warn("failed to get last chunked message id", "channel", channelID, "error", err)
-		return
-	}
-
-	msgs, err := i.store.GetUnchunkedMessages(ctx, channelID, sinceID, 500)
+	msgs, err := i.store.GetUnchunkedMessages(ctx, channelID, 500)
 	if err != nil {
 		slog.Warn("failed to get unchunked messages", "channel", channelID, "error", err)
 		return
@@ -285,7 +287,7 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 		}
 		state.FinishedAt = &[]time.Time{time.Now()}[0]
 		state.UpdatedAt = time.Now()
-		finalCtx, cancelFinal := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		finalCtx, cancelFinal := detached(ctx)
 		defer cancelFinal()
 		if err := i.store.UpdateBackfillState(finalCtx, state); err != nil {
 			slog.Warn("failed to finalize backfill state", "error", err)
@@ -318,22 +320,16 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 	slog.Info("backfill processing channels", "count", len(channels))
 
 	for _, ch := range channels {
-		select {
-		case <-ctx.Done():
-			state.Status = "failed"
-			errMsg := "interrupted"
-			state.LastError = &errMsg
-			state.UpdatedAt = time.Now()
-			interruptCtx, cancelInterrupt := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			if err := i.store.UpdateBackfillState(interruptCtx, state); err != nil {
-				slog.Warn("failed to record backfill interruption", "error", err)
-			}
-			cancelInterrupt()
+		if ctx.Err() != nil {
+			i.recordBackfillInterrupted(ctx, state)
 			return
-		default:
 		}
 
 		if err := i.backfillChannel(ctx, ch.ChannelID, delay); err != nil {
+			if ctx.Err() != nil {
+				i.recordBackfillInterrupted(ctx, state)
+				return
+			}
 			ch.LastError = &[]string{err.Error()}[0]
 			ch.UpdatedAt = time.Now()
 			if saveErr := i.store.SaveBackfillChannel(ctx, &ch); saveErr != nil {
@@ -343,18 +339,20 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 			continue
 		}
 
+		saveCtx, cancelSave := detached(ctx)
 		ch.Done = true
 		ch.UpdatedAt = time.Now()
-		if err := i.store.SaveBackfillChannel(ctx, &ch); err != nil {
+		if err := i.store.SaveBackfillChannel(saveCtx, &ch); err != nil {
 			slog.Warn("failed to save backfill channel completion", "error", err)
 		}
 
 		state.ChannelsDone++
 		state.MessagesSeen += ch.MessagesSeen
 		state.UpdatedAt = time.Now()
-		if err := i.store.UpdateBackfillState(ctx, state); err != nil {
+		if err := i.store.UpdateBackfillState(saveCtx, state); err != nil {
 			slog.Warn("failed to update backfill progress", "error", err)
 		}
+		cancelSave()
 
 		elapsed := time.Since(*state.StartedAt)
 		remaining := state.ChannelsTotal - state.ChannelsDone
@@ -364,6 +362,22 @@ func (i *Ingest) runBackfillWorker(ctx context.Context) {
 			"total_messages_seen", state.MessagesSeen,
 			"elapsed", elapsed.Round(time.Second), "eta", eta.Round(time.Second))
 	}
+}
+
+func (i *Ingest) recordBackfillInterrupted(ctx context.Context, state *store.BackfillState) {
+	state.Status = "failed"
+	errMsg := "interrupted"
+	state.LastError = &errMsg
+	state.UpdatedAt = time.Now()
+	saveCtx, cancel := detached(ctx)
+	defer cancel()
+	if err := i.store.UpdateBackfillState(saveCtx, state); err != nil {
+		slog.Warn("failed to record backfill interruption", "error", err)
+	}
+}
+
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 }
 
 // seedBackfillChannels inserts a pending backfill_channel row for every
@@ -466,6 +480,10 @@ func (i *Ingest) backfillChannel(ctx context.Context, channelID uint64, delay ti
 			}
 
 			channel.MessagesSeen++
+		}
+		// A cancelled ctx fails the inserts above; advancing the cursor would skip those messages.
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 
 		channel.OldestFetched = &oldestFetched

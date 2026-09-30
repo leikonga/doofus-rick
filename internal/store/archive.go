@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 func (s *Store) CreateMessage(ctx context.Context, msg Message) error {
@@ -84,12 +84,14 @@ func (s *Store) SeedBackfillChannels(ctx context.Context, channelIDs []uint64) (
 		return 0, nil
 	}
 
-	rows := make([]BackfillChannel, len(channelIDs))
+	values := strings.TrimSuffix(strings.Repeat("(?, now()),", len(channelIDs)), ",")
+	args := make([]any, len(channelIDs))
 	for i, id := range channelIDs {
-		rows[i] = BackfillChannel{ChannelID: id, UpdatedAt: time.Now()}
+		args[i] = id
 	}
 
-	tx := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&rows)
+	tx := s.db.WithContext(ctx).Exec(
+		"insert into backfill_channels (channel_id, updated_at) values "+values+" on conflict (channel_id) do nothing", args...)
 	if tx.Error != nil {
 		return 0, fmt.Errorf("seed backfill channels: %w", tx.Error)
 	}
@@ -189,27 +191,16 @@ func (s *Store) GetChannelsWithUnchunkedMessages(ctx context.Context, limit int)
 	return ids, err
 }
 
-func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, sinceID uint64, limit int) ([]Message, error) {
+// GetUnchunkedMessages returns the channel's messages newer than its newest chunk, oldest first.
+func (s *Store) GetUnchunkedMessages(ctx context.Context, channelID uint64, limit int) ([]Message, error) {
 	var msgs []Message
 	err := s.db.WithContext(ctx).
-		Where("channel_id = ? AND id > ? AND id NOT IN (SELECT last_message_id FROM chunks WHERE channel_id = ?)", channelID, sinceID, channelID).
+		Where("channel_id = ? AND id > (SELECT COALESCE(MAX(last_message_id), 0) FROM chunks WHERE channel_id = ?)", channelID, channelID).
 		Order("id").Limit(limit).Find(&msgs).Error
 	return msgs, err
 }
 
-// GetLastChunkedMessageID returns the highest message ID already covered by
-// a chunk for the channel, or 0 if none exist, so incremental chunking can
-// resume without rescanning already-chunked messages.
-func (s *Store) GetLastChunkedMessageID(ctx context.Context, channelID uint64) (uint64, error) {
-	var lastID uint64
-	err := s.db.WithContext(ctx).Model(&Chunk{}).
-		Where("channel_id = ?", channelID).
-		Select("COALESCE(MAX(last_message_id), 0)").
-		Scan(&lastID).Error
-	return lastID, err
-}
-
-// GetRecentMessagesSince returns human (non-bot) messages in a channel
+// GetRecentMessagesSince returns a channel's messages, bots included,
 // created after the given time, oldest first.
 func (s *Store) GetRecentMessagesSince(ctx context.Context, channelID uint64, since time.Time, limit int) ([]Message, error) {
 	var msgs []Message

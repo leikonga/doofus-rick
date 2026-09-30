@@ -2,6 +2,7 @@ package affinity
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/leikonga/doofus-rick/internal/store"
@@ -49,13 +50,10 @@ func (l *Ledger) Get(ctx context.Context, userID uint64) (*Result, error) {
 
 func (l *Ledger) Update(ctx context.Context, userID uint64, reason string, delta int) error {
 	row, err := l.store.GetAffinity(ctx, userID)
-	if err != nil {
-		row = &store.UserAffinity{
-			UserID:     userID,
-			Score:      l.config.Baseline,
-			LastReason: &[]string{reason}[0],
-			UpdatedAt:  time.Now(),
-		}
+	if errors.Is(err, store.ErrNotFound) {
+		row = &store.UserAffinity{UserID: userID, Score: l.config.Baseline}
+	} else if err != nil {
+		return err
 	}
 
 	row.Score += delta

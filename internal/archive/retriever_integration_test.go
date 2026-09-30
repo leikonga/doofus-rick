@@ -161,9 +161,9 @@ func TestRetrieveNeighborExpansion(t *testing.T) {
 		neighbors int
 		want      string
 	}{
-		{"one neighbor each side", 1, "before\nhit\nafter\n"},
-		{"two neighbors each side", 2, "far-before\nbefore\nhit\nafter\nfar-after\n"},
-		{"zero defaults to one", 0, "before\nhit\nafter\n"},
+		{"one neighbor each side", 1, "before\n\nhit\n\nafter\n"},
+		{"two neighbors each side", 2, "far-before\n\nbefore\n\nhit\n\nafter\n\nfar-after\n"},
+		{"zero disables expansion", 0, "hit\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -186,13 +186,13 @@ func TestRetrieveNeighborAtEdges(t *testing.T) {
 	s := pgtest.Store(t)
 	first := seedChunk(t, s, 1, "first\n", 0)
 	seedChunk(t, s, 1, "second\n", -1)
-	r := NewRetriever(RetrievalConfig{TopK: 1, EmbedModel: testEmbedModel}, s, fakeEmbedClient(t, unitVector(0)))
+	r := NewRetriever(RetrievalConfig{TopK: 1, EmbedModel: testEmbedModel, NeighborChunks: 1}, s, fakeEmbedClient(t, unitVector(0)))
 
 	got, err := r.Retrieve(context.Background(), "nomatch", []uint64{1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != first || got[0].Content != "first\nsecond\n" {
+	if len(got) != 1 || got[0].ID != first || got[0].Content != "first\n\nsecond\n" {
 		t.Errorf("got %+v", got)
 	}
 }

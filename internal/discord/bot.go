@@ -37,7 +37,7 @@ type Ambient interface {
 
 type Archive interface {
 	RecordLive(ctx context.Context, msg discord.Message, channelID snowflake.ID) bool
-	Run(ctx context.Context)
+	Run(ctx context.Context, ready <-chan struct{})
 }
 
 type Bot struct {
@@ -50,6 +50,8 @@ type Bot struct {
 	voiceChannels    sync.Map // snowflake.ID -> string (channel name, empty if unknown)
 	deployReportOnce sync.Once
 	taskReportOnce   sync.Once
+	ready            chan struct{}
+	readyOnce        sync.Once
 	wg               sync.WaitGroup
 }
 
@@ -62,7 +64,7 @@ func New(c *config.Config, s *store.Store) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create disgo client: %w", err)
 	}
-	return &Bot{store: s, config: c, client: client}, nil
+	return &Bot{store: s, config: c, client: client, ready: make(chan struct{})}, nil
 }
 
 func (b *Bot) Client() *disgobot.Client {
@@ -89,6 +91,7 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 	b.client.AddEventListeners(
 		r,
 		disgobot.NewListenerFunc(func(e *events.MessageCreate) { h.Agent.HandleMention(ctx, e) }),
+		disgobot.NewListenerFunc(func(*events.Ready) { b.readyOnce.Do(func() { close(b.ready) }) }),
 		disgobot.NewListenerFunc(b.onGuildReady),
 		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportDeployOnce(ctx) }),
 		disgobot.NewListenerFunc(func(*events.GuildReady) { b.reportInterruptedTasksOnce(ctx) }),
@@ -117,7 +120,7 @@ func (b *Bot) Open(ctx context.Context, h Handlers) error {
 		return fmt.Errorf("open gateway: %w", err)
 	}
 
-	h.Archive.Run(ctx)
+	h.Archive.Run(ctx, b.ready)
 
 	b.wg.Go(func() { h.Agent.RunTasks(ctx) })
 

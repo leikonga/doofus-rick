@@ -127,8 +127,8 @@ func TestChunkingQueries(t *testing.T) {
 	if !slices.Equal(channels, []uint64{1, 2}) {
 		t.Errorf("channels before chunk = %v", channels)
 	}
-	if last, err := s.GetLastChunkedMessageID(ctx, 1); err != nil || last != 0 {
-		t.Errorf("last before chunk = %d, %v", last, err)
+	if all, err := s.GetUnchunkedMessages(ctx, 1, 10); err != nil || !slices.Equal(messageIDs(all), []uint64{1, 2, 3, 4, 5}) {
+		t.Errorf("unchunked before chunk = %v, %v", messageIDs(all), err)
 	}
 
 	chunk := store.Chunk{ChannelID: 1, Content: "x", StartedAt: now, EndedAt: now, MessageCount: 3, FirstMessageID: 1, LastMessageID: 3}
@@ -136,32 +136,19 @@ func TestChunkingQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last, err := s.GetLastChunkedMessageID(ctx, 1)
-	if err != nil || last != 3 {
-		t.Errorf("last after chunk = %d, %v", last, err)
-	}
-	if other, _ := s.GetLastChunkedMessageID(ctx, 2); other != 0 {
-		t.Errorf("channel 2 last = %d, want 0", other)
-	}
-
-	unchunked, err := s.GetUnchunkedMessages(ctx, 1, last, 10)
+	unchunked, err := s.GetUnchunkedMessages(ctx, 1, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(messageIDs(unchunked), []uint64{4, 5}) {
-		t.Errorf("unchunked since last = %v", messageIDs(unchunked))
+		t.Errorf("unchunked after chunk = %v", messageIDs(unchunked))
 	}
-	limited, _ := s.GetUnchunkedMessages(ctx, 1, last, 1)
+	limited, _ := s.GetUnchunkedMessages(ctx, 1, 1)
 	if !slices.Equal(messageIDs(limited), []uint64{4}) {
 		t.Errorf("limited = %v", messageIDs(limited))
 	}
-
-	fromZero, err := s.GetUnchunkedMessages(ctx, 1, 0, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(messageIDs(fromZero), []uint64{1, 2, 4, 5}) {
-		t.Errorf("unchunked from zero = %v; only the chunk's last message id is excluded", messageIDs(fromZero))
+	if other, _ := s.GetUnchunkedMessages(ctx, 2, 10); !slices.Equal(messageIDs(other), []uint64{100}) {
+		t.Errorf("channel 2 unchunked = %v, want [100]", messageIDs(other))
 	}
 
 	channels, err = s.GetChannelsWithUnchunkedMessages(ctx, 10)
@@ -184,10 +171,7 @@ func TestChunkingQueries(t *testing.T) {
 	if !slices.Equal(channels, []uint64{2}) {
 		t.Errorf("channels after full chunk = %v", channels)
 	}
-	if last, _ := s.GetLastChunkedMessageID(ctx, 1); last != 5 {
-		t.Errorf("last = %d, want 5", last)
-	}
-	if none, _ := s.GetUnchunkedMessages(ctx, 1, 5, 10); len(none) != 0 {
+	if none, _ := s.GetUnchunkedMessages(ctx, 1, 10); len(none) != 0 {
 		t.Errorf("unchunked = %v, want none", messageIDs(none))
 	}
 	limitedChannels, _ := s.GetChannelsWithUnchunkedMessages(ctx, 0)
@@ -244,8 +228,8 @@ func TestSeedBackfillChannels(t *testing.T) {
 	}
 
 	n, err = s.SeedBackfillChannels(ctx, []uint64{2, 3, 4, 5})
-	if err != nil || n != 4 {
-		t.Fatalf("overlapping seed count = %d (batch size, not inserted count), err %v", n, err)
+	if err != nil || n != 2 {
+		t.Fatalf("overlapping seed count = %d, want 2, err %v", n, err)
 	}
 	if rows := pgtest.Query[int64](t, "SELECT count(*) FROM backfill_channels")[0]; rows != 5 {
 		t.Fatalf("rows = %d, want 5", rows)

@@ -46,9 +46,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, fmt.Errorf("automigrate: %w", err)
 	}
 
-	// One-time migration: legacy rows used a "timestamp" column instead of created_at.
-	db.WithContext(ctx).Exec(`UPDATE quotes SET created_at = "timestamp" WHERE (created_at IS NULL OR created_at = '0001-01-01 00:00:00') AND "timestamp" IS NOT NULL`)
-
 	return s, nil
 }
 
